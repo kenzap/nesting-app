@@ -1,0 +1,16 @@
+{
+  "name": "nesting-app",
+  "version": "1.0.0",
+  "description": "DXF Nesting Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  },
+  "dependencies": {
+    "dxf-parser": "^1.1.2"
+  }
+}
