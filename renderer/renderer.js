@@ -82,9 +82,20 @@ function setStatus(s) {
 }
 
 const DEFAULT_ALLOWED_ORIENTATIONS = [0, 30, 45, 90, 180, 270];
+const DEFAULT_ENGRAVING_COLOR = '#4488FF';
 
 function roundCoord(n) {
   return Math.round((Number(n) + Number.EPSILON) * 1e4) / 1e4;
+}
+
+function partLabelFromName(name) {
+  return String(name || '').replace(/\.dxf$/i, '').trim();
+}
+
+function resolveEngravingColor(layers = []) {
+  if (layers[0]?.color) return layers[0].color;
+  if (layers[0]?.color) return layers[0].color;
+  return DEFAULT_ENGRAVING_COLOR;
 }
 
 function currentNestingSettings() {
@@ -204,6 +215,12 @@ async function hydrateJobState() {
 }
 
 window.schedulePersistJobState = schedulePersistJobState;
+window.getCurrentNestingSettings = currentNestingSettings;
+window.getPartLabelText = partLabelFromName;
+window.getPartLabelConfig = (layers = []) => ({
+  enabled: !!currentNestingSettings().showPartLabels,
+  color: resolveEngravingColor(layers),
+});
 
 function baseJobName() {
   if (state.files.length === 1) {
@@ -573,7 +590,16 @@ function generateMockNestSVG(sheetIndex) {
       path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${(h - parseFloat(stemH)).toFixed(1)} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} v${stemH} h${-parseFloat(tw).toFixed(1)} v${-stemH} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} Z"
         fill="${fill}" stroke="${stroke}" stroke-width="1.5" filter="url(#shadow)"/>`;
     }
-    return path;
+    const labelText = currentNestingSettings().showPartLabels ? partLabelFromName(s.name) : '';
+    const labelFontSize = Math.max(7, Math.min(w, h) * 0.12);
+    const labelStrokeWidth = 0.8;
+    const label = labelText
+      ? `<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2).toFixed(1)}" text-anchor="middle"
+          dominant-baseline="middle" font-size="${labelFontSize.toFixed(1)}"
+          fill="none" stroke="${resolveEngravingColor()}" stroke-width="${labelStrokeWidth.toFixed(2)}"
+          stroke-linejoin="round" stroke-linecap="round" opacity="0.96" font-family="monospace">${labelText}</text>`
+      : '';
+    return path + label;
   }).join('\n');
 
   const utilization = Math.round(60 + Math.random() * 25);
@@ -808,6 +834,8 @@ applySettings.addEventListener('click', async () => {
   try {
     await persistCurrentSettings();
     settingsModal.classList.remove('open');
+    if (typeof window.refreshDXFPreview === 'function') window.refreshDXFPreview();
+    if (state.nestResult && state.sheets.length) showNestResult(0);
   } catch (err) {
     console.error('[Settings] Failed to persist settings:', err);
   }
@@ -817,6 +845,8 @@ resetSettings.addEventListener('click', async () => {
   applySettingsToDialog(state.settings);
   try {
     await persistCurrentSettings();
+    if (typeof window.refreshDXFPreview === 'function') window.refreshDXFPreview();
+    if (state.nestResult && state.sheets.length) showNestResult(0);
   } catch (err) {
     console.error('[Settings] Failed to reset settings:', err);
   }

@@ -118,7 +118,7 @@
           </select>
         </div>
         <div class="setting-row">
-          <label>Show part labels</label>
+          <label>Engrave file name</label>
           <label class="toggle">
             <input type="checkbox" checked data-setting-key="showPartLabels" />
             <span class="toggle-track"></span>
@@ -416,11 +416,11 @@
             <span class="pvw-panel-title">Shapes</span>
             <span class="pvw-count-badge" id="pvShapeCount">0</span>
           </div>
-          <button class="pvw-remove-selected" id="pvRemoveShape" title="Remove selected shape" disabled>
+          <button class="pvw-remove-selected" id="pvRemoveShape" title="Remove or restore selected shape" disabled>
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
               <path d="M9.5 1.5L1.5 9.5M1.5 1.5l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
-            <span>Remove</span>
+            <span id="pvRemoveShapeLabel">Remove</span>
           </button>
         </div>
         <div class="pvw-shapes-list" id="pvShapesList"></div>

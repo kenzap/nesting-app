@@ -1327,6 +1327,8 @@ function parseRawEntityMeta(raw) {
         const groupValue = lines[i + 1];
         if (groupCode === '0') break;
         if (groupCode === '5') entity.handle = groupValue.trim();
+        if (groupCode === '62') entity.aciColor = parseInt(groupValue, 10);
+        if (groupCode === '420') entity.trueColor = parseInt(groupValue, 10);
         if (groupCode === '210') entity.extrusionX = parseFloat(groupValue);
         if (groupCode === '220') entity.extrusionY = parseFloat(groupValue);
         if (groupCode === '230') entity.extrusionZ = parseFloat(groupValue);
@@ -1382,6 +1384,8 @@ function enrichEntitiesFromRaw(entities, raw) {
       z: Number.isFinite(info.extrusionZ) ? info.extrusionZ : 1,
     };
 
+    if (Number.isFinite(info.aciColor)) entity.rawAciColor = info.aciColor;
+    if (Number.isFinite(info.trueColor)) entity.rawTrueColor = info.trueColor;
     entity.extrusion = extrusion;
     if (Math.abs(extrusion.x) < 1e-6 && Math.abs(extrusion.y) < 1e-6 && extrusion.z < 0) {
       applyNegativeZExtrusionTransform(entity);
@@ -1407,12 +1411,39 @@ function parseDXFToShapes(dxf, raw) {
 
   let palIdx = 0;
   const colorCache = {};
+  function trueColorToHex(value) {
+    if (!Number.isFinite(value)) return null;
+    const n = value >>> 0;
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return `#${[r, g, b].map(part => part.toString(16).padStart(2, '0')).join('')}`;
+  }
   function layerColor(name) {
     if (colorCache[name]) return colorCache[name];
     const def = layerTable[name];
     colorCache[name] = (def && aciToHex(def.color)) ||
                        FALLBACK_PALETTE[palIdx++ % FALLBACK_PALETTE.length];
     return colorCache[name];
+  }
+  function resolveEntityColor(entity, fallbackLayer = '0') {
+    if (!entity) return layerColor(fallbackLayer);
+    const trueColor = trueColorToHex(entity.rawTrueColor ?? entity.trueColor ?? entity.color24);
+    if (trueColor) return trueColor;
+
+    const aci = entity.rawAciColor ?? entity.colorNumber ?? entity.colorIndex ?? entity.color;
+    if (Number.isFinite(aci)) {
+      if (aci === 256) return layerColor(entity.layer || fallbackLayer);
+      if (aci === 0) return layerColor(entity.layer || fallbackLayer);
+      const mapped = aciToHex(aci);
+      if (mapped) return mapped;
+    }
+
+    if (typeof entity.color === 'string' && /^#?[0-9a-f]{6}$/i.test(entity.color)) {
+      return entity.color.startsWith('#') ? entity.color : `#${entity.color}`;
+    }
+
+    return layerColor(entity.layer || fallbackLayer);
   }
 
   const groups  = groupByContour(entities);
@@ -1481,16 +1512,17 @@ function parseDXFToShapes(dxf, raw) {
       const layerName = contour.layer || '0';
       const path = contourEntityToPath(contour.entity, minX, maxY);
       if (!path) return;
+      const color = resolveEntityColor(contour.entity, layerName);
       decorItems.push({
         type: 'closed-contour',
         layer: layerName,
-        color: layerColor(layerName),
-        svg: `<path d="${path}" stroke="${layerColor(layerName)}" stroke-width="0.8" opacity="0.9" fill="none" stroke-linejoin="round"/>`,
+        color,
+        svg: `<path d="${path}" stroke="${color}" stroke-width="0.8" opacity="0.9" fill="none" stroke-linejoin="round"/>`,
       });
     });
 
     decorators.forEach(d => {
-      const color = layerColor(d.layer || outer.layer || '0');
+      const color = resolveEntityColor(d, outer.layer || '0');
       const svg = entityToSVGStr(d, minX, maxY, color);
       if (!svg) return;
       decorItems.push({
@@ -1532,7 +1564,7 @@ function parseDXFToShapes(dxf, raw) {
     const outerBoundaryItems = hasSyntheticOuter
       ? (outer.entity?.sourceEntities || []).map(entity => {
           const layerName = entity.layer || '0';
-          const color = layerColor(layerName);
+          const color = resolveEntityColor(entity, layerName);
           const svg = entityToSVGStr(entity, minX, maxY, color);
           if (!svg) return null;
           return {
@@ -1547,7 +1579,7 @@ function parseDXFToShapes(dxf, raw) {
       id:         `s_${idx++}`,
       name:       `Shape ${idx}`,
       layer:      preferredOuterLayer,
-      layerColor: layerColor(preferredOuterLayer),
+      layerColor: resolveEntityColor(ownerContour.entity, preferredOuterLayer),
       hasSyntheticOuter,
       mixedOuterLayers,
       selectionFillAllowed,
@@ -1680,11 +1712,9 @@ function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth
     const layerMatch = !hasActiveLayer || selectableLayers.includes(activeLayer);
     const isDimmed = !s.visible || !layerMatch;
     const showOuter = !hasActiveLayer || activeLayer === s.layer || !layerMatch;
-    const ownerFocused = isSel && !hasActiveLayer;
     const visibleDecorItems = layerMatch
       ? (s.decorItems || []).filter(item => {
           if (hasActiveLayer) return item.layer === activeLayer;
-          if (ownerFocused) return selectableLayers.includes(item.layer);
           return true;
         })
       : [];
@@ -1698,20 +1728,31 @@ function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth
     const outerFillOpacity = allowSelectionFill ? dimmedOuterOpacity : 0;
     const outerStroke = s.layerColor;
     const outerStrokeOpacity = dimmedStrokeOpacity;
-    const selectionStroke = isDimmed ? '#aab2c8' : '#f5f7ff';
+    const labelCfg = typeof window.getPartLabelConfig === 'function'
+      ? window.getPartLabelConfig(pv.layers)
+      : { enabled: false, color: '#4488FF' };
+    const labelText = labelCfg.enabled ? String(s.partLabel || '') : '';
+    const labelFontSize = Math.max(7, Math.min(s.bbox.w, s.bbox.h) * 0.075);
+    const labelStrokeWidth = 0.8;
 
     return `
 <g class="pvw-shape" data-id="${s.id}"
    transform="translate(${f(pos.x)},${f(pos.y)})"
    opacity="${isDimmed ? 0.12 : 1}" style="cursor:pointer">
   ${showOuter && isSel && allowSelectionFill ? `<path d="${s.pathData}" fill="white" fill-opacity="0.06" fill-rule="${s.fillRule}" stroke="none"/>` : ''}
+  ${showOuter && isSel ? `<path d="${s.pathData}" fill="none" stroke="${s.layerColor}" stroke-width="2.4"
+    stroke-opacity="0.45" stroke-linejoin="round" fill-rule="${s.fillRule}" filter="url(#pvwGlow)"/>` : ''}
   ${showOuter && renderSyntheticPath && !s.mixedOuterLayers ? `<path d="${s.pathData}"
     fill="${outerFill}" fill-opacity="${outerFillOpacity}" fill-rule="${s.fillRule}"
     stroke="${outerStroke}" stroke-opacity="${outerStrokeOpacity}" stroke-width="${isSel ? 2 : 1.4}" stroke-linejoin="round"
     ${isSel && (!hasActiveLayer || activeLayer === s.layer) ? 'filter="url(#pvwGlow)"' : ''}/>` : ''}
-  ${showOuter && isSel ? `<path d="${s.pathData}" fill="none" stroke="${selectionStroke}" stroke-width="2.8" stroke-opacity="0.55" stroke-dasharray="5 3" fill-rule="${s.fillRule}"/>` : ''}
   ${visibleBoundaryItems.map(item => item.svg).join('\n')}
   ${visibleDecorItems.map(item => item.svg).join('\n')}
+  ${labelText ? `<text x="${f(s.bbox.w / 2)}" y="${f(s.bbox.h / 2)}"
+    text-anchor="middle" dominant-baseline="middle" font-size="${f(labelFontSize)}"
+    fill="none" stroke="${labelCfg.color}" stroke-width="${f(labelStrokeWidth)}"
+    stroke-linejoin="round" stroke-linecap="round" opacity="0.96"
+    font-family="monospace" pointer-events="none">${labelText}</text>` : ''}
   <text x="${f(s.bbox.w / 2)}" y="${f(s.bbox.h + 11)}"
     text-anchor="middle" font-size="8" fill="${s.layerColor}" opacity="0.6"
     font-family="monospace">${s.name}</text>
@@ -1757,12 +1798,16 @@ const pvZoomFit    = document.getElementById('pvZoomFit');
 const pvZoomLabel  = document.getElementById('pvZoomLabel');
 const pvTogglePanel = document.getElementById('pvTogglePanel');
 const pvRemoveShape = document.getElementById('pvRemoveShape');
+const pvRemoveShapeLabel = document.getElementById('pvRemoveShapeLabel');
 const pvRemovePart = document.getElementById('pvRemovePart');
 
 function pvSyncActions() {
   if (!pvRemoveShape) return;
-  const selected = pv.shapes.find(shape => shape.id === pv.selectedId && shape.visible !== false);
+  const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
   pvRemoveShape.disabled = !selected;
+  if (pvRemoveShapeLabel) {
+    pvRemoveShapeLabel.textContent = selected?.visible === false ? 'Restore' : 'Remove';
+  }
 }
 
 // ── Render SVG canvas ─────────────────────────────────────
@@ -1795,13 +1840,18 @@ function pvApplyZoomTransform() {
 function pvRenderList() {
   const vis   = pv.shapes.filter(s => s.visible);
   const total = vis.reduce((a, s) => a + s.qty, 0);
-  pvShapeCount.textContent = vis.length;
+  pvShapeCount.textContent = `${vis.length}/${pv.shapes.length}`;
   pvFileMeta.textContent   = `${pv.shapes.length} shape${pv.shapes.length !== 1 ? 's' : ''} · ${pv.layers.length} layer${pv.layers.length !== 1 ? 's' : ''}`;
   pvStats.textContent      = `${total} piece${total !== 1 ? 's' : ''} queued for nesting`;
 
   pvShapesList.innerHTML = '';
   const layerOrder = pv.layers.map(l => l.name);
-  const grouped    = [...vis].sort((a, b) => layerOrder.indexOf(a.layer) - layerOrder.indexOf(b.layer));
+  const grouped    = [...pv.shapes].sort((a, b) => {
+    const layerCmp = layerOrder.indexOf(a.layer) - layerOrder.indexOf(b.layer);
+    if (layerCmp !== 0) return layerCmp;
+    if ((a.visible !== false) !== (b.visible !== false)) return a.visible === false ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
 
   let lastLayer = null;
   grouped.forEach(s => {
@@ -1834,18 +1884,20 @@ function pvRenderList() {
     </svg>`;
 
     const row = document.createElement('div');
-    row.className = `pvw-shape-row${s.id === pv.selectedId ? ' selected' : ''}`;
+    row.className = `pvw-shape-row${s.id === pv.selectedId ? ' selected' : ''}${s.visible === false ? ' dimmed' : ''}`;
     row.dataset.id = s.id;
     row.innerHTML  = `
       <div class="pvw-thumb">${thumb}</div>
       <div class="pvw-info">
         <div class="pvw-name">${s.name}</div>
-        <div class="pvw-dims">${f1(s.bbox.w)} × ${f1(s.bbox.h)} mm</div>
+        <div class="pvw-dims">${f1(s.bbox.w)} × ${f1(s.bbox.h)} mm${s.visible === false ? ' · removed' : ''}</div>
       </div>
       <div class="pvw-controls">
-        <button class="qty-btn pvw-dec" data-id="${s.id}">−</button>
-        <span class="qty-value">${s.qty}</span>
-        <button class="qty-btn pvw-inc" data-id="${s.id}">+</button>
+        ${s.visible === false
+          ? `<button class="qty-btn pvw-restore" data-id="${s.id}" title="Restore shape">↺</button>`
+          : `<button class="qty-btn pvw-dec" data-id="${s.id}">−</button>
+             <input class="qty-value qty-input pvw-qty-input" data-id="${s.id}" type="number" min="1" step="1" value="${s.qty}" aria-label="Quantity for ${s.name}">
+             <button class="qty-btn pvw-inc" data-id="${s.id}">+</button>`}
       </div>`;
     row.addEventListener('click', e => { if (!e.target.closest('.pvw-controls')) pvSelectShape(s.id); });
     pvShapesList.appendChild(row);
@@ -1855,6 +1907,19 @@ function pvRenderList() {
     b.addEventListener('click', e => { e.stopPropagation(); pvChangeQty(b.dataset.id, -1); }));
   pvShapesList.querySelectorAll('.pvw-inc').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); pvChangeQty(b.dataset.id, 1); }));
+  pvShapesList.querySelectorAll('.pvw-qty-input').forEach(input => {
+    input.addEventListener('click', e => e.stopPropagation());
+    input.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        pvSetQty(input.dataset.id, input.value);
+      }
+    });
+    input.addEventListener('blur', () => pvSetQty(input.dataset.id, input.value));
+  });
+  pvShapesList.querySelectorAll('.pvw-restore').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); pvRestoreShape(b.dataset.id); }));
   pvSyncActions();
 }
 
@@ -1896,16 +1961,37 @@ function pvChangeQty(id, delta) {
   const s = pv.shapes.find(x => x.id === id);
   if (s) { s.qty = Math.max(1, s.qty + delta); pvRenderList(); }
 }
+function pvSetQty(id, value) {
+  const s = pv.shapes.find(x => x.id === id);
+  if (!s) return;
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    pvRenderList();
+    return;
+  }
+  s.qty = parsed;
+  pvRenderList();
+}
 function pvDeleteShape(id) {
   const s = pv.shapes.find(x => x.id === id);
   if (!s) return;
   s.visible = false;
-  if (pv.selectedId === id) pv.selectedId = null;
+  pv.selectedId = id;
+  pvRenderSVG(); pvRenderList(); pvRenderTabs();
+}
+function pvRestoreShape(id) {
+  const s = pv.shapes.find(x => x.id === id);
+  if (!s) return;
+  s.visible = true;
+  pv.selectedId = id;
   pvRenderSVG(); pvRenderList(); pvRenderTabs();
 }
 pvRemoveShape?.addEventListener('click', () => {
   if (!pv.selectedId) return;
-  pvDeleteShape(pv.selectedId);
+  const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
+  if (!selected) return;
+  if (selected.visible === false) pvRestoreShape(pv.selectedId);
+  else pvDeleteShape(pv.selectedId);
 });
 pvRemovePart?.addEventListener('click', () => {
   if (!pv.fileId || typeof window.removeJobFileById !== 'function') return;
@@ -1974,6 +2060,7 @@ function clonePreviewShape(shape) {
     outerBoundaryItems: Array.isArray(shape?.outerBoundaryItems)
       ? shape.outerBoundaryItems.map(item => ({ ...item }))
       : shape.outerBoundaryItems,
+    partLabel: shape?.partLabel,
   };
 }
 
@@ -1983,6 +2070,17 @@ function clonePreviewData(data) {
     shapes: Array.isArray(data.shapes) ? data.shapes.map(clonePreviewShape) : [],
     layers: Array.isArray(data.layers) ? data.layers.map(layer => ({ ...layer })) : [],
   };
+}
+
+function applyPartLabelsToPreviewData(data, filename) {
+  if (!data?.shapes?.length) return data;
+  const labelText = typeof window.getPartLabelText === 'function'
+    ? window.getPartLabelText(filename)
+    : String(filename || '').replace(/\.dxf$/i, '');
+  data.shapes.forEach(shape => {
+    shape.partLabel = labelText;
+  });
+  return data;
 }
 
 // ── Open / close ──────────────────────────────────────────
@@ -2008,10 +2106,10 @@ async function openDXFPreview(fileId, filename) {
   let source = 'mock';
 
   if (file?.shapes?.length) {
-    data = clonePreviewData({
+    data = applyPartLabelsToPreviewData(clonePreviewData({
       shapes: file.shapes,
       layers: file.layers || [],
-    });
+    }), filename);
     source = 'saved';
   }
 
@@ -2021,9 +2119,9 @@ async function openDXFPreview(fileId, filename) {
       if (result.success && result.data) {
         const parsed = parseDXFToShapes(result.data, result.raw);
         if (parsed) {
-          data = parsed;
-          file.shapes = clonePreviewData(parsed).shapes;
-          file.layers = clonePreviewData(parsed).layers;
+          data = applyPartLabelsToPreviewData(clonePreviewData(parsed), filename);
+          file.shapes = clonePreviewData(data).shapes;
+          file.layers = clonePreviewData(data).layers;
           source = 'real';
         }
         else console.warn('[DXF] No closed contours found — using mock');
@@ -2035,7 +2133,7 @@ async function openDXFPreview(fileId, filename) {
     }
   }
 
-  if (!data) data = mockDXFData(filename);
+  if (!data) data = applyPartLabelsToPreviewData(clonePreviewData(mockDXFData(filename)), filename);
 
   pv.shapes    = data.shapes;
   pv.layers    = data.layers;
@@ -2087,3 +2185,8 @@ pvApply.addEventListener('click', () => {
 
 window.openDXFPreview = openDXFPreview;
 window.parseDXFToShapes = parseDXFToShapes;
+window.refreshDXFPreview = () => {
+  if (!pvModal.classList.contains('open')) return;
+  pvRenderSVG();
+  pvRenderList();
+};

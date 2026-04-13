@@ -1081,7 +1081,14 @@ html, body {
   background: var(--surface2);
   border-color: var(--accent);
 }
-.pvw-shape-row.dimmed { opacity: 0.35; }
+.pvw-shape-row.dimmed {
+  opacity: 0.5;
+  background: rgba(255,255,255,0.02);
+}
+.pvw-shape-row.dimmed.selected {
+  opacity: 0.8;
+  border-color: rgba(255,255,255,0.28);
+}
 
 .pvw-thumb {
   width: 44px;
@@ -1153,6 +1160,39 @@ html, body {
 
 .pvw-controls .qty-value {
   min-width: 22px;
+}
+
+.pvw-controls .qty-input {
+  appearance: textfield;
+  width: 52px;
+  min-width: 52px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+
+.pvw-controls .qty-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(79,142,247,.14);
+}
+
+.pvw-controls .qty-input::-webkit-outer-spin-button,
+.pvw-controls .qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pvw-restore {
+  min-width: 28px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* Footer stats */
