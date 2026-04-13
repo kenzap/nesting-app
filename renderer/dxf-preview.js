@@ -1554,7 +1554,7 @@ function parseDXFToShapes(dxf, raw) {
       outerBoundaryItems,
       pathData,
       fillRule,
-      polygonPoints: closePointRing(ownerContour.points),
+      polygonPoints: closePointRing(outer.points),
       bbox:       { w: W, h: H },
       decorSVG: decorItems.map(item => item.svg),
       decorItems,
