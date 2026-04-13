@@ -60,3 +60,71 @@ ipcMain.handle('open-file-dialog', async () => {
     size: fs.statSync(p).size,
   }));
 });
+
+ipcMain.handle('save-placement-json', async (event, payload) => {
+  try {
+    const safeName = String(payload?.name || 'nesting-job')
+      .replace(/[^a-z0-9-_]+/gi, '-')
+      .replace(/^-+|-+$/g, '') || 'nesting-job';
+    const tempDir = path.join(app.getPath('temp'), 'nestkit-debug');
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const fileName = `${safeName}-placement.json`;
+    const filePath = path.join(tempDir, fileName);
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+
+    return { success: true, path: filePath, directory: tempDir };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('load-app-settings', async () => {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      return { success: true, settings: {} };
+    }
+
+    const raw = fs.readFileSync(settingsPath, 'utf-8');
+    return { success: true, settings: JSON.parse(raw) || {} };
+  } catch (err) {
+    return { success: false, error: err.message, settings: {} };
+  }
+});
+
+ipcMain.handle('save-app-settings', async (event, settings) => {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify(settings || {}, null, 2), 'utf-8');
+    return { success: true, path: settingsPath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('load-job-state', async () => {
+  try {
+    const statePath = path.join(app.getPath('userData'), 'job-state.json');
+    if (!fs.existsSync(statePath)) {
+      return { success: true, state: null };
+    }
+
+    const raw = fs.readFileSync(statePath, 'utf-8');
+    return { success: true, state: JSON.parse(raw) || null };
+  } catch (err) {
+    return { success: false, error: err.message, state: null };
+  }
+});
+
+ipcMain.handle('save-job-state', async (event, jobState) => {
+  try {
+    const statePath = path.join(app.getPath('userData'), 'job-state.json');
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, JSON.stringify(jobState || {}, null, 2), 'utf-8');
+    return { success: true, path: statePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});

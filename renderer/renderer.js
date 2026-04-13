@@ -3,13 +3,17 @@
 // ── State ──────────────────────────────────────────────────
 const state = {
   files: [],     // { id, name, size, qty }
-  sheets: [],    // { id, width, height, qty, material }
+  sheets: [],    // { id, width, height, widthMode, material }
   status: 'idle', // idle | running | done | error
   zoom: 1,
   nestResult: null,
+  lastExportPath: null,
+  settings: {},
+  editingSheetId: null,
 };
 
 let nestInterval = null;
+let persistJobTimer = null;
 
 // ── DOM refs ───────────────────────────────────────────────
 const startBtn     = document.getElementById('startBtn');
@@ -37,11 +41,13 @@ const cancelSheet  = document.getElementById('cancelSheet');
 const closeSheet   = document.getElementById('closeSheet');
 const sheetWidth   = document.getElementById('sheetWidth');
 const sheetHeight  = document.getElementById('sheetHeight');
-const sheetQty     = document.getElementById('sheetQty');
+const sheetWidthMode = document.getElementById('sheetWidthMode');
+const sheetModeHelp = document.getElementById('sheetModeHelp');
 const sheetMaterial = document.getElementById('sheetMaterial');
 const zoomIn       = document.getElementById('zoomIn');
 const zoomOut      = document.getElementById('zoomOut');
 const fitView      = document.getElementById('fitView');
+const settingsFields = Array.from(settingsModal.querySelectorAll('[data-setting-key]'));
 
 // ── Helpers ────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 9); }
@@ -52,6 +58,20 @@ function formatBytes(b) {
   return (b / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+function presetMatches(btn) {
+  return (
+    sheetWidthMode.value === 'fixed' &&
+    String(sheetWidth.value) === String(btn.dataset.w) &&
+    String(sheetHeight.value) === String(btn.dataset.h)
+  );
+}
+
+function syncSheetPresetButtons() {
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.classList.toggle('active', presetMatches(btn));
+  });
+}
+
 function setStatus(s) {
   state.status = s;
   const dot = statusChip.querySelector('.status-dot');
@@ -59,6 +79,294 @@ function setStatus(s) {
   dot.className = 'status-dot ' + s;
   const labels = { idle: 'Idle', running: 'Running…', done: 'Complete', error: 'Error' };
   label.textContent = labels[s] || s;
+}
+
+const DEFAULT_ALLOWED_ORIENTATIONS = [0, 30, 45, 90, 180, 270];
+
+function roundCoord(n) {
+  return Math.round((Number(n) + Number.EPSILON) * 1e4) / 1e4;
+}
+
+function currentNestingSettings() {
+  return { ...dialogDefaults(), ...state.settings };
+}
+
+function normalizeRotationStep(value) {
+  if (value === 'none') return null;
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+function buildAllowedOrientations(rotationStepValue) {
+  const step = normalizeRotationStep(rotationStepValue);
+  if (!step) return [0];
+
+  const orientations = [];
+  for (let angle = 0; angle < 360; angle += step) {
+    orientations.push(angle);
+  }
+
+  if (!orientations.length) return [0];
+  return [...new Set(orientations.map(angle => roundCoord(angle)))];
+}
+
+function sameExportPoint(a, b) {
+  return !!a && !!b && roundCoord(a.x) === roundCoord(b.x) && roundCoord(a.y) === roundCoord(b.y);
+}
+
+function sanitizePolygonPoints(points) {
+  if (!Array.isArray(points) || !points.length) return [];
+
+  const normalized = points
+    .filter(point => point && Number.isFinite(point.x) && Number.isFinite(point.y))
+    .map(point => ({ x: roundCoord(point.x), y: roundCoord(point.y) }));
+
+  const dedupedConsecutive = [];
+  normalized.forEach(point => {
+    if (!dedupedConsecutive.length || !sameExportPoint(dedupedConsecutive[dedupedConsecutive.length - 1], point)) {
+      dedupedConsecutive.push(point);
+    }
+  });
+
+  if (dedupedConsecutive.length < 3) return [];
+
+  const isClosed = sameExportPoint(dedupedConsecutive[0], dedupedConsecutive[dedupedConsecutive.length - 1]);
+  const openRing = isClosed ? dedupedConsecutive.slice(0, -1) : [...dedupedConsecutive];
+
+  const seen = new Set();
+  const uniqueRing = [];
+  openRing.forEach(point => {
+    const key = `${point.x},${point.y}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    uniqueRing.push(point);
+  });
+
+  if (uniqueRing.length < 3) return [];
+
+  uniqueRing.push({ ...uniqueRing[0] });
+  return uniqueRing;
+}
+
+function clonePlain(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function snapshotJobState() {
+  return {
+    files: state.files.map(file => ({
+      id: file.id,
+      name: file.name,
+      size: file.size || 0,
+      path: file.path || null,
+      qty: file.qty || 1,
+      shapes: clonePlain(file.shapes || null),
+      layers: clonePlain(file.layers || null),
+    })),
+    sheets: state.sheets.map(sheet => ({
+      id: sheet.id,
+      width: sheet.width ?? null,
+      height: sheet.height ?? null,
+      widthMode: sheet.widthMode || 'fixed',
+      material: sheet.material || '',
+    })),
+  };
+}
+
+async function persistJobStateNow() {
+  if (!window.electronAPI?.saveJobState) return;
+  const result = await window.electronAPI.saveJobState(snapshotJobState());
+  if (!result?.success) {
+    console.error('[Job State] Failed to save:', result?.error);
+  }
+}
+
+function schedulePersistJobState() {
+  if (persistJobTimer) window.clearTimeout(persistJobTimer);
+  persistJobTimer = window.setTimeout(() => {
+    persistJobTimer = null;
+    persistJobStateNow();
+  }, 120);
+}
+
+async function hydrateJobState() {
+  if (!window.electronAPI?.loadJobState) return false;
+  const result = await window.electronAPI.loadJobState();
+  if (!result?.success) {
+    console.warn('[Job State] Failed to load:', result?.error);
+    return false;
+  }
+  if (!result.state) return false;
+
+  state.files = Array.isArray(result.state.files) ? result.state.files : [];
+  state.sheets = Array.isArray(result.state.sheets) ? result.state.sheets : [];
+  return state.files.length > 0 || state.sheets.length > 0;
+}
+
+window.schedulePersistJobState = schedulePersistJobState;
+
+function baseJobName() {
+  if (state.files.length === 1) {
+    return state.files[0].name.replace(/\.dxf$/i, '');
+  }
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('');
+  return `nesting-job-${stamp}`;
+}
+
+async function ensureFileShapes(file) {
+  if (Array.isArray(file.shapes) && file.shapes.length) return file.shapes;
+  if (!file.path || !window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') {
+    throw new Error(`No parsed shapes available for ${file.name}`);
+  }
+
+  const result = await window.electronAPI.parseDXF(file.path);
+  if (!result?.success || !result.data) {
+    throw new Error(result?.error || `Failed to parse ${file.name}`);
+  }
+
+  const parsed = window.parseDXFToShapes(result.data, result.raw);
+  if (!parsed?.shapes?.length) {
+    throw new Error(`No nestable shapes found in ${file.name}`);
+  }
+
+  file.shapes = parsed.shapes.map(shape => ({
+    ...shape,
+    qty: file.qty || shape.qty || 1,
+  }));
+  return file.shapes;
+}
+
+async function buildPlacementPayload() {
+  const items = [];
+  let nextId = 0;
+  const settings = currentNestingSettings();
+  const allowedOrientations = buildAllowedOrientations(settings.rotationStep);
+
+  for (const file of state.files) {
+    const shapes = (await ensureFileShapes(file)).filter(shape => shape.visible !== false);
+    shapes.forEach(shape => {
+      const points = sanitizePolygonPoints(shape.polygonPoints);
+      if (points.length < 3) return;
+
+      items.push({
+        id: nextId++,
+        demand: Math.max(1, parseInt(shape.qty || 1, 10)),
+        dxf: file.path || file.name,
+        allowed_orientations: [...allowedOrientations],
+        shape: {
+          type: 'simple_polygon',
+          data: points.map(point => [point.x, point.y]),
+        },
+      });
+    });
+  }
+
+  if (!items.length) {
+    throw new Error('No exportable shapes available');
+  }
+
+  return {
+    name: baseJobName(),
+    settings,
+    items,
+    sheets: state.sheets.map(sheet => ({
+      id: sheet.id,
+      width: sheet.widthMode === 'unlimited' ? null : sheet.width,
+      height: sheet.height,
+      width_mode: sheet.widthMode || 'fixed',
+      quantity: 'auto',
+      material: sheet.material || '',
+    })),
+    strip_height: state.sheets[0]?.height || 0,
+  };
+}
+
+async function exportPlacementJSON() {
+  const payload = await buildPlacementPayload();
+  if (!window.electronAPI?.savePlacementJSON) {
+    throw new Error('Placement JSON export is not available');
+  }
+
+  const result = await window.electronAPI.savePlacementJSON(payload);
+  if (!result?.success) {
+    throw new Error(result?.error || 'Failed to save placement JSON');
+  }
+
+  state.lastExportPath = result.path;
+  console.info('[Placement JSON] Saved to', result.path, payload);
+  return { path: result.path, payload };
+}
+
+function settingFieldValue(field) {
+  if (field.type === 'checkbox') return !!field.checked;
+  if (field.type === 'number') return field.value === '' ? null : Number(field.value);
+  return field.value;
+}
+
+function applySettingFieldValue(field, value) {
+  if (value === undefined) return;
+  if (field.type === 'checkbox') {
+    field.checked = !!value;
+    return;
+  }
+  field.value = `${value}`;
+}
+
+function collectSettingsFromDialog() {
+  return settingsFields.reduce((acc, field) => {
+    acc[field.dataset.settingKey] = settingFieldValue(field);
+    return acc;
+  }, {});
+}
+
+function dialogDefaults() {
+  return settingsFields.reduce((acc, field) => {
+    const key = field.dataset.settingKey;
+    if (field.type === 'checkbox') {
+      acc[key] = field.defaultChecked;
+    } else {
+      acc[key] = field.defaultValue;
+      if (field.type === 'number' && acc[key] !== '') acc[key] = Number(acc[key]);
+    }
+    return acc;
+  }, {});
+}
+
+function applySettingsToDialog(settings) {
+  settingsFields.forEach(field => applySettingFieldValue(field, settings[field.dataset.settingKey]));
+}
+
+async function persistCurrentSettings() {
+  state.settings = collectSettingsFromDialog();
+  if (!window.electronAPI?.saveAppSettings) return;
+  const result = await window.electronAPI.saveAppSettings(state.settings);
+  if (!result?.success) {
+    throw new Error(result?.error || 'Failed to save settings');
+  }
+}
+
+async function loadPersistedSettings() {
+  const defaults = dialogDefaults();
+  state.settings = { ...defaults };
+  applySettingsToDialog(state.settings);
+
+  if (!window.electronAPI?.loadAppSettings) return;
+  const result = await window.electronAPI.loadAppSettings();
+  if (!result?.success) {
+    console.warn('[Settings] Failed to load persisted settings:', result?.error);
+    return;
+  }
+
+  state.settings = { ...defaults, ...(result.settings || {}) };
+  applySettingsToDialog(state.settings);
 }
 
 // ── File list rendering ────────────────────────────────────
@@ -77,15 +385,10 @@ function renderFiles() {
         <button class="qty-btn" data-id="${f.id}" data-delta="-1">−</button>
         <span class="qty-value">${f.qty}</span>
         <button class="qty-btn" data-id="${f.id}" data-delta="1">+</button>
-      </div>
-      <button class="file-remove" data-id="${f.id}" title="Remove">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M9 1L1 9M1 1l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        </svg>
-      </button>`;
+      </div>`;
     // Click the row body → open DXF preview
     li.addEventListener('click', e => {
-      if (!e.target.closest('.qty-control') && !e.target.closest('.file-remove')) {
+      if (!e.target.closest('.qty-control')) {
         if (window.openDXFPreview) window.openDXFPreview(f.id, f.name);
       }
     });
@@ -101,24 +404,36 @@ function renderFiles() {
       if (!f) return;
       f.qty = Math.max(1, f.qty + parseInt(btn.dataset.delta));
       renderFiles();
-    });
-  });
-  // remove buttons
-  fileList.querySelectorAll('.file-remove').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      state.files = state.files.filter(x => x.id !== btn.dataset.id);
-      renderFiles();
+      schedulePersistJobState();
     });
   });
 
-  dropZone.style.display = state.files.length > 3 ? 'none' : 'flex';
+  dropZone.style.display = 'flex';
 }
+
+window.removeJobFileById = fileId => {
+  if (!fileId) return false;
+  const before = state.files.length;
+  state.files = state.files.filter(file => file.id !== fileId);
+  if (state.files.length !== before) {
+    renderFiles();
+    return true;
+  }
+  return false;
+};
 
 // ── Sheet list rendering ───────────────────────────────────
 function renderSheets() {
   sheetList.innerHTML = '';
   state.sheets.forEach(s => {
+    const widthLabel = s.widthMode === 'unlimited'
+      ? `${s.height} × Unlimited mm`
+      : `${s.height} × ${s.width} mm`;
+    const modeLabel = s.widthMode === 'unlimited'
+      ? 'Auto sheets · continuous strip'
+      : s.widthMode === 'max'
+        ? 'Auto sheets · width capped'
+        : 'Auto sheets · fixed width';
     const li = document.createElement('li');
     li.className = 'sheet-item';
     li.innerHTML = `
@@ -128,21 +443,27 @@ function renderSheets() {
         </svg>
       </div>
       <div class="sheet-info">
-        <div class="sheet-dims">${s.width} × ${s.height} mm</div>
-        <div class="sheet-material">${s.material || 'No material'} · ×${s.qty}</div>
+        <div class="sheet-dims">${widthLabel}</div>
+        <div class="sheet-material">${s.material || 'No material'} · ${modeLabel}</div>
       </div>
       <button class="file-remove" data-id="${s.id}" title="Remove">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
           <path d="M9 1L1 9M1 1l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
       </button>`;
+    li.addEventListener('click', e => {
+      if (e.target.closest('.file-remove')) return;
+      openSheetEditor(s.id);
+    });
     sheetList.appendChild(li);
   });
   sheetList.querySelectorAll('.file-remove').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
       state.sheets = state.sheets.filter(x => x.id !== btn.dataset.id);
       renderSheets();
       renderTabs();
+      schedulePersistJobState();
     });
   });
   renderTabs();
@@ -171,7 +492,8 @@ function generateMockNestSVG(sheetIndex) {
   const sheet = state.sheets[sheetIndex];
   if (!sheet) return null;
 
-  const W = 800, H = Math.round(800 * sheet.height / sheet.width);
+  const previewWidth = sheet.widthMode === 'unlimited' ? 3000 : (sheet.width || 3000);
+  const W = 800, H = Math.round(800 * sheet.height / previewWidth);
   const colors = ['#4f8ef7', '#4fcf8e', '#f7c34f', '#f77f4f', '#cf4ff7', '#4ff7e8'];
 
   const shapes = [];
@@ -279,10 +601,20 @@ function showNestResult(sheetIndex) {
 }
 
 // ── Run / Stop ─────────────────────────────────────────────
-startBtn.addEventListener('click', () => {
+startBtn.addEventListener('click', async () => {
   if (state.status === 'running') return;
   if (!state.files.length) return;
   if (!state.sheets.length) return;
+
+  try {
+    const exported = await exportPlacementJSON();
+    nestStats.textContent = `Placement JSON saved to ${exported.path}`;
+  } catch (err) {
+    console.error('[Placement JSON] Export failed:', err);
+    setStatus('error');
+    nestStats.textContent = `Export failed: ${err.message}`;
+    return;
+  }
 
   setStatus('running');
   startBtn.classList.add('running');
@@ -330,6 +662,7 @@ function addFiles(fileObjs) {
     }
   });
   renderFiles();
+  schedulePersistJobState();
 }
 
 dropZone.addEventListener('dragover', e => {
@@ -370,42 +703,134 @@ addFileBtn.addEventListener('click', async () => {
 });
 
 // ── Sheet dialog ───────────────────────────────────────────
-addSheetBtnDialog.addEventListener('click', () => sheetModal.classList.add('open'));
-closeSheet.addEventListener('click', () => sheetModal.classList.remove('open'));
-cancelSheet.addEventListener('click', () => sheetModal.classList.remove('open'));
+function resetSheetForm() {
+  state.editingSheetId = null;
+  sheetWidthMode.value = 'fixed';
+  sheetHeight.value = '1250';
+  sheetWidth.value = '3000';
+  sheetMaterial.value = '';
+  confirmSheet.textContent = 'Add Sheet';
+  updateSheetModeControls();
+}
+
+function openSheetEditor(sheetId = null) {
+  if (!sheetId) {
+    resetSheetForm();
+    sheetModal.classList.add('open');
+    return;
+  }
+
+  const sheet = state.sheets.find(entry => entry.id === sheetId);
+  if (!sheet) return;
+
+  state.editingSheetId = sheet.id;
+  sheetWidthMode.value = sheet.widthMode || 'fixed';
+  sheetHeight.value = sheet.height ?? 1250;
+  sheetWidth.value = sheet.width ?? 3000;
+  sheetMaterial.value = sheet.material || '';
+  confirmSheet.textContent = 'Save Sheet';
+  updateSheetModeControls();
+  sheetModal.classList.add('open');
+}
+
+function closeSheetDialog() {
+  sheetModal.classList.remove('open');
+  resetSheetForm();
+}
+
+addSheetBtnDialog.addEventListener('click', () => openSheetEditor());
+closeSheet.addEventListener('click', closeSheetDialog);
+cancelSheet.addEventListener('click', closeSheetDialog);
+
+function updateSheetModeControls() {
+  const mode = sheetWidthMode.value;
+  const unlimited = mode === 'unlimited';
+
+  sheetWidth.disabled = unlimited;
+
+  if (unlimited) {
+    sheetModeHelp.textContent = 'The strip can continue without a fixed width limit.';
+  } else if (mode === 'max') {
+    sheetModeHelp.textContent = 'Width is treated as a maximum. The algorithm may use less width when possible and will automatically calculate the number of sheets needed and their dimensions.';
+  } else {
+    sheetModeHelp.textContent = 'A fixed sheet width will be used. The number of sheets required is calculated automatically.';
+  }
+
+  syncSheetPresetButtons();
+}
+
+sheetWidthMode.addEventListener('change', updateSheetModeControls);
+sheetWidth.addEventListener('input', syncSheetPresetButtons);
+sheetHeight.addEventListener('input', syncSheetPresetButtons);
 
 document.querySelectorAll('.preset-btn').forEach(btn => {
   btn.addEventListener('click', () => {
+    sheetWidthMode.value = 'fixed';
     sheetWidth.value = btn.dataset.w;
     sheetHeight.value = btn.dataset.h;
+    updateSheetModeControls();
   });
 });
 
 confirmSheet.addEventListener('click', () => {
-  const w = parseInt(sheetWidth.value);
+  const mode = sheetWidthMode.value;
+  const w = mode === 'unlimited' ? null : parseInt(sheetWidth.value);
   const h = parseInt(sheetHeight.value);
-  const qty = parseInt(sheetQty.value) || 1;
   const mat = sheetMaterial.value.trim();
-  if (!w || !h) return;
-  state.sheets.push({ id: uid(), width: w, height: h, qty, material: mat });
+  if (!h || (mode !== 'unlimited' && !w)) return;
+
+  const sheetData = {
+    width: w,
+    height: h,
+    widthMode: mode,
+    material: mat,
+  };
+
+  if (state.editingSheetId) {
+    state.sheets = state.sheets.map(sheet =>
+      sheet.id === state.editingSheetId ? { ...sheet, ...sheetData } : sheet
+    );
+  } else {
+    state.sheets.push({
+      id: uid(),
+      ...sheetData,
+    });
+  }
   renderSheets();
-  sheetModal.classList.remove('open');
+  closeSheetDialog();
+  schedulePersistJobState();
 });
 
 // ── Settings dialog ────────────────────────────────────────
 openSettings.addEventListener('click', () => settingsModal.classList.add('open'));
 closeSettings.addEventListener('click', () => settingsModal.classList.remove('open'));
-applySettings.addEventListener('click', () => settingsModal.classList.remove('open'));
-resetSettings.addEventListener('click', () => {
-  settingsModal.querySelectorAll('input[type=number]').forEach(i => {
-    i.value = i.defaultValue;
-  });
+applySettings.addEventListener('click', async () => {
+  try {
+    await persistCurrentSettings();
+    settingsModal.classList.remove('open');
+  } catch (err) {
+    console.error('[Settings] Failed to persist settings:', err);
+  }
+});
+resetSettings.addEventListener('click', async () => {
+  state.settings = dialogDefaults();
+  applySettingsToDialog(state.settings);
+  try {
+    await persistCurrentSettings();
+  } catch (err) {
+    console.error('[Settings] Failed to reset settings:', err);
+  }
 });
 
 // Close on overlay click
 [settingsModal, sheetModal].forEach(modal => {
   modal.addEventListener('click', e => {
-    if (e.target === modal) modal.classList.remove('open');
+    if (e.target !== modal) return;
+    if (modal === sheetModal) {
+      closeSheetDialog();
+      return;
+    }
+    modal.classList.remove('open');
   });
 });
 
@@ -422,16 +847,14 @@ fitView.addEventListener('click', () => { state.zoom = 1; applyZoom(); });
 
 // ── Seed demo data ─────────────────────────────────────────
 (function seedDemo() {
-  state.files = [
-    { id: uid(), name: 'bracket_L.dxf',   size: 14200, qty: 4 },
-    { id: uid(), name: 'panel_A.dxf',     size: 28400, qty: 2 },
-    { id: uid(), name: 'gusset_01.dxf',   size:  9100, qty: 6 },
-    { id: uid(), name: 'flange_round.dxf',size: 17800, qty: 3 },
-  ];
-  state.sheets = [
-    { id: uid(), width: 2440, height: 1220, qty: 2, material: 'Mild Steel 3mm' },
-    { id: uid(), width: 3000, height: 1500, qty: 1, material: 'Aluminium 5mm' },
-  ];
-  renderFiles();
-  renderSheets();
+  loadPersistedSettings();
+  updateSheetModeControls();
+  hydrateJobState().then(restored => {
+    if (!restored) {
+      state.files = [];
+      state.sheets = [];
+    }
+    renderFiles();
+    renderSheets();
+  });
 })();

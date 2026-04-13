@@ -1038,6 +1038,15 @@ function debugDXF(label, payload) {
   console.log(`[DXF DEBUG] ${label}`, payload);
 }
 
+function closePointRing(points) {
+  const ring = dedupePoints(points, true);
+  if (!ring.length) return [];
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (!samePoint(first, last)) ring.push({ x: first.x, y: first.y });
+  return ring;
+}
+
 function parseRawEntityMeta(raw) {
   if (!raw) return new Map();
 
@@ -1133,6 +1142,7 @@ function enrichEntitiesFromRaw(entities, raw) {
 function parseDXFToShapes(dxf, raw) {
   const entities   = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
   const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
+  const layerOrder = Object.keys(layerTable);
   const entityTypeCounts = entities.reduce((acc, ent) => {
     const key = ent?.type || 'UNKNOWN';
     acc[key] = (acc[key] || 0) + 1;
@@ -1240,10 +1250,23 @@ function parseDXFToShapes(dxf, raw) {
       layerMap.set(ln, layerColor(ln));
     });
 
+    const mixedOuterLayers = outer.entity?.type === 'LINE_LOOP' && Array.isArray(outer.entity?.sourceLayers) && outer.entity.sourceLayers.length > 1;
     const ln = outer.layer || '0';
     layerMap.set(ln, layerColor(ln));
-    const involvedLayers = [...new Set([ln, ...decorItems.map(item => item.layer)])];
-    const mixedOuterLayers = outer.entity?.type === 'LINE_LOOP' && Array.isArray(outer.entity?.sourceLayers) && outer.entity.sourceLayers.length > 1;
+    const contourLayers = [...new Set(
+      contours
+        .map(contour => contour.layer || '0')
+        .filter(Boolean)
+    )];
+    const preferredOuterLayer = layerOrder.find(layerName => contourLayers.includes(layerName))
+      || contourLayers[0]
+      || ln;
+    const ownerContour = contours
+      .filter(contour => (contour.layer || '0') === preferredOuterLayer)
+      .sort((a, b) => b.area - a.area)[0] || outer;
+    const ownerLayers = [preferredOuterLayer];
+    ownerLayers.forEach(layerName => layerMap.set(layerName, layerColor(layerName)));
+    const involvedLayers = [...new Set([...contourLayers, ...decorItems.map(item => item.layer)])];
     const selectionFillAllowed = !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0;
     const outerBoundaryItems = mixedOuterLayers
       ? (outer.entity?.sourceEntities || []).map(entity => {
@@ -1262,16 +1285,18 @@ function parseDXFToShapes(dxf, raw) {
     shapes.push({
       id:         `s_${idx++}`,
       name:       `Shape ${idx}`,
-      layer:      ln,
-      layerColor: layerColor(ln),
+      layer:      preferredOuterLayer,
+      layerColor: layerColor(preferredOuterLayer),
       mixedOuterLayers,
       selectionFillAllowed,
       outerBoundaryItems,
       pathData,
       fillRule,
+      polygonPoints: closePointRing(ownerContour.points),
       bbox:       { w: W, h: H },
       decorSVG: decorItems.map(item => item.svg),
       decorItems,
+      ownerLayers,
       involvedLayers,
       holes:      [],     // legacy compat
       qty:        1,
@@ -1388,11 +1413,21 @@ function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth
     const pos     = positions[i];
     const isSel   = s.id === selectedId;
     const hasActiveLayer = activeLayer !== null;
-    const layerMatch = !hasActiveLayer || (s.involvedLayers || [s.layer]).includes(activeLayer);
+    const selectableLayers = s.ownerLayers || [s.layer];
+    const layerMatch = !hasActiveLayer || selectableLayers.includes(activeLayer);
     const isDimmed = !s.visible || !layerMatch;
     const showOuter = !hasActiveLayer || activeLayer === s.layer || !layerMatch;
-    const visibleDecorItems = (s.decorItems || []).filter(item => !hasActiveLayer || item.layer === activeLayer);
-    const visibleBoundaryItems = (s.outerBoundaryItems || []).filter(item => !hasActiveLayer || item.layer === activeLayer);
+    const ownerFocused = isSel && !hasActiveLayer;
+    const visibleDecorItems = layerMatch
+      ? (s.decorItems || []).filter(item => {
+          if (hasActiveLayer) return item.layer === activeLayer;
+          if (ownerFocused) return selectableLayers.includes(item.layer);
+          return true;
+        })
+      : [];
+    const visibleBoundaryItems = layerMatch
+      ? (s.outerBoundaryItems || []).filter(item => !hasActiveLayer || item.layer === activeLayer)
+      : [];
     const allowSelectionFill = !!s.selectionFillAllowed;
     const dimmedOuterOpacity = hasActiveLayer && activeLayer !== s.layer && layerMatch ? 0.05 : (isSel ? 0.25 : 0.09);
     const dimmedStrokeOpacity = hasActiveLayer && activeLayer !== s.layer && layerMatch ? 0.25 : 1;
@@ -1416,7 +1451,7 @@ function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth
   <text x="${f(s.bbox.w / 2)}" y="${f(s.bbox.h + 11)}"
     text-anchor="middle" font-size="8" fill="${s.layerColor}" opacity="0.6"
     font-family="monospace">${s.name}</text>
-  <title>${s.name} · ${(s.involvedLayers || [s.layer]).join(', ')} · ${f1(s.bbox.w)}×${f1(s.bbox.h)} mm</title>
+  <title>${s.name} · outer: ${(s.ownerLayers || [s.layer]).join(', ')} · all: ${(s.involvedLayers || [s.layer]).join(', ')} · ${f1(s.bbox.w)}×${f1(s.bbox.h)} mm</title>
 </g>`;
   }).join('');
 
@@ -1457,6 +1492,14 @@ const pvZoomOut    = document.getElementById('pvZoomOut');
 const pvZoomFit    = document.getElementById('pvZoomFit');
 const pvZoomLabel  = document.getElementById('pvZoomLabel');
 const pvTogglePanel = document.getElementById('pvTogglePanel');
+const pvRemoveShape = document.getElementById('pvRemoveShape');
+const pvRemovePart = document.getElementById('pvRemovePart');
+
+function pvSyncActions() {
+  if (!pvRemoveShape) return;
+  const selected = pv.shapes.find(shape => shape.id === pv.selectedId && shape.visible !== false);
+  pvRemoveShape.disabled = !selected;
+}
 
 // ── Render SVG canvas ─────────────────────────────────────
 function pvRenderSVG() {
@@ -1539,11 +1582,6 @@ function pvRenderList() {
         <button class="qty-btn pvw-dec" data-id="${s.id}">−</button>
         <span class="qty-value">${s.qty}</span>
         <button class="qty-btn pvw-inc" data-id="${s.id}">+</button>
-        <button class="pvw-del" data-id="${s.id}" title="Remove">
-          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-            <path d="M8 1L1 8M1 1l7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          </svg>
-        </button>
       </div>`;
     row.addEventListener('click', e => { if (!e.target.closest('.pvw-controls')) pvSelectShape(s.id); });
     pvShapesList.appendChild(row);
@@ -1553,8 +1591,7 @@ function pvRenderList() {
     b.addEventListener('click', e => { e.stopPropagation(); pvChangeQty(b.dataset.id, -1); }));
   pvShapesList.querySelectorAll('.pvw-inc').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); pvChangeQty(b.dataset.id, 1); }));
-  pvShapesList.querySelectorAll('.pvw-del').forEach(b =>
-    b.addEventListener('click', e => { e.stopPropagation(); pvDeleteShape(b.dataset.id); }));
+  pvSyncActions();
 }
 
 // ── Layer tabs ────────────────────────────────────────────
@@ -1573,7 +1610,7 @@ function pvRenderTabs() {
   };
   pvLayerTabs.appendChild(mk('All', 'var(--text-muted)', null));
   pv.layers.forEach(l => {
-    const cnt   = pv.shapes.filter(s => (s.involvedLayers || [s.layer]).includes(l.name) && s.visible).length;
+    const cnt   = pv.shapes.filter(s => (s.ownerLayers || [s.layer]).includes(l.name) && s.visible).length;
     const btn   = mk(l.name, l.color, l.name);
     const badge = document.createElement('span');
     badge.className = 'pvw-tab-count'; badge.textContent = cnt;
@@ -1602,6 +1639,18 @@ function pvDeleteShape(id) {
   if (pv.selectedId === id) pv.selectedId = null;
   pvRenderSVG(); pvRenderList(); pvRenderTabs();
 }
+pvRemoveShape?.addEventListener('click', () => {
+  if (!pv.selectedId) return;
+  pvDeleteShape(pv.selectedId);
+});
+pvRemovePart?.addEventListener('click', () => {
+  if (!pv.fileId || typeof window.removeJobFileById !== 'function') return;
+  const removed = window.removeJobFileById(pv.fileId);
+  if (removed && typeof window.schedulePersistJobState === 'function') {
+    window.schedulePersistJobState();
+  }
+  if (removed) closeDXFPreview();
+});
 
 // ── Zoom ──────────────────────────────────────────────────
 function pvSetZoom(z) {
@@ -1646,6 +1695,32 @@ function pvShowLoading() {
   pvFileMeta.textContent = 'Loading…';
 }
 
+function clonePreviewShape(shape) {
+  return {
+    ...shape,
+    bbox: shape?.bbox ? { ...shape.bbox } : shape.bbox,
+    polygonPoints: Array.isArray(shape?.polygonPoints)
+      ? shape.polygonPoints.map(point => ({ ...point }))
+      : shape.polygonPoints,
+    holes: Array.isArray(shape?.holes) ? shape.holes.map(hole => ({ ...hole })) : shape.holes,
+    involvedLayers: Array.isArray(shape?.involvedLayers) ? [...shape.involvedLayers] : shape.involvedLayers,
+    ownerLayers: Array.isArray(shape?.ownerLayers) ? [...shape.ownerLayers] : shape.ownerLayers,
+    decorSVG: Array.isArray(shape?.decorSVG) ? [...shape.decorSVG] : shape.decorSVG,
+    decorItems: Array.isArray(shape?.decorItems) ? shape.decorItems.map(item => ({ ...item })) : shape.decorItems,
+    outerBoundaryItems: Array.isArray(shape?.outerBoundaryItems)
+      ? shape.outerBoundaryItems.map(item => ({ ...item }))
+      : shape.outerBoundaryItems,
+  };
+}
+
+function clonePreviewData(data) {
+  if (!data) return null;
+  return {
+    shapes: Array.isArray(data.shapes) ? data.shapes.map(clonePreviewShape) : [],
+    layers: Array.isArray(data.layers) ? data.layers.map(layer => ({ ...layer })) : [],
+  };
+}
+
 // ── Open / close ──────────────────────────────────────────
 async function openDXFPreview(fileId, filename) {
   pv.fileId = fileId; pv.filename = filename;
@@ -1653,6 +1728,8 @@ async function openDXFPreview(fileId, filename) {
   pv.shapes = []; pv.layers = []; pv.positions = [];
   pvFileName.textContent  = filename;
   pvZoomLabel.textContent = '100%';
+  pv.selectedId = null;
+  pvSyncActions();
   // Restore panel if it was hidden
   if (!pv.panelVisible) {
     pv.panelVisible = true;
@@ -1666,12 +1743,25 @@ async function openDXFPreview(fileId, filename) {
   let data   = null;
   let source = 'mock';
 
-  if (file && file.path && window.electronAPI && window.electronAPI.parseDXF) {
+  if (file?.shapes?.length) {
+    data = clonePreviewData({
+      shapes: file.shapes,
+      layers: file.layers || [],
+    });
+    source = 'saved';
+  }
+
+  if (!data && file && file.path && window.electronAPI && window.electronAPI.parseDXF) {
     try {
       const result = await window.electronAPI.parseDXF(file.path);
       if (result.success && result.data) {
         const parsed = parseDXFToShapes(result.data, result.raw);
-        if (parsed) { data = parsed; source = 'real'; }
+        if (parsed) {
+          data = parsed;
+          file.shapes = clonePreviewData(parsed).shapes;
+          file.layers = clonePreviewData(parsed).layers;
+          source = 'real';
+        }
         else console.warn('[DXF] No closed contours found — using mock');
       } else {
         console.warn('[DXF] Parse error:', result.error);
@@ -1688,7 +1778,7 @@ async function openDXFPreview(fileId, filename) {
   pv.canvasWidth = getCanvasWidth();
   pv.positions = autoLayout(pv.shapes, pv.canvasWidth);
 
-  const hint = source === 'real' ? '' : '  · preview';
+  const hint = source === 'mock' ? '  · preview' : '';
   pvFileMeta.textContent =
     `${pv.shapes.length} shape${pv.shapes.length !== 1 ? 's' : ''} · ` +
     `${pv.layers.length} layer${pv.layers.length !== 1 ? 's' : ''}${hint}`;
@@ -1703,6 +1793,16 @@ window.addEventListener('resize', () => {
 
 function closeDXFPreview() { pvModal.classList.remove('open'); }
 
+window.addEventListener('keydown', e => {
+  if (!pvModal.classList.contains('open')) return;
+  if (!pv.selectedId) return;
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  e.preventDefault();
+  pvDeleteShape(pv.selectedId);
+});
+
 pvClose.addEventListener('click',  closeDXFPreview);
 pvCancel.addEventListener('click', closeDXFPreview);
 pvModal.addEventListener('click',  e => { if (e.target === pvModal) closeDXFPreview(); });
@@ -1710,11 +1810,16 @@ pvModal.addEventListener('click',  e => { if (e.target === pvModal) closeDXFPrev
 pvApply.addEventListener('click', () => {
   const file = state.files.find(f => f.id === pv.fileId);
   if (file) {
-    file.shapes = pv.shapes.filter(s => s.visible).map(s => ({ ...s }));
+    file.shapes = pv.shapes.map(shape => clonePreviewShape(shape));
+    file.layers = pv.layers.map(layer => ({ ...layer }));
     file.qty    = file.shapes.reduce((a, s) => a + s.qty, 0);
     renderFiles();
+    if (typeof window.schedulePersistJobState === 'function') {
+      window.schedulePersistJobState();
+    }
   }
   closeDXFPreview();
 });
 
 window.openDXFPreview = openDXFPreview;
+window.parseDXFToShapes = parseDXFToShapes;

@@ -14,7 +14,17 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <div class="modal-header">
-      <span class="modal-title">Nesting Parameters</span>
+      <span class="modal-title">
+        <div class="app-logo">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <rect x="1" y="1" width="9" height="6" rx="1.5" fill="#4f8ef7"/>
+            <rect x="12" y="1" width="9" height="9" rx="1.5" fill="#4f8ef7" opacity="0.7"/>
+            <rect x="1" y="9" width="5" height="12" rx="1.5" fill="#4f8ef7" opacity="0.5"/>
+            <rect x="8" y="12" width="13" height="9" rx="1.5" fill="#4f8ef7" opacity="0.85"/>
+          </svg>
+          <span class="app-name">Settings</span>
+        </div>
+      </span>
       <button class="modal-close" id="closeSettings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -23,25 +33,29 @@
     </div>
     <div class="modal-body">
       <div class="settings-section">
+        <div class="settings-section-title">Sketch</div>
+        <div class="setting-row">
+          <label>Multi-Sketch Detection</label>
+          <label class="toggle">
+            <input type="checkbox" data-setting-key="multiSketchDetection" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">Spacing &amp; Tolerances</div>
         <div class="setting-row">
           <label>Part Spacing (mm)</label>
           <div class="input-with-unit">
-            <input type="number" value="2" min="0" step="0.5" />
+            <input type="number" value="0" min="0" step="0.5" data-setting-key="partSpacing" />
             <span class="unit">mm</span>
           </div>
         </div>
         <div class="setting-row">
           <label>Sheet Margin (mm)</label>
           <div class="input-with-unit">
-            <input type="number" value="5" min="0" step="1" />
-            <span class="unit">mm</span>
-          </div>
-        </div>
-        <div class="setting-row">
-          <label>Curve Tolerance</label>
-          <div class="input-with-unit">
-            <input type="number" value="0.72" min="0.01" step="0.01" />
+            <input type="number" value="0" min="0" step="1" data-setting-key="sheetMargin" />
             <span class="unit">mm</span>
           </div>
         </div>
@@ -51,17 +65,18 @@
         <div class="settings-section-title">Rotation</div>
         <div class="setting-row">
           <label>Rotation Step</label>
-          <select>
-            <option>No rotation</option>
-            <option selected>90°</option>
-            <option>45°</option>
-            <option>Any (continuous)</option>
+          <select data-setting-key="rotationStep">
+            <option value="none">No rotation</option>
+            <option value="90" selected>90°</option>
+            <option value="45">45°</option>
+            <option value="15">15°</option>
+            <option value="10">10°</option>
           </select>
         </div>
         <div class="setting-row">
           <label>Mirror Parts</label>
           <label class="toggle">
-            <input type="checkbox" />
+            <input type="checkbox" data-setting-key="mirrorParts" />
             <span class="toggle-track"></span>
           </label>
         </div>
@@ -70,25 +85,24 @@
       <div class="settings-section">
         <div class="settings-section-title">Algorithm</div>
         <div class="setting-row">
-          <label>Strategy</label>
-          <select>
-            <option selected>Best-fit decreasing</option>
-            <option>First-fit</option>
-            <option>Genetic</option>
+          <label>Early Stopping</label>
+          <label class="toggle">
+            <input type="checkbox" checked data-setting-key="earlyStopping" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <label>Preferred Alignment</label>
+          <select data-setting-key="preferredAlignment">
+            <option value="top" selected>Top</option>
+            <option value="bottom">Bottom</option>
           </select>
         </div>
         <div class="setting-row">
-          <label>Iterations</label>
+          <label>Time Limit</label>
           <div class="input-with-unit">
-            <input type="number" value="5" min="1" max="50" />
-            <span class="unit">passes</span>
-          </div>
-        </div>
-        <div class="setting-row">
-          <label>Concurrent workers</label>
-          <div class="input-with-unit">
-            <input type="number" value="4" min="1" max="32" />
-            <span class="unit">threads</span>
+            <input type="number" value="60" min="10" step="10" data-setting-key="timeLimit" />
+            <span class="unit">seconds</span>
           </div>
         </div>
       </div>
@@ -97,16 +111,16 @@
         <div class="settings-section-title">Output</div>
         <div class="setting-row">
           <label>Export format</label>
-          <select>
-            <option selected>SVG</option>
-            <option>DXF</option>
-            <option>PDF</option>
+          <select data-setting-key="exportFormat">
+            <option value="svg" selected>SVG</option>
+            <option value="dxf">DXF</option>
+            <option value="pdf">PDF</option>
           </select>
         </div>
         <div class="setting-row">
           <label>Show part labels</label>
           <label class="toggle">
-            <input type="checkbox" checked />
+            <input type="checkbox" checked data-setting-key="showPartLabels" />
             <span class="toggle-track"></span>
           </label>
         </div>
@@ -125,7 +139,17 @@
 <div class="modal-overlay" id="sheetModal">
   <div class="modal modal-sm">
     <div class="modal-header">
-      <span class="modal-title">Add Sheet</span>
+      <span class="modal-title"> 
+        <div class="app-logo">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <rect x="1" y="1" width="9" height="6" rx="1.5" fill="#4f8ef7"/>
+            <rect x="12" y="1" width="9" height="9" rx="1.5" fill="#4f8ef7" opacity="0.7"/>
+            <rect x="1" y="9" width="5" height="12" rx="1.5" fill="#4f8ef7" opacity="0.5"/>
+            <rect x="8" y="12" width="13" height="9" rx="1.5" fill="#4f8ef7" opacity="0.85"/>
+          </svg>
+          <span class="app-name">Add Sheet</span>
+        </div>
+      </span>
       <button class="modal-close" id="closeSheet">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -136,33 +160,41 @@
       <div class="settings-section">
         <div class="settings-section-title">Preset sizes</div>
         <div class="sheet-presets">
-          <button class="preset-btn" data-w="2440" data-h="1220">2440 × 1220</button>
-          <button class="preset-btn" data-w="3000" data-h="1500">3000 × 1500</button>
-          <button class="preset-btn" data-w="4000" data-h="2000">4000 × 2000</button>
-          <button class="preset-btn" data-w="6000" data-h="2000">6000 × 2000</button>
+          <button class="preset-btn" data-w="3000" data-h="1250">1250 x 3000</button>
+          <button class="preset-btn" data-w="3000" data-h="1500">1500 x 3000</button>
+          <button class="preset-btn" data-w="4000" data-h="2000">2000 x 4000</button>
+          <button class="preset-btn" data-w="6000" data-h="2000">2000 x 6000</button>
         </div>
       </div>
       <div class="settings-section">
-        <div class="settings-section-title">Custom dimensions</div>
+        <div class="settings-section-title">Dimensions</div>
+        <div class="setting-row">
+          <label>Mode</label>
+          <select id="sheetWidthMode">
+            <option value="fixed" selected>Fixed width sheet</option>
+            <option value="max">Optimize up to max width</option>
+            <option value="unlimited">Unlimited strip width</option>
+          </select>
+        </div>
+        <div class="sheet-field-head">
+          <span>Length</span>
+          <span>Width</span>
+        </div>
         <div class="sheet-dims-row">
           <div class="input-with-unit">
-            <input type="number" id="sheetWidth" placeholder="Width" value="2440" min="1" />
+            <input type="number" id="sheetHeight" placeholder="Height" value="1250" min="1" />
             <span class="unit">mm</span>
           </div>
           <span class="dims-sep">×</span>
           <div class="input-with-unit">
-            <input type="number" id="sheetHeight" placeholder="Height" value="1220" min="1" />
+            <input type="number" id="sheetWidth" placeholder="Width" value="3000" min="1" />
             <span class="unit">mm</span>
           </div>
         </div>
-        <div class="setting-row" style="margin-top:12px;">
-          <label>Quantity</label>
-          <div class="input-with-unit">
-            <input type="number" id="sheetQty" value="1" min="1" max="99" />
-            <span class="unit">sheets</span>
-          </div>
+        <div class="sheet-help" id="sheetModeHelp" >
+          The algorithm will calculate the number of sheets automatically.
         </div>
-        <div class="setting-row">
+        <div class="setting-row" style="margin-top:12px;">
           <label>Material</label>
           <input type="text" id="sheetMaterial" placeholder="e.g. Mild Steel 3mm" style="flex:1;margin-left:12px;" />
         </div>
@@ -182,7 +214,7 @@
 
   <!-- TOP BAR -->
   <header class="topbar">
-    <div class="topbar-left">
+    <!-- <div class="topbar-left">
       <div class="app-logo">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
           <rect x="1" y="1" width="9" height="6" rx="1.5" fill="#4f8ef7"/>
@@ -192,7 +224,7 @@
         </svg>
         <span class="app-name">NestKit</span>
       </div>
-    </div>
+    </div> -->
 
     <div class="topbar-center">
       <div class="run-controls">
@@ -219,7 +251,7 @@
     </div>
 
     <div class="topbar-right">
-      <button class="icon-btn" id="openSettings" title="Nesting parameters">
+      <button class="icon-btn" id="openSettings" title="Settings">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.6"/>
           <path d="M9 1v2M9 15v2M1 9h2M15 9h2M3.05 3.05l1.41 1.41M13.54 13.54l1.41 1.41M3.05 14.95l1.41-1.41M13.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -380,8 +412,16 @@
       <!-- Shapes panel -->
       <div class="pvw-shapes-panel">
         <div class="pvw-panel-hdr">
-          <span class="pvw-panel-title">Shapes</span>
-          <span class="pvw-count-badge" id="pvShapeCount">0</span>
+          <div class="pvw-panel-meta">
+            <span class="pvw-panel-title">Shapes</span>
+            <span class="pvw-count-badge" id="pvShapeCount">0</span>
+          </div>
+          <button class="pvw-remove-selected" id="pvRemoveShape" title="Remove selected shape" disabled>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M9.5 1.5L1.5 9.5M1.5 1.5l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <span>Remove</span>
+          </button>
         </div>
         <div class="pvw-shapes-list" id="pvShapesList"></div>
       </div>
@@ -392,6 +432,7 @@
     <div class="modal-footer">
       <span class="pvw-stats" id="pvStats"></span>
       <div style="display:flex;gap:8px">
+        <button class="btn-secondary" id="pvRemovePart">Remove Part</button>
         <button class="btn-secondary" id="pvCancel">Cancel</button>
         <button class="btn-primary" id="pvApply">Apply to Job</button>
       </div>
