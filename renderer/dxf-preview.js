@@ -1250,7 +1250,8 @@ function parseDXFToShapes(dxf, raw) {
       layerMap.set(ln, layerColor(ln));
     });
 
-    const mixedOuterLayers = outer.entity?.type === 'LINE_LOOP' && Array.isArray(outer.entity?.sourceLayers) && outer.entity.sourceLayers.length > 1;
+    const hasSyntheticOuter = outer.entity?.type === 'LINE_LOOP';
+    const mixedOuterLayers = hasSyntheticOuter && Array.isArray(outer.entity?.sourceLayers) && outer.entity.sourceLayers.length > 1;
     const ln = outer.layer || '0';
     layerMap.set(ln, layerColor(ln));
     const contourLayers = [...new Set(
@@ -1267,8 +1268,8 @@ function parseDXFToShapes(dxf, raw) {
     const ownerLayers = [preferredOuterLayer];
     ownerLayers.forEach(layerName => layerMap.set(layerName, layerColor(layerName)));
     const involvedLayers = [...new Set([...contourLayers, ...decorItems.map(item => item.layer)])];
-    const selectionFillAllowed = !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0;
-    const outerBoundaryItems = mixedOuterLayers
+    const selectionFillAllowed = !hasSyntheticOuter && !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0;
+    const outerBoundaryItems = hasSyntheticOuter
       ? (outer.entity?.sourceEntities || []).map(entity => {
           const layerName = entity.layer || '0';
           const color = layerColor(layerName);
@@ -1287,6 +1288,7 @@ function parseDXFToShapes(dxf, raw) {
       name:       `Shape ${idx}`,
       layer:      preferredOuterLayer,
       layerColor: layerColor(preferredOuterLayer),
+      hasSyntheticOuter,
       mixedOuterLayers,
       selectionFillAllowed,
       outerBoundaryItems,
@@ -1413,6 +1415,7 @@ function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth
     const pos     = positions[i];
     const isSel   = s.id === selectedId;
     const hasActiveLayer = activeLayer !== null;
+    const renderSyntheticPath = !s.hasSyntheticOuter;
     const selectableLayers = s.ownerLayers || [s.layer];
     const layerMatch = !hasActiveLayer || selectableLayers.includes(activeLayer);
     const isDimmed = !s.visible || !layerMatch;
@@ -1435,17 +1438,18 @@ function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth
     const outerFillOpacity = allowSelectionFill ? dimmedOuterOpacity : 0;
     const outerStroke = s.layerColor;
     const outerStrokeOpacity = dimmedStrokeOpacity;
+    const selectionStroke = isDimmed ? '#aab2c8' : '#f5f7ff';
 
     return `
 <g class="pvw-shape" data-id="${s.id}"
    transform="translate(${f(pos.x)},${f(pos.y)})"
    opacity="${isDimmed ? 0.12 : 1}" style="cursor:pointer">
   ${showOuter && isSel && allowSelectionFill ? `<path d="${s.pathData}" fill="white" fill-opacity="0.06" fill-rule="${s.fillRule}" stroke="none"/>` : ''}
-  ${showOuter && !s.mixedOuterLayers ? `<path d="${s.pathData}"
+  ${showOuter && renderSyntheticPath && !s.mixedOuterLayers ? `<path d="${s.pathData}"
     fill="${outerFill}" fill-opacity="${outerFillOpacity}" fill-rule="${s.fillRule}"
     stroke="${outerStroke}" stroke-opacity="${outerStrokeOpacity}" stroke-width="${isSel ? 2 : 1.4}" stroke-linejoin="round"
     ${isSel && (!hasActiveLayer || activeLayer === s.layer) ? 'filter="url(#pvwGlow)"' : ''}/>` : ''}
-  ${showOuter && isSel ? `<path d="${s.pathData}" fill="none" stroke="${s.layerColor}" stroke-width="2.8" stroke-opacity="0.35" stroke-dasharray="5 3" fill-rule="${s.fillRule}"/>` : ''}
+  ${showOuter && isSel ? `<path d="${s.pathData}" fill="none" stroke="${selectionStroke}" stroke-width="2.8" stroke-opacity="0.55" stroke-dasharray="5 3" fill-rule="${s.fillRule}"/>` : ''}
   ${visibleBoundaryItems.map(item => item.svg).join('\n')}
   ${visibleDecorItems.map(item => item.svg).join('\n')}
   <text x="${f(s.bbox.w / 2)}" y="${f(s.bbox.h + 11)}"
@@ -1563,7 +1567,7 @@ function pvRenderList() {
     const thumbFill = s.layerColor;
     const thumbStroke = s.layerColor;
     const thumb = `<svg viewBox="0 0 ${f(s.bbox.w)} ${f(s.bbox.h)}" width="${tw}" height="${th}">
-      ${!s.mixedOuterLayers ? `<path d="${s.pathData}" fill="${thumbFill}" fill-opacity="${thumbFillOpacity}" fill-rule="${s.fillRule}"
+      ${!s.hasSyntheticOuter && !s.mixedOuterLayers ? `<path d="${s.pathData}" fill="${thumbFill}" fill-opacity="${thumbFillOpacity}" fill-rule="${s.fillRule}"
         stroke="${thumbStroke}" stroke-width="${f(1.6 / ts)}" stroke-linejoin="round"/>` : ''}
       ${scaledBoundary}
       ${scaledDecors}
