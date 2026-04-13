@@ -177,6 +177,13 @@ function polygonSignedArea(points) {
   return area / 2;
 }
 
+/** Return points in CCW order in DXF space (positive signed area).
+ *  Reverses the array in-place if it was CW. */
+function normalizeWindingCCW(points) {
+  if (polygonSignedArea(points) < 0) points.reverse();
+  return points;
+}
+
 function interiorPoint(points) {
   if (!points.length) return null;
   const avg = points.reduce((acc, pt) => ({
@@ -566,7 +573,66 @@ function contourEntityToPoints(ent) {
   }
 }
 
+/** Build an SVG arc segment (no leading M) for one ARC entity within a chain.
+ *  reversed=true means we traverse end→start (flip sweep direction). */
+function arcChainSegment(ent, ox, originMaxY, reversed) {
+  const cx = ent.center.x - ox;
+  const cy = originMaxY - ent.center.y;
+  const r  = ent.radius;
+  const sA = reversed ? (ent.endAngle   || 0) : (ent.startAngle || 0);
+  const eA = reversed ? (ent.startAngle || 0) : (ent.endAngle   || 0);
+  const x2 = cx + r * Math.cos(eA);
+  const y2 = cy - r * Math.sin(eA);
+  let span = Number.isFinite(ent.angleLength) ? ent.angleLength
+           : (ent.endAngle - ent.startAngle);
+  if (span <= 0) span += TWO_PI;
+  if (span >= TWO_PI - 1e-4) span = TWO_PI - 1e-4; // avoid degenerate full-circle in chain
+  const large  = span > Math.PI ? 1 : 0;
+  const sweep  = reversed ? 0 : 1; // 1=CW in SVG ≡ CCW in DXF (Y-flip)
+  return `A${f(r)},${f(r)},0,${large},${sweep},${f(x2)},${f(y2)}`;
+}
+
+/** Build a closed SVG path from an ordered list of {entity, reversed} edges
+ *  produced during chain tracing.  Preserves true arc geometry. */
+function lineLoopToSVGPath(orderedEdges, ox, originMaxY) {
+  if (!orderedEdges || orderedEdges.length === 0) return '';
+
+  function edgeStartPt(entity, reversed) {
+    if (entity.type === 'LINE') {
+      const ep = getLineEndpoints(entity);
+      return reversed ? ep.end : ep.start;
+    }
+    if (entity.type === 'ARC') {
+      const a = reversed ? (entity.endAngle || 0) : (entity.startAngle || 0);
+      return { x: entity.center.x + entity.radius * Math.cos(a),
+               y: entity.center.y + entity.radius * Math.sin(a) };
+    }
+    return null;
+  }
+
+  const { entity: fe, reversed: fr } = orderedEdges[0];
+  const p0 = edgeStartPt(fe, fr);
+  if (!p0) return '';
+
+  let d = `M${f(p0.x - ox)},${f(originMaxY - p0.y)}`;
+
+  for (const { entity, reversed } of orderedEdges) {
+    if (entity.type === 'LINE') {
+      const ep  = getLineEndpoints(entity);
+      const end = reversed ? ep.start : ep.end;
+      d += ` L${f(end.x - ox)},${f(originMaxY - end.y)}`;
+    } else if (entity.type === 'ARC') {
+      d += ' ' + arcChainSegment(entity, ox, originMaxY, reversed);
+    }
+  }
+
+  return d + ' Z';
+}
+
 function contourEntityToPath(ent, ox, originMaxY) {
+  if (ent.type === 'LINE_LOOP' && ent.orderedEdges) {
+    return lineLoopToSVGPath(ent.orderedEdges, ox, originMaxY);
+  }
   const pts = contourEntityToPoints(ent);
   return pathFromPoints(pts, ox, originMaxY, true);
 }
@@ -603,11 +669,22 @@ function buildClosedContoursFromLines(entities) {
     return [];
   }
 
+  // Adaptive snap tolerance: 0.01% of the geometry's bounding-box diagonal,
+  // floored at LOOP_TOLERANCE so tiny shapes still work.
+  const allPts = openEdges.flatMap(e => [e.start, e.end]);
+  const xVals = allPts.map(p => p.x), yVals = allPts.map(p => p.y);
+  const span = Math.hypot(
+    Math.max(...xVals) - Math.min(...xVals),
+    Math.max(...yVals) - Math.min(...yVals)
+  );
+  const snapTol = Math.max(LOOP_TOLERANCE, span * 1e-4);
+  debugDXF('Adaptive snap tolerance', { span: +span.toFixed(4), snapTol: +snapTol.toFixed(6) });
+
   const adjacency = new Map();
   const nodes = new Map();
 
   function ensureNode(pt) {
-    const key = pointKey(pt);
+    const key = pointKey(pt, snapTol);
     if (!adjacency.has(key)) adjacency.set(key, []);
     if (!nodes.has(key)) nodes.set(key, { x: pt.x, y: pt.y, key });
     return key;
@@ -721,6 +798,7 @@ function buildClosedContoursFromLines(entities) {
 
   const loops = [];
   const visitedHalfEdges = new Set();
+  const ccwHalfEdges = new Set(); // half-edges used in CCW (positive-area) faces
   const seenCycles = new Set();
 
   openEdges.forEach((edge, index) => {
@@ -742,16 +820,27 @@ function buildClosedContoursFromLines(entities) {
       loop.pointKeys.slice(0, -1).forEach((fromKey, i) => {
         const toKey = loop.pointKeys[i + 1];
         const edgeIndex = loop.edgeIndices[i];
-        visitedHalfEdges.add(halfEdgeKey(fromKey, edgeIndex, toKey));
+        const hk = halfEdgeKey(fromKey, edgeIndex, toKey);
+        visitedHalfEdges.add(hk);
+        if (loop.area > EPS) ccwHalfEdges.add(hk);
       });
 
+      // Skip CW or degenerate loops — outer boundary recovered via ccwHalfEdges complement
       if (loop.area <= EPS) return;
 
       const cycleKey = normalizeCycle(loop.pointKeys);
       if (!cycleKey || seenCycles.has(cycleKey)) return;
       seenCycles.add(cycleKey);
 
-      const sourceEntities = [...new Set(loop.edgeIndices.map(edgeIndex => openEdges[edgeIndex].entity))];
+      // Ordered traversal: each entry records the entity and whether it was
+      // walked in reverse (endKey→startKey) so we can rebuild a curve-exact path.
+      const orderedEdges = loop.edgeIndices.map((edgeIdx, i) => {
+        const edge = openEdges[edgeIdx];
+        const fromKey = loop.pointKeys[i];
+        return { entity: edge.entity, reversed: fromKey !== edge.startKey };
+      });
+
+      const sourceEntities = [...new Set(orderedEdges.map(e => e.entity))];
       sourceEntities.forEach(entity => { entity.__inferredContour = true; });
       const dominantLayer = sourceEntities.reduce((acc, ent) => {
         const layer = ent.layer || '0';
@@ -768,20 +857,148 @@ function buildClosedContoursFromLines(entities) {
         isSingleLayer: sourceLayers.length <= 1,
         points: loop.points,
         sourceEntities,
+        orderedEdges,
         componentId: edgeComponent.get(index),
       });
     });
+  });
+
+  // ── Outer boundary recovery via ccwHalfEdges complement ──────────────────
+  // traceFace (left-turn) only traces CCW (positive-area) interior faces.
+  // Exterior half-edges — those NOT used by any CCW face — form the outer boundary.
+  // At high-degree nodes the left-turn CW trace took wrong interior shortcuts;
+  // following only exterior half-edges is unambiguous: boundary nodes have exactly
+  // one exterior outgoing half-edge. A right-turn selection fallback handles
+  // the rare case of multiple candidates at a node.
+
+  const maxInteriorAreaByComponent = new Map();
+  loops.forEach(loop => {
+    const a = Math.abs(polygonSignedArea(loop.points));
+    const prev = maxInteriorAreaByComponent.get(loop.componentId) || 0;
+    if (a > prev) maxInteriorAreaByComponent.set(loop.componentId, a);
+  });
+
+  const visitedExterior = new Set();
+
+  openEdges.forEach((edge, index) => {
+    for (const startHE of [
+      { fromKey: edge.startKey, edgeIndex: index, toKey: edge.endKey },
+      { fromKey: edge.endKey, edgeIndex: index, toKey: edge.startKey },
+    ]) {
+      const startHK = halfEdgeKey(startHE.fromKey, startHE.edgeIndex, startHE.toKey);
+      if (ccwHalfEdges.has(startHK) || visitedExterior.has(startHK)) continue;
+
+      const edgeIndices = [];
+      const pointKeys = [startHE.fromKey];
+      let curFrom = startHE.fromKey;
+      let curEdgeIndex = startHE.edgeIndex;
+      let curTo = startHE.toKey;
+      let closed = false;
+      let safety = 0;
+
+      while (safety++ < openEdges.length + 8) {
+        const hk = halfEdgeKey(curFrom, curEdgeIndex, curTo);
+        if (visitedExterior.has(hk)) break;
+        visitedExterior.add(hk);
+        edgeIndices.push(curEdgeIndex);
+        pointKeys.push(curTo);
+
+        if (curTo === startHE.fromKey) { closed = true; break; }
+
+        // At each boundary node exactly one outgoing half-edge is exterior.
+        // Use right-turn selection (reverseIndex + 1) to find it.
+        const options = outgoing.get(curTo) || [];
+        const reverseIndex = options.findIndex(
+          opt => opt.edgeIndex === curEdgeIndex && opt.toKey === curFrom
+        );
+
+        let nextEdge = null;
+        if (reverseIndex !== -1) {
+          for (let offset = 1; offset <= options.length; offset++) {
+            const idx = (reverseIndex + offset) % options.length;
+            const opt = options[idx];
+            const optHK = halfEdgeKey(opt.fromKey, opt.edgeIndex, opt.toKey);
+            if (!ccwHalfEdges.has(optHK) && !visitedExterior.has(optHK)) {
+              nextEdge = opt;
+              break;
+            }
+          }
+        }
+
+        if (!nextEdge) break;
+        curFrom = nextEdge.fromKey;
+        curEdgeIndex = nextEdge.edgeIndex;
+        curTo = nextEdge.toKey;
+      }
+
+      if (!closed || edgeIndices.length < 3) continue;
+
+      const points = dedupePoints(pointKeys.map(k => nodes.get(k)), true);
+      if (points.length < 3) continue;
+
+      const compId = edgeComponent.get(edgeIndices[0]);
+      const area = polygonSignedArea(points);
+      const absArea = Math.abs(area);
+
+      // Only promote when this loop is strictly larger than all interior faces
+      const maxInterior = maxInteriorAreaByComponent.get(compId) || 0;
+      if (absArea <= maxInterior * 1.001) continue;
+
+      // Outer boundary is CW (negative area); reverse to CCW
+      const ccwPoints = area < 0 ? [...points].reverse() : points;
+      const orderedEdgesCW = edgeIndices.map((edgeIdx, i) => {
+        const e = openEdges[edgeIdx];
+        const fromKey = pointKeys[i];
+        return { entity: e.entity, reversed: fromKey !== e.startKey };
+      });
+      const ccwEdges = area < 0
+        ? [...orderedEdgesCW].reverse().map(e => ({ entity: e.entity, reversed: !e.reversed }))
+        : orderedEdgesCW;
+
+      const sourceEntities = [...new Set(ccwEdges.map(e => e.entity))];
+      sourceEntities.forEach(e => { e.__inferredContour = true; });
+      const domLayer = sourceEntities.reduce((acc, ent) => {
+        const l = ent.layer || '0'; acc[l] = (acc[l] || 0) + 1; return acc;
+      }, {});
+      const sourceLayers = Object.keys(domLayer);
+      const layer = Object.entries(domLayer).sort((a, b) => b[1] - a[1])[0]?.[0] || '0';
+
+      debugDXF('Outer boundary recovered (exterior HE)', {
+        compId,
+        absArea: +absArea.toFixed(3),
+        maxInterior: +maxInterior.toFixed(3),
+        sourceLayers,
+        edgeCount: edgeIndices.length,
+      });
+
+      loops.push({
+        type: 'LINE_LOOP',
+        layer,
+        sourceLayers,
+        isSingleLayer: sourceLayers.length <= 1,
+        points: ccwPoints,
+        sourceEntities,
+        orderedEdges: ccwEdges,
+        componentId: compId,
+        isOuterBoundary: true,
+      });
+    }
   });
 
   const bestLoopByComponent = new Map();
   loops.forEach(loop => {
     const area = Math.abs(polygonSignedArea(loop.points));
     const prev = bestLoopByComponent.get(loop.componentId);
+    // isOuterBoundary loops are always preferred over interior face loops.
+    // Among ties, largest area wins; isSingleLayer breaks further ties.
     const score = [
-      loop.isSingleLayer ? 1 : 0,
+      loop.isOuterBoundary ? 1 : 0,
       area,
+      loop.isSingleLayer ? 1 : 0,
     ];
-    if (!prev || score[0] > prev.score[0] || (score[0] === prev.score[0] && score[1] > prev.score[1])) {
+    if (!prev || score[0] > prev.score[0] ||
+        (score[0] === prev.score[0] && score[1] > prev.score[1]) ||
+        (score[0] === prev.score[0] && score[1] === prev.score[1] && score[2] > prev.score[2])) {
       bestLoopByComponent.set(loop.componentId, { area, loop, score });
     }
   });
@@ -803,6 +1020,8 @@ function buildClosedContoursFromLines(entities) {
     nodeCount: nodes.size,
     componentCount: componentSeq,
     degreeHistogram,
+    ccwHalfEdgeCount: ccwHalfEdges.size,
+    exteriorLoopsPromoted: loops.filter(l => l.isOuterBoundary).length,
     inferredLoops: loops.length,
     selectedLoops: loops.filter(loop => loop.isPrimary).length,
     loops: loops.map((loop, index) => ({
@@ -875,12 +1094,15 @@ function groupByContour(entities) {
 
   const closed = contourEntities
     .map((entity, index) => {
-      const points = contourEntityToPoints(entity);
-      if (points.length < 3) return null;
-      const bbox = bboxFromPoints(points);
+      const pts = contourEntityToPoints(entity);
+      if (pts.length < 3) return null;
+      const bbox = bboxFromPoints(pts);
       if (!bbox) return null;
-      const area = Math.abs(polygonSignedArea(points));
+      const area = Math.abs(polygonSignedArea(pts));
       if (area < EPS) return null;
+      // Normalize to CCW in DXF space so polygonPoints and pathFromPoints
+      // have consistent winding regardless of how the CAD tool drew the entity.
+      const points = normalizeWindingCCW(pts);
       return {
         id: `c_${index}`,
         entity,
@@ -938,6 +1160,16 @@ function groupByContour(entities) {
 
   if (uniqueClosed.length === 0) return [];
 
+  debugDXF('All contours before parent assignment', uniqueClosed.map((c, i) => ({
+    i,
+    id: c.id,
+    type: c.entity?.type,
+    layer: c.layer,
+    area: +c.area.toFixed(3),
+    isPrimary: c.entity?.isPrimary,
+    sourceLayers: c.entity?.sourceLayers,
+  })));
+
   // For each closed poly, find its direct parent (smallest containing poly)
   const parents = uniqueClosed.map((poly, i) => {
     let bestJ = -1, bestArea = Infinity;
@@ -958,8 +1190,27 @@ function groupByContour(entities) {
     return bestJ;
   });
 
+  debugDXF('Parent assignments', uniqueClosed.map((c, i) => ({
+    i,
+    id: c.id,
+    layer: c.layer,
+    area: +c.area.toFixed(3),
+    parentI: parents[i],
+    parentId: parents[i] >= 0 ? uniqueClosed[parents[i]].id : null,
+    parentLayer: parents[i] >= 0 ? uniqueClosed[parents[i]].layer : null,
+  })));
+
   // Top-level = no parent
   const topIdx = uniqueClosed.map((_, i) => i).filter(i => parents[i] === -1);
+
+  debugDXF('Top-level (outer) contours', topIdx.map(ti => ({
+    i: ti,
+    id: uniqueClosed[ti].id,
+    type: uniqueClosed[ti].entity?.type,
+    layer: uniqueClosed[ti].layer,
+    area: +uniqueClosed[ti].area.toFixed(3),
+    sourceLayers: uniqueClosed[ti].entity?.sourceLayers,
+  })));
 
   return topIdx.map(ti => {
     const outer    = uniqueClosed[ti];
@@ -1208,8 +1459,17 @@ function parseDXFToShapes(dxf, raw) {
     const H = maxY - minY;
     if (W < 0.5 || H < 0.5) return;
 
+    // Outer contour: CCW in DXF space → CW in SVG (Y-flip).
+    // Holes: must be opposite winding to outer in SVG space → CCW in SVG → CW in DXF.
+    // We reverse hole points before passing to pathFromPoints so the compound
+    // path is correct for both evenodd and nonzero fill-rules.
     const contourPaths = [outer, ...holeContours]
-      .map(contour => contourEntityToPath(contour.entity, minX, maxY))
+      .map((contour, i) => {
+        if (i === 0) return contourEntityToPath(contour.entity, minX, maxY);
+        // hole: reverse points to get CW in DXF (CCW in SVG after Y-flip)
+        const holePts = [...contour.points].reverse();
+        return pathFromPoints(holePts, minX, maxY, true);
+      })
       .filter(Boolean);
     const pathData  = contourPaths.join(' ');
     const fillRule  = contourPaths.length > 1 ? 'evenodd' : 'nonzero';
