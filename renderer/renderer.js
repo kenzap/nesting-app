@@ -11,6 +11,7 @@ const state = {
   settings: {},
   editingSheetId: null,
   activeStripIndex: 0,
+  lastPlacementExportItems: null,
 };
 
 let nestInterval = null;
@@ -269,7 +270,10 @@ function baseJobName() {
 }
 
 async function ensureFileShapes(file) {
-  if (Array.isArray(file.shapes) && file.shapes.length) return file.shapes;
+  const hasUsableShapes = Array.isArray(file.shapes) && file.shapes.length;
+  const hasExportMetadata = hasUsableShapes && file.shapes.every(shape => Array.isArray(shape.exportEntities));
+  const hasLayerTable = Array.isArray(file.layers) && file.layers.length;
+  if (hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
   if (!file.path || !window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') {
     throw new Error(`No parsed shapes available for ${file.name}`);
   }
@@ -308,6 +312,7 @@ async function hydrateFileShapesForList(file) {
 
 async function buildPlacementPayload() {
   const items = [];
+  const exportItems = {};
   let nextId = 0;
   const settings = currentNestingSettings();
   const allowedOrientations = buildAllowedOrientations(settings.rotationStep);
@@ -317,9 +322,10 @@ async function buildPlacementPayload() {
     shapes.forEach(shape => {
       const points = sanitizePolygonPoints(shape.polygonPoints);
       if (points.length < 3) return;
+      const itemId = nextId++;
 
       items.push({
-        id: nextId++,
+        id: itemId,
         demand: Math.max(1, parseInt(shape.qty || 1, 10)),
         dxf: file.path || file.name,
         allowed_orientations: [...allowedOrientations],
@@ -328,12 +334,24 @@ async function buildPlacementPayload() {
           data: points.map(point => [point.x, point.y]),
         },
       });
+
+      exportItems[itemId] = {
+        source_file: file.path || file.name,
+        source_name: file.name,
+        source_shape_id: shape.id,
+        part_label: partLabelFromName(file.name),
+        layers: clonePlain(file.layers || []),
+        entities: clonePlain(shape.exportEntities || []),
+        polygon: points.map(point => [point.x, point.y]),
+      };
     });
   }
 
   if (!items.length) {
     throw new Error('No exportable shapes available');
   }
+
+  state.lastPlacementExportItems = exportItems;
 
   return {
     name: baseJobName(),
@@ -1235,6 +1253,7 @@ exportDXFBtn?.addEventListener('click', async () => {
       outputDir:   exportFolderPath,
       jobName:     state.nestResult.name || 'nesting-job',
       inputPath:   state.nestInputPath || null,
+      exportItems: state.lastPlacementExportItems || {},
       strips,
     });
     if (!result?.success) throw new Error(result?.error || 'Export failed');

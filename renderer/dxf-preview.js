@@ -538,6 +538,83 @@ function entityToSVGStr(ent, ox, originMaxY, color) {
   }
 }
 
+function serializePoint(pt) {
+  if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return null;
+  return {
+    x: +pt.x,
+    y: +pt.y,
+    z: Number.isFinite(pt.z) ? +pt.z : 0,
+  };
+}
+
+function serializeEntityForExport(ent) {
+  if (!ent || !ent.type) return null;
+
+  const out = {
+    type: ent.type,
+    layer: ent.layer || '0',
+    closed: !!ent.closed,
+  };
+
+  if (ent.handle) out.handle = ent.handle;
+  if (Number.isFinite(ent.colorNumber)) out.colorNumber = ent.colorNumber;
+  if (Number.isFinite(ent.colorIndex)) out.colorIndex = ent.colorIndex;
+  if (Number.isFinite(ent.aci)) out.aci = ent.aci;
+  if (Number.isFinite(ent.trueColor)) out.trueColor = ent.trueColor;
+  if (typeof ent.color === 'string') out.color = ent.color;
+
+  if (ent.center) out.center = serializePoint(ent.center);
+  if (ent.start) out.start = serializePoint(ent.start);
+  if (ent.end) out.end = serializePoint(ent.end);
+  if (Number.isFinite(ent.radius)) out.radius = +ent.radius;
+  if (Number.isFinite(ent.startAngle)) out.startAngle = +ent.startAngle;
+  if (Number.isFinite(ent.endAngle)) out.endAngle = +ent.endAngle;
+  if (Number.isFinite(ent.angleLength)) out.angleLength = +ent.angleLength;
+  if (Number.isFinite(ent.axisRatio)) out.axisRatio = +ent.axisRatio;
+  if (ent.majorAxisEndPoint) out.majorAxisEndPoint = serializePoint(ent.majorAxisEndPoint);
+  if (Number.isFinite(ent.startParameter)) out.startParameter = +ent.startParameter;
+  if (Number.isFinite(ent.endParameter)) out.endParameter = +ent.endParameter;
+
+  if (ent.type === 'LINE' && (!out.start || !out.end)) {
+    const endpoints = getLineEndpoints(ent);
+    if (endpoints) {
+      out.start = serializePoint(endpoints.start);
+      out.end = serializePoint(endpoints.end);
+    }
+  }
+
+  if (Array.isArray(ent.vertices)) {
+    out.vertices = ent.vertices
+      .map(vertex => ({
+        ...(serializePoint(vertex) || {}),
+        ...(Number.isFinite(vertex?.bulge) ? { bulge: +vertex.bulge } : {}),
+      }))
+      .filter(vertex => Number.isFinite(vertex.x) && Number.isFinite(vertex.y));
+  }
+
+  if ((ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') && (!out.vertices || !out.vertices.length)) {
+    const points = contourEntityToPoints(ent);
+    if (Array.isArray(points) && points.length) {
+      out.vertices = points.map(point => ({ x: +point.x, y: +point.y, z: Number.isFinite(point.z) ? +point.z : 0 }));
+    }
+  }
+
+  if (Array.isArray(ent.fitPoints)) {
+    out.fitPoints = ent.fitPoints.map(serializePoint).filter(Boolean);
+  }
+  if (Array.isArray(ent.controlPoints)) {
+    out.controlPoints = ent.controlPoints.map(serializePoint).filter(Boolean);
+  }
+  if (Array.isArray(ent.knots)) {
+    out.knots = ent.knots.filter(Number.isFinite).map(Number);
+  }
+  if (Number.isFinite(ent.degreeOfSplineCurve)) {
+    out.degreeOfSplineCurve = ent.degreeOfSplineCurve;
+  }
+
+  return out;
+}
+
 // ── Section 4: Topological grouping ─────────────────────
 
 function isClosedEntity(ent) {
@@ -1593,6 +1670,35 @@ function parseDXFToShapes(dxf, raw) {
     ownerLayers.forEach(layerName => layerMap.set(layerName, layerColor(layerName)));
     const involvedLayers = [...new Set([...contourLayers, ...decorItems.map(item => item.layer)])];
     const selectionFillAllowed = !hasSyntheticOuter && !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0;
+    const exportEntityMap = new Map();
+    const addExportEntity = entity => {
+      if (!entity) return;
+      const key = entity.handle || JSON.stringify([
+        entity.type,
+        entity.layer,
+        entity.start?.x, entity.start?.y,
+        entity.end?.x, entity.end?.y,
+        entity.center?.x, entity.center?.y,
+        entity.radius,
+        entity.startAngle,
+        entity.endAngle,
+        entity.vertices?.length,
+      ]);
+      if (!exportEntityMap.has(key)) {
+        const serialized = serializeEntityForExport(entity);
+        if (serialized) exportEntityMap.set(key, serialized);
+      }
+    };
+
+    if (hasSyntheticOuter) {
+      (outer.entity?.sourceEntities || []).forEach(addExportEntity);
+    } else {
+      addExportEntity(outer.entity);
+    }
+    holeContours.forEach(contour => addExportEntity(contour.entity));
+    closedDecorContours.forEach(contour => addExportEntity(contour.entity));
+    decorators.forEach(addExportEntity);
+
     const outerBoundaryItems = hasSyntheticOuter
       ? (outer.entity?.sourceEntities || []).map(entity => {
           const layerName = entity.layer || '0';
@@ -1622,6 +1728,7 @@ function parseDXFToShapes(dxf, raw) {
       bbox:       { w: W, h: H },
       decorSVG: decorItems.map(item => item.svg),
       decorItems,
+      exportEntities: [...exportEntityMap.values()],
       ownerLayers,
       involvedLayers,
       holes:      [],     // legacy compat
@@ -1633,7 +1740,13 @@ function parseDXFToShapes(dxf, raw) {
 
   if (shapes.length === 0) return null;
 
-  const layers = [...layerMap.entries()].map(([name, color]) => ({ name, color }));
+  const orderedLayers = layerOrder
+    .map(name => ({ name, color: layerColor(name) }))
+    .filter(layer => layer.name);
+  const extraLayers = [...layerMap.entries()]
+    .filter(([name]) => !layerOrder.includes(name))
+    .map(([name, color]) => ({ name, color }));
+  const layers = [...orderedLayers, ...extraLayers];
   debugDXF('Parse complete', {
     shapeCount: shapes.length,
     layerCount: layers.length,
@@ -2092,6 +2205,9 @@ function clonePreviewShape(shape) {
     outerBoundaryItems: Array.isArray(shape?.outerBoundaryItems)
       ? shape.outerBoundaryItems.map(item => ({ ...item }))
       : shape.outerBoundaryItems,
+    exportEntities: Array.isArray(shape?.exportEntities)
+      ? shape.exportEntities.map(entity => JSON.parse(JSON.stringify(entity)))
+      : shape.exportEntities,
     partLabel: shape?.partLabel,
   };
 }
