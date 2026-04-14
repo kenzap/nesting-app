@@ -409,6 +409,11 @@ function styleStripSVG(svg) {
   // Catch-all: any remaining black strokes (labels, titles, etc.)
   styled = styled.replace(/stroke="black"/gi, 'stroke="#2e3550"');
 
+  // ── Remove sparrow stats label (h: / w: / d:) ────────────
+  // Sparrow emits a <text> element above the sheet with h/w/density info.
+  // We show that in the bottom status bar instead, so strip it here.
+  styled = styled.replace(/<text[^>]*>[\s\S]*?h:[\s\S]*?<\/text>/gi, '');
+
   return styled;
 }
 
@@ -784,6 +789,7 @@ async function pollSparrowRun(runId) {
   if (result.summary?.strips?.length) {
     const previousIndex = state.activeStripIndex || 0;
     state.nestResult = result.summary;
+    if (result.inputPath) state.nestInputPath = result.inputPath;
     if (!state.nestResult.strips[previousIndex]) {
       state.activeStripIndex = 0;
     }
@@ -1226,8 +1232,9 @@ exportDXFBtn?.addEventListener('click', async () => {
       item_count:   strip.item_count,
     }));
     const result = await window.electronAPI.exportSheetsDXF({
-      outputDir: exportFolderPath,
-      jobName:   state.nestResult.name || 'nesting-job',
+      outputDir:   exportFolderPath,
+      jobName:     state.nestResult.name || 'nesting-job',
+      inputPath:   state.nestInputPath || null,
       strips,
     });
     if (!result?.success) throw new Error(result?.error || 'Export failed');

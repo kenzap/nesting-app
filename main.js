@@ -340,12 +340,25 @@ ipcMain.handle('choose-export-folder', async () => {
 });
 
 // Write one DXF per strip using placement data from the strip JSON files
-ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, strips }) => {
+ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, inputPath, strips }) => {
   try {
     fs.mkdirSync(outputDir, { recursive: true });
     const safeName = String(jobName || 'sheet')
       .replace(/[^a-z0-9-_]+/gi, '-')
       .replace(/^-+|-+$/g, '') || 'sheet';
+
+    // Load global item shapes from the original input JSON.
+    // placed_items[*].item_id references GLOBAL IDs from the input, NOT the
+    // per-strip local IDs (0..N) in strip.json — they are a different namespace.
+    const globalItemsById = {};
+    if (inputPath && fs.existsSync(inputPath)) {
+      try {
+        const inputData = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
+        (inputData.items || []).forEach(item => { globalItemsById[item.id] = item; });
+      } catch (e) {
+        // Fall through — will produce empty polygons rather than crash
+      }
+    }
 
     const RAD = Math.PI / 180;
 
@@ -448,14 +461,12 @@ ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, strips }
         continue;
       }
 
-      const itemsById = {};
-      (stripData.items || []).forEach(item => { itemsById[item.id] = item; });
-
       const placedItems = stripData.solution?.layout?.placed_items || [];
       const polygons = [];
 
       placedItems.forEach(placement => {
-        const item = itemsById[placement.item_id];
+        // item_id is the GLOBAL id from the input JSON — look up there
+        const item = globalItemsById[placement.item_id];
         if (!item?.shape?.data) return;
         const { rotation, translation: [tx, ty] } = placement.transformation;
         const transformed = applyTransform(item.shape.data, rotation, tx, ty);
