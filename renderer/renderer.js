@@ -365,18 +365,50 @@ function styleStripSVG(svg) {
       }
     : { x: 0, y: 0, w: 3000, h: 1250 };
 
+  // Grid spacing: ~2% of sheet width so it scales with zoom
+  const gridStep = Math.round(vb.w / 50 / 5) * 5 || 50;
+
   const bgMarkup = `
 <defs>
-<pattern id="nestGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-<path d="M20 0 L0 0 0 20" fill="none" stroke="#1e2130" stroke-width="0.5"/>
+<pattern id="nestGrid" width="${gridStep}" height="${gridStep}" patternUnits="userSpaceOnUse">
+<path d="M${gridStep} 0 L0 0 0 ${gridStep}" fill="none" stroke="#1a1d2a" stroke-width="${(gridStep * 0.025).toFixed(1)}"/>
 </pattern>
+<filter id="partGlow" x="-4%" y="-4%" width="108%" height="108%">
+<feGaussianBlur stdDeviation="${vb.w * 0.0015}" result="blur"/>
+<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
 </defs>
-<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="#12141c"/>
+<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="#0d0f18"/>
 <rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="url(#nestGrid)"/>`;
 
   styled = styled.replace(/<svg([^>]*)>/i, `<svg$1>\n${bgMarkup}`);
-  styled = styled.replace(/fill="#D3D3D3"/gi, 'fill="#161a24"');
-  styled = styled.replace(/stroke="black"/gi, 'stroke="#2a2f42"');
+
+  // ── Sheet container boundary ──────────────────────────────
+  // Sparrow: fill="#D3D3D3" stroke="black" (the sheet rectangle)
+  styled = styled.replace(
+    /fill="#D3D3D3"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi,
+    (_, sw) => `fill="#12151f" stroke="#2e3550" stroke-width="${sw}"`
+  );
+
+  // ── Placed part fills ─────────────────────────────────────
+  // Sparrow: fill="#7A7A7A" fill-opacity="0.5" fill-rule="nonzero" stroke="black" stroke-width="N"
+  styled = styled.replace(
+    /fill="#7A7A7A"\s+fill-opacity="0\.5"\s+fill-rule="nonzero"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi,
+    (_, sw) => `fill="#1a2744" fill-opacity="1" fill-rule="nonzero" stroke="#4f8ef7" stroke-width="${(sw * 0.7).toFixed(4)}" filter="url(#partGlow)"`
+  );
+
+  // ── Dashed collision-shape outlines (cd_shape) ────────────
+  // Sparrow: fill="none" stroke="black" stroke-dasharray="A B" stroke-linecap stroke-linejoin stroke-opacity="0.3" stroke-width="N"
+  // Make them a very subtle dark blue — they show the simplified polygon, not distracting
+  styled = styled.replace(
+    /fill="none"\s+stroke="black"\s+stroke-dasharray="([^"]+)"\s+stroke-linecap="([^"]+)"\s+stroke-linejoin="([^"]+)"\s+stroke-opacity="0\.3"\s+stroke-width="([\d.]+)"/gi,
+    (_, da, lc, lj, sw) =>
+      `fill="none" stroke="#3a5080" stroke-dasharray="${da}" stroke-linecap="${lc}" stroke-linejoin="${lj}" stroke-opacity="0.35" stroke-width="${(sw * 0.6).toFixed(4)}"`
+  );
+
+  // Catch-all: any remaining black strokes (labels, titles, etc.)
+  styled = styled.replace(/stroke="black"/gi, 'stroke="#2e3550"');
+
   return styled;
 }
 
@@ -652,38 +684,41 @@ function generateMockNestSVG(sheetIndex) {
 
   const defs = `
     <defs>
-      <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1e2130" stroke-width="0.5"/>
+      <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
+        <path d="M 16 0 L 0 0 0 16" fill="none" stroke="#1a1d2a" stroke-width="0.5"/>
       </pattern>
-      <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
-        <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="rgba(0,0,0,0.4)"/>
+      <filter id="partGlow" x="-6%" y="-6%" width="112%" height="112%">
+        <feGaussianBlur stdDeviation="1.5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
     </defs>`;
 
   const shapesSVG = shapes.map(s => {
     const { x, y, w, h, type, color } = s;
-    const fill = color + '22';
-    const stroke = color;
+    // Use a dark tinted fill derived from the file color, subtle accent stroke
+    const fill = '#1a2744';
+    const stroke = '#4f8ef7';
+    const strokeOpacity = '0.75';
     let path = '';
 
     if (type === 'rect') {
-      path = `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3"
-        fill="${fill}" stroke="${stroke}" stroke-width="1.5" filter="url(#shadow)"/>`;
+      path = `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2"
+        fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" filter="url(#partGlow)"/>`;
     } else if (type === 'L') {
       const hw = (w * 0.45).toFixed(1), hh = (h * 0.45).toFixed(1);
       path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${hh} h${-hw} v${(h - parseFloat(hh)).toFixed(1)} h${-(w - parseFloat(hw)).toFixed(1)} Z"
-        fill="${fill}" stroke="${stroke}" stroke-width="1.5" filter="url(#shadow)"/>`;
+        fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" filter="url(#partGlow)"/>`;
     } else if (type === 'notch') {
       const nw = (w * 0.25).toFixed(1), nh = (h * 0.35).toFixed(1);
       const nx = (x + w / 2 - parseFloat(nw) / 2).toFixed(1);
       path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${h.toFixed(1)} h${-w.toFixed(1)} Z
         M${nx},${y.toFixed(1)} h${nw} v${nh} h${-nw} Z"
-        fill="${fill}" stroke="${stroke}" stroke-width="1.5" fill-rule="evenodd" filter="url(#shadow)"/>`;
+        fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" fill-rule="evenodd" filter="url(#partGlow)"/>`;
     } else {
       const tw = (w * 0.4).toFixed(1), tx = (x + w / 2 - parseFloat(tw) / 2).toFixed(1);
       const stemH = (h * 0.55).toFixed(1);
       path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${(h - parseFloat(stemH)).toFixed(1)} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} v${stemH} h${-parseFloat(tw).toFixed(1)} v${-stemH} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} Z"
-        fill="${fill}" stroke="${stroke}" stroke-width="1.5" filter="url(#shadow)"/>`;
+        fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" filter="url(#partGlow)"/>`;
     }
     const labelText = engravingLayerIndex() !== null ? partLabelFromName(s.name) : '';
     const labelFontSize = Math.max(7, Math.min(w, h) * 0.12);
@@ -701,12 +736,12 @@ function generateMockNestSVG(sheetIndex) {
 
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
   ${defs}
-  <rect width="${W}" height="${H}" fill="#12141c" rx="6"/>
-  <rect width="${W}" height="${H}" fill="url(#grid)" rx="6"/>
-  <rect x="10" y="10" width="${W-20}" height="${H-20}" rx="4" fill="none" stroke="#2a2f42" stroke-width="1" stroke-dasharray="6 3"/>
+  <rect width="${W}" height="${H}" fill="#0d0f18"/>
+  <rect width="${W}" height="${H}" fill="url(#grid)"/>
+  <rect x="8" y="8" width="${W-16}" height="${H-16}" rx="3" fill="none" stroke="#2e3550" stroke-width="1" stroke-dasharray="6 4"/>
   ${shapesSVG}
-  <text x="${W/2}" y="${H-10}" text-anchor="middle" font-size="11" fill="#4b5270" font-family="monospace">
-    ${sheet.width} × ${sheet.height} mm · Utilization: ${utilization}%
+  <text x="${W/2}" y="${H-8}" text-anchor="middle" font-size="9" fill="#3a4566" font-family="monospace">
+    ${sheet.width} × ${sheet.height} mm · Preview · ${utilization}% utilization
   </text>
 </svg>`, utilization };
 }
@@ -752,6 +787,7 @@ async function pollSparrowRun(runId) {
     if (!state.nestResult.strips[previousIndex]) {
       state.activeStripIndex = 0;
     }
+    syncExportButton();
     renderTabs();
     showNestResult(state.activeStripIndex || 0);
   } else if (result.status === 'running') {
@@ -810,6 +846,7 @@ startBtn.addEventListener('click', async () => {
   stopBtn.classList.add('active');
   state.nestResult = null;
   state.activeStripIndex = 0;
+  syncExportButton();
 
   try {
     const primarySheet = state.sheets[0] || {};
@@ -1052,6 +1089,177 @@ confirmSheet.addEventListener('click', () => {
   schedulePersistJobState();
 });
 
+// ── Export modal ───────────────────────────────────────────
+const exportModal       = document.getElementById('exportModal');
+const exportClose       = document.getElementById('exportClose');
+const exportCancel      = document.getElementById('exportCancel');
+const exportDXFBtn      = document.getElementById('exportDXF');
+const exportChooseFolder = document.getElementById('exportChooseFolder');
+const exportFolderLabel = document.getElementById('exportFolderLabel');
+const exportTableBody   = document.getElementById('exportTableBody');
+const exportSummarySheets = document.getElementById('exportSummarySheets');
+const exportSummaryUtil   = document.getElementById('exportSummaryUtil');
+const exportSummaryParts  = document.getElementById('exportSummaryParts');
+const exportSummaryLength = document.getElementById('exportSummaryLength');
+const openExportBtn     = document.getElementById('openExport');
+
+let exportFolderPath = null;
+
+function roundUpDim(mm) {
+  return Math.ceil(mm);
+}
+
+function utilClass(pct) {
+  if (pct >= 75) return '';
+  if (pct >= 50) return 'warn';
+  return 'low';
+}
+
+function shortPath(fullPath) {
+  const parts = (fullPath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+  return parts.slice(-2).join('/');
+}
+
+function applyExportFolder(folderPath) {
+  exportFolderPath = folderPath;
+  exportFolderLabel.textContent = shortPath(folderPath);
+  exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
+  exportDXFBtn.disabled = false;
+  exportDXFBtn.textContent = 'Export DXF';
+}
+
+async function loadLastExportFolder() {
+  if (!window.electronAPI?.loadAppSettings) return;
+  const result = await window.electronAPI.loadAppSettings();
+  const saved = result?.settings?.__lastExportFolder;
+  if (saved) applyExportFolder(saved);
+}
+
+async function saveLastExportFolder(folderPath) {
+  if (!window.electronAPI?.loadAppSettings || !window.electronAPI?.saveAppSettings) return;
+  const result = await window.electronAPI.loadAppSettings();
+  const settings = { ...(result?.settings || {}), __lastExportFolder: folderPath };
+  await window.electronAPI.saveAppSettings(settings);
+}
+
+function populateExportModal() {
+  const strips = state.nestResult?.strips || [];
+  const sheet  = state.sheets[0] || {};
+
+  exportSummarySheets.textContent = strips.length;
+  const totalParts = strips.reduce((s, t) => s + (t.item_count || 0), 0);
+  exportSummaryParts.textContent  = totalParts;
+  const avgUtil = strips.length
+    ? strips.reduce((s, t) => s + (t.density || 0), 0) / strips.length
+    : 0;
+  exportSummaryUtil.textContent   = `${(avgUtil * 100).toFixed(1)}%`;
+  const totalMm = strips.reduce((s, t) => s + (t.strip_width || 0), 0);
+  exportSummaryLength.textContent = `${(totalMm / 1000).toFixed(2)} m`;
+
+  exportTableBody.innerHTML = '';
+  strips.forEach((strip, i) => {
+    const w   = roundUpDim(strip.strip_width || 0);
+    const h   = roundUpDim(sheet.height || 0);
+    const pct = Number.isFinite(strip.density) ? strip.density * 100 : 0;
+    const cls = utilClass(pct);
+    const tr  = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="export-sheet-num">${i + 1}</span></td>
+      <td style="font-variant-numeric:tabular-nums">${h} × ${w}</td>
+      <td style="color:var(--text-dim)">${sheet.material || '—'}</td>
+      <td style="font-variant-numeric:tabular-nums">${strip.item_count || 0}</td>
+      <td>
+        <div class="export-util-bar-wrap">
+          <div class="export-util-bar">
+            <div class="export-util-fill ${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></div>
+          </div>
+          <span class="export-util-pct">${pct.toFixed(1)}%</span>
+        </div>
+      </td>
+      <td style="font-variant-numeric:tabular-nums;color:var(--text-dim)">${formatWidthMeters(strip.strip_width)}</td>`;
+    exportTableBody.appendChild(tr);
+  });
+}
+
+function openExportModal() {
+  if (!state.nestResult?.strips?.length) return;
+  populateExportModal();
+  // Restore last folder if we have one; otherwise reset to empty state
+  if (exportFolderPath) {
+    applyExportFolder(exportFolderPath);
+  } else {
+    exportFolderLabel.textContent = 'No folder selected';
+    exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
+    exportDXFBtn.disabled = true;
+    exportDXFBtn.textContent = 'Export DXF';
+  }
+  exportModal.classList.add('open');
+}
+
+openExportBtn?.addEventListener('click', openExportModal);
+exportClose?.addEventListener('click', () => exportModal.classList.remove('open'));
+exportCancel?.addEventListener('click', () => exportModal.classList.remove('open'));
+exportModal?.addEventListener('click', e => { if (e.target === exportModal) exportModal.classList.remove('open'); });
+
+exportChooseFolder?.addEventListener('click', async () => {
+  if (!window.electronAPI?.chooseExportFolder) return;
+  const result = await window.electronAPI.chooseExportFolder();
+  if (result?.path) {
+    applyExportFolder(result.path);
+    saveLastExportFolder(result.path);
+  }
+});
+
+exportDXFBtn?.addEventListener('click', async () => {
+  if (!exportFolderPath || !state.nestResult?.strips?.length) return;
+  exportDXFBtn.disabled = true;
+  exportDXFBtn.textContent = 'Exporting…';
+  exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
+  try {
+    const sheet = state.sheets[0] || {};
+    const strips = state.nestResult.strips.map(strip => ({
+      index:        strip.index,
+      json_path:    strip.json_path,
+      strip_width:  strip.strip_width,
+      strip_height: sheet.height || 0,
+      density:      strip.density,
+      item_count:   strip.item_count,
+    }));
+    const result = await window.electronAPI.exportSheetsDXF({
+      outputDir: exportFolderPath,
+      jobName:   state.nestResult.name || 'nesting-job',
+      strips,
+    });
+    if (!result?.success) throw new Error(result?.error || 'Export failed');
+
+    // ── Success state ──────────────────────────────────────
+    exportDXFBtn.textContent = '✓ Exported';
+    exportDXFBtn.classList.add('btn-success');
+    exportFolderLabel.textContent = `${result.fileCount} file${result.fileCount !== 1 ? 's' : ''} saved to ${shortPath(result.outputDir)}`;
+    exportFolderLabel.classList.add('export-folder-success');
+
+    // Re-enable after a beat so user can export again if needed
+    setTimeout(() => {
+      exportDXFBtn.textContent = 'Export DXF';
+      exportDXFBtn.classList.remove('btn-success');
+      exportDXFBtn.disabled = false;
+    }, 3000);
+  } catch (err) {
+    console.error('[Export DXF]', err);
+    exportDXFBtn.textContent = 'Export DXF';
+    exportDXFBtn.disabled = false;
+    exportFolderLabel.textContent = `Error: ${err.message}`;
+    exportFolderLabel.classList.add('export-folder-error');
+  }
+});
+
+// Enable/disable export button based on result availability
+function syncExportButton() {
+  if (openExportBtn) {
+    openExportBtn.disabled = !state.nestResult?.strips?.length;
+  }
+}
+
 // ── Settings dialog ────────────────────────────────────────
 openSettings.addEventListener('click', () => settingsModal.classList.add('open'));
 closeSettings.addEventListener('click', () => settingsModal.classList.remove('open'));
@@ -1103,6 +1311,7 @@ fitView.addEventListener('click', () => { state.zoom = 1; applyZoom(); });
 // ── Seed demo data ─────────────────────────────────────────
 (function seedDemo() {
   loadPersistedSettings();
+  loadLastExportFolder();
   updateSheetModeControls();
   hydrateJobState().then(restored => {
     if (!restored) {

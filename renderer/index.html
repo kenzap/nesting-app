@@ -9,6 +9,78 @@
 <body>
 
 <!-- ═══════════════════════════════════════════════════════
+     EXPORT MODAL
+═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="exportModal">
+  <div class="modal modal-export">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none" style="color:var(--accent)">
+          <path d="M9 2v10M5 8l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M3 13v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span class="modal-title">Export Sheets</span>
+      </div>
+      <button class="modal-close" id="exportClose">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M11 1L1 11M1 1l10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body export-modal-body">
+      <!-- Summary bar -->
+      <div class="export-summary-bar" id="exportSummaryBar">
+        <div class="export-summary-item">
+          <span class="export-summary-label">Sheets</span>
+          <span class="export-summary-value" id="exportSummarySheets">—</span>
+        </div>
+        <div class="export-summary-sep"></div>
+        <div class="export-summary-item">
+          <span class="export-summary-label">Avg Utilization</span>
+          <span class="export-summary-value accent" id="exportSummaryUtil">—</span>
+        </div>
+        <div class="export-summary-sep"></div>
+        <div class="export-summary-item">
+          <span class="export-summary-label">Total Parts</span>
+          <span class="export-summary-value" id="exportSummaryParts">—</span>
+        </div>
+        <div class="export-summary-sep"></div>
+        <div class="export-summary-item">
+          <span class="export-summary-label">Total Length</span>
+          <span class="export-summary-value" id="exportSummaryLength">—</span>
+        </div>
+      </div>
+      <!-- Sheet table -->
+      <div class="export-table-wrap">
+        <table class="export-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Sheet Size (mm)</th>
+              <th>Material</th>
+              <th>Parts</th>
+              <th>Utilization</th>
+              <th>Used Length</th>
+            </tr>
+          </thead>
+          <tbody id="exportTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;align-items:center">
+      <div class="export-folder-row">
+        <span class="export-folder-label" id="exportFolderLabel">No folder selected</span>
+        <button class="btn-secondary btn-sm" id="exportChooseFolder">Choose Folder</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-secondary" id="exportCancel">Cancel</button>
+        <button class="btn-primary" id="exportDXF" disabled>Export DXF</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
      SETTINGS DIALOG
 ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="settingsModal">
@@ -255,6 +327,12 @@
     </div>
 
     <div class="topbar-right">
+      <button class="icon-btn" id="openExport" title="Export Sheets" disabled>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M9 2v10M5 8l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M3 13v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
       <button class="icon-btn" id="openSettings" title="Settings">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.6"/>

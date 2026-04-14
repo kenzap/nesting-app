@@ -329,6 +329,159 @@ ipcMain.handle('stop-sparrow', async () => {
   }
 });
 
+// Open a folder picker for DXF export destination
+ipcMain.handle('choose-export-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose Export Folder',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+  return { path: result.filePaths[0] };
+});
+
+// Write one DXF per strip using placement data from the strip JSON files
+ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, strips }) => {
+  try {
+    fs.mkdirSync(outputDir, { recursive: true });
+    const safeName = String(jobName || 'sheet')
+      .replace(/[^a-z0-9-_]+/gi, '-')
+      .replace(/^-+|-+$/g, '') || 'sheet';
+
+    const RAD = Math.PI / 180;
+
+    function applyTransform(pts, rotation, tx, ty) {
+      const cos = Math.cos(rotation * RAD);
+      const sin = Math.sin(rotation * RAD);
+      return pts.map(([x, y]) => [
+        +(cos * x - sin * y + tx).toFixed(4),
+        +(sin * x + cos * y + ty).toFixed(4),
+      ]);
+    }
+
+    // Build a minimal DXF string from a list of closed polygons
+    // Each polygon is an array of [x, y] pairs (open ring, last pt != first pt)
+    function buildDXF(polygons, sheetW, sheetH) {
+      const lines = [];
+      const L = s => lines.push(s);
+
+      // Header (minimal)
+      L('0'); L('SECTION');
+      L('2'); L('HEADER');
+      L('9'); L('$ACADVER');
+      L('1'); L('AC1015');
+      L('0'); L('ENDSEC');
+
+      // Tables (just LTYPE and LAYER)
+      L('0'); L('SECTION');
+      L('2'); L('TABLES');
+
+      L('0'); L('TABLE');
+      L('2'); L('LTYPE');
+      L('70'); L('1');
+      L('0'); L('LTYPE');
+      L('2'); L('CONTINUOUS');
+      L('70'); L('0');
+      L('3'); L('Solid line');
+      L('72'); L('65');
+      L('73'); L('0');
+      L('40'); L('0.0');
+      L('0'); L('ENDTAB');
+
+      L('0'); L('TABLE');
+      L('2'); L('LAYER');
+      L('70'); L('2');
+      // Layer 0: parts
+      L('0'); L('LAYER');
+      L('2'); L('0');
+      L('70'); L('0');
+      L('62'); L('7');
+      L('6'); L('CONTINUOUS');
+      // Layer SHEET: sheet boundary
+      L('0'); L('LAYER');
+      L('2'); L('SHEET');
+      L('70'); L('0');
+      L('62'); L('3');
+      L('6'); L('CONTINUOUS');
+      L('0'); L('ENDTAB');
+
+      L('0'); L('ENDSEC');
+
+      // Entities
+      L('0'); L('SECTION');
+      L('2'); L('ENTITIES');
+
+      // Sheet boundary rectangle on SHEET layer
+      if (sheetW > 0 && sheetH > 0) {
+        const rect = [[0,0],[sheetW,0],[sheetW,sheetH],[0,sheetH]];
+        L('0'); L('LWPOLYLINE');
+        L('8'); L('SHEET');
+        L('90'); L(String(rect.length));
+        L('70'); L('1'); // closed
+        rect.forEach(([x, y]) => { L('10'); L(x.toFixed(4)); L('20'); L(y.toFixed(4)); });
+      }
+
+      // Part polygons on layer 0
+      polygons.forEach(pts => {
+        if (!pts || pts.length < 3) return;
+        L('0'); L('LWPOLYLINE');
+        L('8'); L('0');
+        L('90'); L(String(pts.length));
+        L('70'); L('1'); // closed
+        pts.forEach(([x, y]) => { L('10'); L(x.toFixed(4)); L('20'); L(y.toFixed(4)); });
+      });
+
+      L('0'); L('ENDSEC');
+      L('0'); L('EOF');
+
+      return lines.join('\n');
+    }
+
+    let fileCount = 0;
+
+    for (const strip of strips) {
+      if (!strip.json_path || !fs.existsSync(strip.json_path)) continue;
+
+      let stripData;
+      try {
+        stripData = JSON.parse(fs.readFileSync(strip.json_path, 'utf-8'));
+      } catch (e) {
+        continue;
+      }
+
+      const itemsById = {};
+      (stripData.items || []).forEach(item => { itemsById[item.id] = item; });
+
+      const placedItems = stripData.solution?.layout?.placed_items || [];
+      const polygons = [];
+
+      placedItems.forEach(placement => {
+        const item = itemsById[placement.item_id];
+        if (!item?.shape?.data) return;
+        const { rotation, translation: [tx, ty] } = placement.transformation;
+        const transformed = applyTransform(item.shape.data, rotation, tx, ty);
+        // Remove the closing duplicate point if present
+        const pts = transformed[0] && transformed[transformed.length - 1] &&
+          Math.abs(transformed[0][0] - transformed[transformed.length - 1][0]) < 0.01 &&
+          Math.abs(transformed[0][1] - transformed[transformed.length - 1][1]) < 0.01
+          ? transformed.slice(0, -1) : transformed;
+        polygons.push(pts);
+      });
+
+      const sheetW = Math.ceil(strip.strip_width || 0);
+      const sheetH = Math.ceil(strip.strip_height || 0);
+      const idx    = String(strip.index).padStart(2, '0');
+      const dxf    = buildDXF(polygons, sheetW, sheetH);
+      const outPath = path.join(outputDir, `${safeName}_sheet_${idx}.dxf`);
+      fs.writeFileSync(outPath, dxf, 'utf-8');
+      fileCount++;
+    }
+
+    return { success: true, fileCount, outputDir };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('poll-sparrow', async (event, runId) => {
   if (!activeSparrowRun || activeSparrowRun.id !== runId) {
     return { success: false, error: 'Run not found' };

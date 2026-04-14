@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runSparrow: (payload, options) => ipcRenderer.invoke('run-sparrow', payload, options),
   pollSparrow: (runId) => ipcRenderer.invoke('poll-sparrow', runId),
   stopSparrow: () => ipcRenderer.invoke('stop-sparrow'),
+  chooseExportFolder: () => ipcRenderer.invoke('choose-export-folder'),
+  exportSheetsDXF: (payload) => ipcRenderer.invoke('export-sheets-dxf', payload),
 });
