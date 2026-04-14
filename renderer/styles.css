@@ -282,13 +282,16 @@ html, body {
   flex-direction: column;
   gap: 2px;
   min-height: 0;
+  overscroll-behavior: contain;
+  position: relative;
+  z-index: 1;
 }
 
 .file-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 7px 8px 7px 8px;
   border-radius: var(--radius-sm);
   cursor: default;
   transition: background .12s;
@@ -328,6 +331,17 @@ html, body {
   color: var(--text-muted);
   margin-top: 1px;
 }
+
+.file-qty-total {
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  transition: opacity .12s;
+}
+.file-item:hover .file-qty-total { opacity: 0; }
 
 .qty-control {
   display: flex;
@@ -385,7 +399,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 7px 32px 7px 8px;
   border-radius: var(--radius-sm);
   transition: background .12s;
   position: relative;

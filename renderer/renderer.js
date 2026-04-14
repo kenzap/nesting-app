@@ -10,10 +10,13 @@ const state = {
   lastExportPath: null,
   settings: {},
   editingSheetId: null,
+  activeStripIndex: 0,
 };
 
 let nestInterval = null;
 let persistJobTimer = null;
+let sparrowRunAborted = false;
+let activeSparrowRunId = null;
 
 // ── DOM refs ───────────────────────────────────────────────
 const startBtn     = document.getElementById('startBtn');
@@ -22,6 +25,7 @@ const statusChip   = document.getElementById('statusChip');
 const fileList     = document.getElementById('fileList');
 const sheetList    = document.getElementById('sheetList');
 const dropZone     = document.getElementById('dropZone');
+const clearFilesBtn = document.getElementById('clearFilesBtn');
 const addFileBtn   = document.getElementById('addFileBtn');
 const addSheetBtn  = document.getElementById('addSheetBtn');
 const emptyState   = document.getElementById('emptyState');
@@ -58,6 +62,11 @@ function formatBytes(b) {
   return (b / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+function formatWidthMeters(mm) {
+  if (!Number.isFinite(mm) || mm <= 0) return 'n/a';
+  return `${(mm / 1000).toFixed(2)} m`;
+}
+
 function presetMatches(btn) {
   return (
     sheetWidthMode.value === 'fixed' &&
@@ -92,8 +101,17 @@ function partLabelFromName(name) {
   return String(name || '').replace(/\.dxf$/i, '').trim();
 }
 
+function engravingLayerIndex(settings = currentNestingSettings()) {
+  const raw = settings?.engravingLayer;
+  if (raw === 'off' || raw === false || raw == null || raw === '') return null;
+  const parsed = Number.parseInt(String(raw), 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 2;
+}
+
 function resolveEngravingColor(layers = []) {
-  if (layers[0]?.color) return layers[0].color;
+  const idx = engravingLayerIndex();
+  if (idx !== null && layers[idx - 1]?.color) return layers[idx - 1].color;
+  if (layers[1]?.color) return layers[1].color;
   if (layers[0]?.color) return layers[0].color;
   return DEFAULT_ENGRAVING_COLOR;
 }
@@ -163,6 +181,16 @@ function clonePlain(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+function effectiveFileQty(file) {
+  if (Array.isArray(file?.shapes) && file.shapes.length) {
+    const visibleTotal = file.shapes
+      .filter(shape => shape.visible !== false)
+      .reduce((sum, shape) => sum + Math.max(1, parseInt(shape.qty || 1, 10)), 0);
+    return Math.max(1, visibleTotal || 0);
+  }
+  return Math.max(1, parseInt(file?.qty || 1, 10));
+}
+
 function snapshotJobState() {
   return {
     files: state.files.map(file => ({
@@ -170,7 +198,7 @@ function snapshotJobState() {
       name: file.name,
       size: file.size || 0,
       path: file.path || null,
-      qty: file.qty || 1,
+      qty: effectiveFileQty(file),
       shapes: clonePlain(file.shapes || null),
       layers: clonePlain(file.layers || null),
     })),
@@ -209,7 +237,9 @@ async function hydrateJobState() {
   }
   if (!result.state) return false;
 
-  state.files = Array.isArray(result.state.files) ? result.state.files : [];
+  state.files = Array.isArray(result.state.files)
+    ? result.state.files.map(file => ({ ...file, qty: effectiveFileQty(file) }))
+    : [];
   state.sheets = Array.isArray(result.state.sheets) ? result.state.sheets : [];
   return state.files.length > 0 || state.sheets.length > 0;
 }
@@ -218,7 +248,7 @@ window.schedulePersistJobState = schedulePersistJobState;
 window.getCurrentNestingSettings = currentNestingSettings;
 window.getPartLabelText = partLabelFromName;
 window.getPartLabelConfig = (layers = []) => ({
-  enabled: !!currentNestingSettings().showPartLabels,
+  enabled: engravingLayerIndex() !== null,
   color: resolveEngravingColor(layers),
 });
 
@@ -258,7 +288,22 @@ async function ensureFileShapes(file) {
     ...shape,
     qty: file.qty || shape.qty || 1,
   }));
+  file.layers = Array.isArray(parsed.layers) ? parsed.layers.map(layer => ({ ...layer })) : [];
+  file.qty = effectiveFileQty(file);
   return file.shapes;
+}
+
+async function hydrateFileShapesForList(file) {
+  if (!file || !file.path || (Array.isArray(file.shapes) && file.shapes.length)) return;
+  if (!window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') return;
+
+  try {
+    await ensureFileShapes(file);
+    renderFiles();
+    schedulePersistJobState();
+  } catch (error) {
+    console.warn(`[DXF] Failed to pre-parse ${file.name}:`, error.message);
+  }
 }
 
 async function buildPlacementPayload() {
@@ -304,6 +349,35 @@ async function buildPlacementPayload() {
     })),
     strip_height: state.sheets[0]?.height || 0,
   };
+}
+
+function styleStripSVG(svg) {
+  if (!svg) return '';
+
+  let styled = svg;
+  const viewBoxMatch = styled.match(/viewBox="([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)"/i);
+  const vb = viewBoxMatch
+    ? {
+        x: Number(viewBoxMatch[1]),
+        y: Number(viewBoxMatch[2]),
+        w: Number(viewBoxMatch[3]),
+        h: Number(viewBoxMatch[4]),
+      }
+    : { x: 0, y: 0, w: 3000, h: 1250 };
+
+  const bgMarkup = `
+<defs>
+<pattern id="nestGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+<path d="M20 0 L0 0 0 20" fill="none" stroke="#1e2130" stroke-width="0.5"/>
+</pattern>
+</defs>
+<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="#12141c"/>
+<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="url(#nestGrid)"/>`;
+
+  styled = styled.replace(/<svg([^>]*)>/i, `<svg$1>\n${bgMarkup}`);
+  styled = styled.replace(/fill="#D3D3D3"/gi, 'fill="#161a24"');
+  styled = styled.replace(/stroke="black"/gi, 'stroke="#2a2f42"');
+  return styled;
 }
 
 async function exportPlacementJSON() {
@@ -382,30 +456,41 @@ async function loadPersistedSettings() {
     return;
   }
 
-  state.settings = { ...defaults, ...(result.settings || {}) };
+  const persisted = { ...(result.settings || {}) };
+  if (!('engravingLayer' in persisted) && 'showPartLabels' in persisted) {
+    persisted.engravingLayer = persisted.showPartLabels ? '2' : 'off';
+  }
+  delete persisted.showPartLabels;
+  state.settings = { ...defaults, ...persisted };
   applySettingsToDialog(state.settings);
 }
 
 // ── File list rendering ────────────────────────────────────
 function renderFiles() {
   fileList.innerHTML = '';
+  if (clearFilesBtn) clearFilesBtn.disabled = state.files.length === 0;
   state.files.forEach(f => {
+    const shapeCount = Array.isArray(f.shapes)
+      ? f.shapes.filter(shape => shape.visible !== false).length
+      : 0;
+    const shapeLabel = `${shapeCount} shape${shapeCount === 1 ? '' : 's'}`;
     const li = document.createElement('li');
     li.className = 'file-item';
     li.innerHTML = `
       <div class="file-icon">DXF</div>
       <div class="file-info">
         <div class="file-name" title="${f.name}">${f.name}</div>
-        <div class="file-size">${formatBytes(f.size)}</div>
+        <div class="file-size">${shapeLabel} · ${formatBytes(f.size)}</div>
       </div>
-      <div class="qty-control">
-        <button class="qty-btn" data-id="${f.id}" data-delta="-1">−</button>
-        <span class="qty-value">${f.qty}</span>
-        <button class="qty-btn" data-id="${f.id}" data-delta="1">+</button>
-      </div>`;
+      <div class="file-qty-total">${effectiveFileQty(f)}</div>
+      <button class="file-remove" data-id="${f.id}" title="Remove">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M9 1L1 9M1 1l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>`;
     // Click the row body → open DXF preview
     li.addEventListener('click', e => {
-      if (!e.target.closest('.qty-control')) {
+      if (!e.target.closest('.file-remove')) {
         if (window.openDXFPreview) window.openDXFPreview(f.id, f.name);
       }
     });
@@ -413,13 +498,10 @@ function renderFiles() {
     fileList.appendChild(li);
   });
 
-  // qty buttons
-  fileList.querySelectorAll('.qty-btn').forEach(btn => {
+  fileList.querySelectorAll('.file-remove').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      const f = state.files.find(x => x.id === btn.dataset.id);
-      if (!f) return;
-      f.qty = Math.max(1, f.qty + parseInt(btn.dataset.delta));
+      state.files = state.files.filter(x => x.id !== btn.dataset.id);
       renderFiles();
       schedulePersistJobState();
     });
@@ -438,6 +520,13 @@ window.removeJobFileById = fileId => {
   }
   return false;
 };
+
+clearFilesBtn?.addEventListener('click', () => {
+  if (!state.files.length) return;
+  state.files = [];
+  renderFiles();
+  schedulePersistJobState();
+});
 
 // ── Sheet list rendering ───────────────────────────────────
 function renderSheets() {
@@ -489,14 +578,20 @@ function renderSheets() {
 // ── Canvas tabs (one per sheet result) ────────────────────
 function renderTabs() {
   canvasTabs.innerHTML = '';
-  if (state.nestResult && state.sheets.length) {
-    state.sheets.forEach((s, i) => {
+  if (state.nestResult?.strips?.length) {
+    const activeIndex = Math.min(
+      state.activeStripIndex || 0,
+      Math.max(0, state.nestResult.strips.length - 1),
+    );
+    state.activeStripIndex = activeIndex;
+    state.nestResult.strips.forEach((strip, i) => {
       const btn = document.createElement('button');
-      btn.className = 'canvas-tab' + (i === 0 ? ' active' : '');
+      btn.className = 'canvas-tab' + (i === activeIndex ? ' active' : '');
       btn.textContent = `Sheet ${i + 1}`;
       btn.addEventListener('click', () => {
         canvasTabs.querySelectorAll('.canvas-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        state.activeStripIndex = i;
         showNestResult(i);
       });
       canvasTabs.appendChild(btn);
@@ -590,7 +685,7 @@ function generateMockNestSVG(sheetIndex) {
       path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${(h - parseFloat(stemH)).toFixed(1)} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} v${stemH} h${-parseFloat(tw).toFixed(1)} v${-stemH} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} Z"
         fill="${fill}" stroke="${stroke}" stroke-width="1.5" filter="url(#shadow)"/>`;
     }
-    const labelText = currentNestingSettings().showPartLabels ? partLabelFromName(s.name) : '';
+    const labelText = engravingLayerIndex() !== null ? partLabelFromName(s.name) : '';
     const labelFontSize = Math.max(7, Math.min(w, h) * 0.12);
     const labelStrokeWidth = 0.8;
     const label = labelText
@@ -617,13 +712,77 @@ function generateMockNestSVG(sheetIndex) {
 }
 
 function showNestResult(sheetIndex) {
+  if (state.nestResult?.strips?.[sheetIndex]?.svg) {
+    const strip = state.nestResult.strips[sheetIndex];
+    state.activeStripIndex = sheetIndex;
+    svgContainer.innerHTML = styleStripSVG(strip.svg);
+    svgContainer.style.display = 'flex';
+    emptyState.style.display = 'none';
+    const placed = state.nestResult.strips.reduce((sum, item) => sum + (item.item_count || 0), 0);
+    const density = Number.isFinite(strip.density) ? `${(strip.density * 100).toFixed(1)}%` : 'n/a';
+    const usedWidth = formatWidthMeters(strip.strip_width);
+    const previewPrefix = strip.is_preview || state.nestResult.is_preview ? 'Preview · ' : '';
+    nestStats.textContent = `${previewPrefix}Sheet ${sheetIndex + 1} of ${state.nestResult.strips.length} · ${placed} parts placed · Utilization: ${density} · Width: ${usedWidth}`;
+    applyZoom();
+    return;
+  }
+
   const result = generateMockNestSVG(sheetIndex);
   if (!result) return;
   svgContainer.innerHTML = result.svg;
   svgContainer.style.display = 'flex';
   emptyState.style.display = 'none';
   const placed = state.files.reduce((a, f) => a + f.qty, 0);
-  nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}%`;
+  const mockWidth = formatWidthMeters(state.sheets[sheetIndex]?.width);
+  nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}% · Width: ${mockWidth}`;
+  applyZoom();
+}
+
+async function pollSparrowRun(runId) {
+  if (!window.electronAPI?.pollSparrow) return;
+
+  const result = await window.electronAPI.pollSparrow(runId);
+  if (!result?.success) {
+    throw new Error(result?.error || 'Failed to poll Sparrow run');
+  }
+
+  if (result.summary?.strips?.length) {
+    const previousIndex = state.activeStripIndex || 0;
+    state.nestResult = result.summary;
+    if (!state.nestResult.strips[previousIndex]) {
+      state.activeStripIndex = 0;
+    }
+    renderTabs();
+    showNestResult(state.activeStripIndex || 0);
+  } else if (result.status === 'running') {
+    nestStats.textContent = 'Running placement… waiting for first preview';
+  }
+
+  if (result.status === 'completed') {
+    clearInterval(nestInterval);
+    nestInterval = null;
+    activeSparrowRunId = null;
+    setStatus('done');
+    startBtn.classList.remove('running');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    stopBtn.classList.remove('active');
+    return;
+  }
+
+  if (result.status === 'error') {
+    clearInterval(nestInterval);
+    nestInterval = null;
+    activeSparrowRunId = null;
+    throw new Error(result.error || 'Sparrow failed');
+  }
+
+  if (result.status === 'stopped') {
+    clearInterval(nestInterval);
+    nestInterval = null;
+    activeSparrowRunId = null;
+    return;
+  }
 }
 
 // ── Run / Stop ─────────────────────────────────────────────
@@ -632,8 +791,9 @@ startBtn.addEventListener('click', async () => {
   if (!state.files.length) return;
   if (!state.sheets.length) return;
 
+  let exported;
   try {
-    const exported = await exportPlacementJSON();
+    exported = await exportPlacementJSON();
     nestStats.textContent = `Placement JSON saved to ${exported.path}`;
   } catch (err) {
     console.error('[Placement JSON] Export failed:', err);
@@ -643,36 +803,83 @@ startBtn.addEventListener('click', async () => {
   }
 
   setStatus('running');
+  sparrowRunAborted = false;
   startBtn.classList.add('running');
   startBtn.disabled = true;
   stopBtn.disabled = false;
   stopBtn.classList.add('active');
-  state.nestResult = true;
+  state.nestResult = null;
+  state.activeStripIndex = 0;
 
-  renderTabs();
+  try {
+    const primarySheet = state.sheets[0] || {};
+    const settings = currentNestingSettings();
+    const result = await window.electronAPI.runSparrow(exported.payload, {
+      globalTime: Number(settings.timeLimit) || 60,
+      rngSeed: 42,
+      earlyTermination: !!settings.earlyStopping,
+      maxStripLength: primarySheet.widthMode === 'unlimited' ? null : Number(primarySheet.width) || null,
+      align: settings.preferredAlignment === 'bottom' ? 'bottom' : 'top',
+    });
 
-  // Simulate progressive nesting
-  let progress = 0;
-  nestInterval = setInterval(() => {
-    progress += Math.random() * 18;
-    if (progress >= 100) {
+    if (!result?.success || !result.runId) {
+      throw new Error(result?.error || 'Failed to start Sparrow');
+    }
+    activeSparrowRunId = result.runId;
+    nestStats.textContent = `Placement running… input saved to ${result.inputPath}`;
+
+    if (nestInterval) clearInterval(nestInterval);
+    await pollSparrowRun(result.runId);
+    nestInterval = window.setInterval(async () => {
+      if (!activeSparrowRunId || sparrowRunAborted) return;
+      try {
+        await pollSparrowRun(activeSparrowRunId);
+      } catch (pollError) {
+        if (sparrowRunAborted) return;
+        console.error('[Sparrow] Live preview failed:', pollError);
+        clearInterval(nestInterval);
+        nestInterval = null;
+        activeSparrowRunId = null;
+        setStatus('error');
+        nestStats.textContent = `Run failed: ${pollError.message}`;
+        startBtn.classList.remove('running');
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        stopBtn.classList.remove('active');
+      }
+    }, 500);
+  } catch (err) {
+    if (sparrowRunAborted) return;
+    console.error('[Sparrow] Run failed:', err);
+    activeSparrowRunId = null;
+    if (nestInterval) {
       clearInterval(nestInterval);
       nestInterval = null;
-      setStatus('done');
-      startBtn.classList.remove('running');
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
-      stopBtn.classList.remove('active');
-      showNestResult(0);
     }
-  }, 300);
+    setStatus('error');
+    nestStats.textContent = `Run failed: ${err.message}`;
+    startBtn.classList.remove('running');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    stopBtn.classList.remove('active');
+  }
 });
 
-stopBtn.addEventListener('click', () => {
+stopBtn.addEventListener('click', async () => {
   if (state.status !== 'running') return;
+  sparrowRunAborted = true;
+  activeSparrowRunId = null;
+  if (window.electronAPI?.stopSparrow) {
+    try {
+      await window.electronAPI.stopSparrow();
+    } catch (err) {
+      console.error('[Sparrow] Stop failed:', err);
+    }
+  }
   clearInterval(nestInterval);
   nestInterval = null;
   setStatus('idle');
+  nestStats.textContent = 'Placement stopped';
   startBtn.classList.remove('running');
   startBtn.disabled = false;
   stopBtn.disabled = true;
@@ -681,14 +888,29 @@ stopBtn.addEventListener('click', () => {
 
 // ── File drop ──────────────────────────────────────────────
 function addFiles(fileObjs) {
+  const newlyAdded = [];
   fileObjs.forEach(f => {
     if (!state.files.find(x => x.name === f.name)) {
       // Always preserve path — dxf-preview.js needs it for real parsing
-      state.files.push({ id: uid(), name: f.name, size: f.size || 0, path: f.path || null, qty: 1 });
+      const file = { id: uid(), name: f.name, size: f.size || 0, path: f.path || null, qty: 1 };
+      state.files.push(file);
+      newlyAdded.push(file);
     }
   });
   renderFiles();
   schedulePersistJobState();
+  newlyAdded.forEach(file => {
+    void hydrateFileShapesForList(file);
+  });
+}
+
+function bindExplicitListScroll(listEl) {
+  if (!listEl) return;
+  listEl.addEventListener('wheel', e => {
+    if (listEl.scrollHeight <= listEl.clientHeight) return;
+    e.preventDefault();
+    listEl.scrollTop += e.deltaY;
+  }, { passive: false });
 }
 
 dropZone.addEventListener('dragover', e => {
@@ -713,6 +935,9 @@ document.getElementById('canvasArea').addEventListener('drop', e => {
   const files = [...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.dxf'));
   if (files.length) addFiles(files.map(f => ({ name: f.name, size: f.size, path: f.path || null })));
 });
+
+bindExplicitListScroll(fileList);
+bindExplicitListScroll(sheetList);
 
 addFileBtn.addEventListener('click', async () => {
   if (window.electronAPI) {
