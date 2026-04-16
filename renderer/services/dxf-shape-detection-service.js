@@ -28,11 +28,16 @@
 
   const DXF_DEBUG = true;
 
+  // Logs a labelled diagnostic object to the console. Gated on DXF_DEBUG so
+  // it produces no output in production without changing call sites.
   function debugDXF(label, payload) {
     if (!DXF_DEBUG) return;
     console.log(`[DXF DEBUG] ${label}`, payload);
   }
 
+  // Returns true for entity types that inherently form a closed ring (circle,
+  // closed polyline, closed ellipse, closed spline). These can be used directly
+  // as contours without any edge-chaining work.
   function isClosedEntity(ent) {
     if (!ent) return false;
     if ((ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') && ent.vertices?.length >= 3) {
@@ -48,6 +53,9 @@
     return false;
   }
 
+  // Converts a closed contour entity into a flat array of {x,y} sample points
+  // needed for polygon area calculations, point-in-polygon tests, and SVG path
+  // generation when arc-accurate paths aren't required.
   function contourEntityToPoints(ent) {
     switch (ent.type) {
       case 'LINE_LOOP':
@@ -66,6 +74,9 @@
     }
   }
 
+  // Builds the SVG arc path segment ("A…") for one ARC edge inside a LINE_LOOP.
+  // Handles traversal direction (reversed flag) and the SVG large-arc flag so
+  // arcs spanning more than 180° render correctly.
   function arcChainSegment(ent, ox, originMaxY, reversed) {
     const cx = ent.center.x - ox;
     const cy = originMaxY - ent.center.y;
@@ -81,6 +92,9 @@
     return `A${f(r)},${f(r)},0,${large},${sweep},${f(x2)},${f(y2)}`;
   }
 
+  // Converts an ordered sequence of LINE/ARC half-edges into a single closed
+  // SVG path string. Uses arcChainSegment for arcs so the output is geometrically
+  // exact rather than a polygon approximation.
   function lineLoopToSVGPath(orderedEdges, ox, originMaxY) {
     if (!orderedEdges || !orderedEdges.length) return '';
 
@@ -118,6 +132,9 @@
     return d + ' Z';
   }
 
+  // Unified converter from a contour entity to an SVG path string. Routes
+  // LINE_LOOPs through the arc-accurate lineLoopToSVGPath and everything else
+  // through the point-sampling pathFromPoints fallback.
   function contourEntityToPath(ent, ox, originMaxY) {
     if (ent.type === 'LINE_LOOP' && ent.orderedEdges) {
       return lineLoopToSVGPath(ent.orderedEdges, ox, originMaxY);
@@ -126,12 +143,19 @@
     return pathFromPoints(points, ox, originMaxY, true);
   }
 
+  // Returns the {start, end} endpoints of an open LINE or ARC entity, or null
+  // for any other type. Used by buildClosedContoursFromLines to build the graph
+  // of connectable edges.
   function getOpenEdgeEndpoints(ent) {
     if (ent?.type === 'LINE') return getLineEndpoints(ent);
     if (ent?.type === 'ARC') return getArcEndpoints(ent);
     return null;
   }
 
+  // Main graph-tracing algorithm that finds closed rings from loose LINE/ARC
+  // entities. Builds a planar half-edge graph, traces interior faces using the
+  // CCW left-turn rule, and recovers the exterior boundary via its complement.
+  // Returns synthetic LINE_LOOP entities for every closed ring found.
   function buildClosedContoursFromLines(entities) {
     const openEdges = entities
       .filter(ent => (ent?.type === 'LINE' || ent?.type === 'ARC'))
@@ -457,11 +481,16 @@
     return loops;
   }
 
+  // Point-in-polygon test to decide whether one contour physically encloses
+  // another. Used when building the parent-child nesting tree so holes and
+  // inner shapes are attached to the correct outer boundary.
   function contourContainsContour(parent, child) {
     if (!bboxContainsPoint(parent.bbox, child.sample)) return false;
     return pointInPoly(child.sample.x, child.sample.y, parent.points);
   }
 
+  // Walks up the parent chain to count how many contours enclose this one.
+  // Odd depth means the contour is a hole; even depth means it is a solid region.
   function contourDepth(contour, contourById) {
     let depth = 0;
     let current = contour;
@@ -473,6 +502,8 @@
     return depth;
   }
 
+  // Scores a contour so that real DXF entities beat synthetic LINE_LOOPs when
+  // two contours share the same geometry. Higher score = preferred.
   function contourPreferenceScore(contour) {
     const entity = contour?.entity || {};
     return [
@@ -483,6 +514,8 @@
     ];
   }
 
+  // Comparator that uses contourPreferenceScore to choose between two contours
+  // with identical geometry during deduplication. Returns positive if a is better.
   function compareContourPreference(a, b) {
     const aa = contourPreferenceScore(a);
     const bb = contourPreferenceScore(b);
@@ -492,6 +525,9 @@
     return 0;
   }
 
+  // Top-level entry point. Classifies all entities into closed contours, builds
+  // the parent-child nesting tree, marks holes vs solid rings, and returns each
+  // top-level shape grouped with its descendants and loose decorator entities.
   function groupByContour(entities) {
     const contourEntities = [...entities.filter(isClosedEntity), ...buildClosedContoursFromLines(entities)];
     const closed = contourEntities

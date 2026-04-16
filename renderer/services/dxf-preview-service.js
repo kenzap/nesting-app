@@ -11,6 +11,9 @@
   const { f1, mkRng, hashStr } = svg;
   const { unionBBox, entityBBox, closePointRing } = geometry;
 
+  // Reads the raw DXF text line-by-line to pull out fields that dxf-parser
+  // doesn't expose (handle, ACI color, true color, extrusion vector).
+  // Returns a Map keyed by entity handle so callers can look up metadata fast.
   function parseRawEntityMeta(raw) {
     if (!raw) return new Map();
     const lines = raw.split(/\r\n|\r|\n/g);
@@ -49,6 +52,9 @@
     return meta;
   }
 
+  // When an entity's extrusion Z is negative it was drawn on a mirrored UCS.
+  // Flips all X coordinates so the geometry appears the correct way round in
+  // the preview instead of being mirrored horizontally.
   function applyNegativeZExtrusionTransform(entity) {
     if (!entity) return entity;
     const mirrorPoint = point => {
@@ -71,6 +77,9 @@
     return entity;
   }
 
+  // Merges raw-text metadata (color, extrusion) back onto the parsed entity
+  // objects by matching entity handles. Also triggers the mirroring fix for
+  // any entity whose extrusion Z came back negative.
   function enrichEntitiesFromRaw(entities, raw) {
     const rawMeta = parseRawEntityMeta(raw);
     if (!rawMeta.size) return entities;
@@ -92,6 +101,9 @@
     });
   }
 
+  // Core DXF-to-shapes pipeline. Takes a parsed DXF object and the original raw
+  // text, detects contours, builds SVG path data, collects decorator entities,
+  // and returns the shape + layer list the rest of the app uses.
   function parseDXFToShapes(dxf, raw) {
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
@@ -273,6 +285,9 @@
     r => { const w = 82 + r() * 62; const h = 52 + r() * 45; const tw = 14 + r() * 12; const fw = 14 + r() * 12; return { d: `M0,0 H${svg.f(w)} V${svg.f(h)} H${svg.f(w - fw)} V${svg.f(tw)} H${svg.f(fw)} V${svg.f(h)} H0 Z`, w, h, name: 'U-Channel' }; },
   ];
 
+  // Generates deterministic fake shape data from a hash of the filename.
+  // Used so the preview modal always shows something plausible even before a
+  // real parse completes or when no DXF path is available yet.
   function mockDXFData(filename) {
     const rng = mkRng(hashStr(filename));
     const numLayers = 2 + Math.floor(rng() * 3);
@@ -304,6 +319,9 @@
   }
 
   function createDxfPreviewService() {
+    // Entry point for opening a DXF preview. Tries three sources in priority
+    // order: already-parsed shapes in state → parse from disk via Electron →
+    // mock data. Always returns something so the UI never hangs on a blank modal.
     async function preparePreviewData({ state, fileId, filename }) {
       const file = state.files.find(entry => entry.id === fileId);
       let data = null;
@@ -335,6 +353,9 @@
       return { data, source, file };
     }
 
+    // Writes the user's shape edits (qty changes, visibility toggles) back into
+    // the file record in state and triggers a re-render and a persist so the
+    // changes survive a page reload.
     function applyPreviewToFile({ state, fileId, shapes, layers, renderFiles, schedulePersistJobState }) {
       const file = state.files.find(entry => entry.id === fileId);
       if (!file) return;

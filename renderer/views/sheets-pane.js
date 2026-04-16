@@ -2,6 +2,9 @@
 
 (function defineSheetsPane(globalScope) {
   function createSheetsPane({ state, dom, schedulePersistJobState, getOpenSheetEditor, renderTabs }) {
+    // Rebuilds the sheets sidebar so it reflects current state.
+    // Hides the Add Sheet button once a sheet exists (only one is supported), renders each sheet row
+    // with its dimensions, material, and mode label, and calls renderTabs to keep the canvas tab row in sync.
     function renderSheets() {
       dom.sheetList.innerHTML = '';
       if (dom.addSheetBtn) {

@@ -4,6 +4,9 @@
   const { f, f1 } = global.NestDxfSvg;
 
   function createDxfPreviewShapesListView({ pv, getShapesList, getShapeCount, getFileMeta, getStats, syncActions }) {
+    // Rebuilds the entire shapes panel list so the UI reflects the latest shape state.
+    // Groups shapes by layer with a coloured header, floats removed shapes to the bottom,
+    // and wires up thumbnail SVGs, qty +/- buttons, direct qty input, and the restore button.
     function renderList({ onSelectShape, onChangeQty, onSetQty, onRestoreShape }) {
       const visible = pv.shapes.filter(shape => shape.visible);
       const total = visible.reduce((acc, shape) => acc + shape.qty, 0);

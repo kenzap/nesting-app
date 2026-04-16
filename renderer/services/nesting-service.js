@@ -16,6 +16,8 @@
     let sparrowRunAborted = false;
     let activeSparrowRunId = null;
 
+    // Parses raw stdout/stderr from the solver binary into a clean one-line message.
+    // Prefers explicit "error:" lines, falls back to the last non-info line, then to raw text.
     function extractSparrowErrorMessage(...chunks) {
       const text = chunks.map(chunk => String(chunk || '')).filter(Boolean).join('\n').trim();
       if (!text) return 'Sparrow failed';
@@ -29,6 +31,8 @@
       return lastMeaningful || lines[lines.length - 1] || 'Sparrow failed';
     }
 
+    // Sets the status chip to error, tints the status bar red, and writes the error
+    // message with a tooltip containing the full solver details for debugging.
     function showRunError(message, details = '') {
       setStatus('error');
       setNestStatsTone('error');
@@ -37,6 +41,9 @@
       dom.nestStats.title = details || summary;
     }
 
+    // Called on a 500ms interval while the solver is running to fetch the latest result.
+    // Updates state and re-renders the canvas whenever new strips arrive, and cleans up
+    // the interval on completion, error, or stop.
     async function pollSparrowRun(runId) {
       if (!window.electronAPI?.pollSparrow) return;
 
@@ -98,7 +105,11 @@
       }
     }
 
+    // Wires the Start and Stop buttons.
+    // Start: exports the placement JSON, launches Sparrow via IPC, and begins a 500ms
+    // polling interval. Stop: sets the abort flag, calls stopSparrow, and resets the UI.
     function bind() {
+      // Start button — exports placement JSON, runs Sparrow, and starts polling for results.
       dom.startBtn.addEventListener('click', async () => {
         if (state.status === 'running') return;
         if (!state.files.length) return;
@@ -184,6 +195,8 @@
         }
       });
 
+      // Stop button — sets the abort flag, tells the main process to stop Sparrow,
+      // clears the polling interval, and resets the UI to idle.
       dom.stopBtn.addEventListener('click', async () => {
         if (state.status !== 'running') return;
         sparrowRunAborted = true;

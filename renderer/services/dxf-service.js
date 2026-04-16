@@ -11,6 +11,8 @@
       buildJobName,
     } = globalScope.NestHelpers;
 
+    // Guarantees a file has parsed shapes with export metadata before they're used.
+    // If the shapes are already fully populated, skips the expensive IPC round-trip.
     async function ensureFileShapes(file) {
       const hasUsableShapes = Array.isArray(file.shapes) && file.shapes.length;
       const hasExportMetadata = hasUsableShapes && file.shapes.every(shape => Array.isArray(shape.exportEntities));
@@ -39,6 +41,8 @@
       return file.shapes;
     }
 
+    // Best-effort background parse triggered right after a file is added to the list.
+    // Silently swallows errors so a parse failure doesn't break the UI or file list rendering.
     async function hydrateFileShapesForList(file, onHydrated) {
       if (!file || !file.path || (Array.isArray(file.shapes) && file.shapes.length)) return;
       if (!window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') return;
@@ -51,6 +55,9 @@
       }
     }
 
+    // Assembles the full JSON payload the Sparrow solver expects.
+    // Iterates all files, sanitises polygon points, assigns integer IDs, and builds
+    // the exportItems side-table so the export pipeline can look up layer/entity data by ID.
     async function buildPlacementPayload() {
       const items = [];
       const exportItems = {};
@@ -110,6 +117,8 @@
       };
     }
 
+    // Calls buildPlacementPayload and writes the result to disk via the Electron bridge.
+    // Returns the file path so the nesting service can log it and pass it to Sparrow.
     async function exportPlacementJSON() {
       const payload = await buildPlacementPayload();
       if (!window.electronAPI?.savePlacementJSON) {

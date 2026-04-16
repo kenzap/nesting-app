@@ -2,6 +2,9 @@
   'use strict';
 
   function createDxfPreviewModal({ state }) {
+    // Local preview state for the currently open file. Declared here so it
+    // resets to a clean slate each time a new file is opened, with no
+    // leftover selection, zoom, or layer filter from a previous session.
     const pv = {
       fileId: null,
       filename: '',
@@ -45,6 +48,9 @@
       getLayerConfig: () => (typeof global.getPartLabelConfig === 'function' ? global.getPartLabelConfig(pv.layers) : { enabled: false, color: '#4488FF', style: 'stroked' }),
     });
 
+    // Keeps the Remove/Restore button in sync with the current selection:
+    // disabled when nothing is selected, and labelled "Restore" when the
+    // selected shape has already been hidden.
     function syncActions() {
       const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
       dom.removeShape.disabled = !selected;
@@ -60,6 +66,9 @@
       syncActions,
     });
 
+    // Rebuilds the layer-filter tab row from scratch so counts and active state
+    // always reflect the latest shapes array. Clicking a tab sets activeLayer;
+    // clicking the already-active tab resets the filter back to "All".
     function renderTabs() {
       dom.layerTabs.innerHTML = '';
       const makeTab = (label, dot, layerName) => {
@@ -86,10 +95,14 @@
       });
     }
 
+    // Thin wrapper so callers don't need to know about canvasView directly;
+    // always passes the local selectShape handler as the click callback.
     function renderSVG() {
       canvasView.renderSVG(selectShape);
     }
 
+    // Thin wrapper that wires all four action callbacks into shapesListView so
+    // the list view stays decoupled from this module's internal functions.
     function renderList() {
       shapesListView.renderList({
         onSelectShape: selectShape,
@@ -99,6 +112,8 @@
       });
     }
 
+    // Toggles selection: clicking the already-selected shape deselects it;
+    // clicking a different shape selects it and scrolls its list row into view.
     function selectShape(id) {
       pv.selectedId = pv.selectedId === id ? null : id;
       renderSVG();
@@ -109,6 +124,8 @@
       }
     }
 
+    // Adjusts a shape's copy count by delta, enforcing a minimum of 1 so the
+    // user can never reduce a quantity below a single instance.
     function changeQty(id, delta) {
       const shape = pv.shapes.find(entry => entry.id === id);
       if (shape) {
@@ -117,6 +134,9 @@
       }
     }
 
+    // Validates a quantity typed directly into the input field. Rejects
+    // non-integer or sub-1 values by re-rendering without saving, which
+    // visually restores the previous valid number.
     function setQty(id, value) {
       const shape = pv.shapes.find(entry => entry.id === id);
       if (!shape) return;
@@ -129,6 +149,8 @@
       renderList();
     }
 
+    // Soft-deletes a shape by flagging it invisible rather than removing it from
+    // the array, so restoreShape can bring it back without data loss.
     function deleteShape(id) {
       const shape = pv.shapes.find(entry => entry.id === id);
       if (!shape) return;
@@ -139,6 +161,8 @@
       renderTabs();
     }
 
+    // Reverses a soft-delete, making the shape visible again and refreshing all
+    // three views (canvas, list, tabs) so counts update immediately.
     function restoreShape(id) {
       const shape = pv.shapes.find(entry => entry.id === id);
       if (!shape) return;
@@ -149,12 +173,17 @@
       renderTabs();
     }
 
+    // Clamps zoom to the [0.25, 5] range, updates the percentage label, then
+    // applies the CSS transform without re-parsing or re-building the SVG.
     function setZoom(nextZoom) {
       pv.zoom = Math.max(0.25, Math.min(5, nextZoom));
       dom.zoomLabel.textContent = `${Math.round(pv.zoom * 100)}%`;
       canvasView.applyZoomTransform();
     }
 
+    // Entry point for opening the modal. Resets all preview state for the new
+    // file, shows a loading spinner, triggers the async DXF parse, then renders
+    // tabs, canvas, and shape list once data is ready.
     async function openDXFPreview(fileId, filename) {
       pv.fileId = fileId;
       pv.filename = filename;
@@ -190,16 +219,22 @@
       renderList();
     }
 
+    // Hides the modal by removing the "open" class; does not discard pv state
+    // so a re-open of the same file can still diff against the previous session.
     function closeDXFPreview() {
       dom.modal.classList.remove('open');
     }
 
+    // Re-renders the canvas and list without re-parsing the DXF — used when a
+    // setting such as the engraving layer changes while the modal is already open.
     function refreshDXFPreview() {
       if (!dom.modal.classList.contains('open')) return;
       renderSVG();
       renderList();
     }
 
+    // Toggles between delete and restore for the selected shape depending on its
+    // current visible flag, so the same button serves both actions.
     dom.removeShape?.addEventListener('click', () => {
       if (!pv.selectedId) return;
       const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
@@ -208,6 +243,8 @@
       else deleteShape(pv.selectedId);
     });
 
+    // Removes the entire file from the job (not just a single shape) and
+    // persists state; closes the modal only if the removal succeeded.
     dom.removePart?.addEventListener('click', () => {
       if (!pv.fileId || typeof global.removeJobFileById !== 'function') return;
       const removed = global.removeJobFileById(pv.fileId);
@@ -215,6 +252,8 @@
       if (removed) closeDXFPreview();
     });
 
+    // Zoom buttons and ctrl/cmd+wheel all funnel through setZoom so clamping
+    // and label updates are handled in one place.
     dom.zoomIn.addEventListener('click', () => setZoom(pv.zoom + 0.25));
     dom.zoomOut.addEventListener('click', () => setZoom(pv.zoom - 0.25));
     dom.zoomFit.addEventListener('click', () => setZoom(1));
@@ -224,6 +263,8 @@
       setZoom(pv.zoom + (event.deltaY < 0 ? 0.1 : -0.1));
     }, { passive: false });
 
+    // Collapses or expands the shapes panel; re-renders the SVG in a rAF so the
+    // layout recalculates after the panel's CSS transition has started.
     dom.togglePanel.addEventListener('click', () => {
       pv.panelVisible = !pv.panelVisible;
       dom.panel.classList.toggle('pvw-panel-hidden', !pv.panelVisible);
@@ -231,11 +272,15 @@
       requestAnimationFrame(() => renderSVG());
     });
 
+    // Re-renders the SVG on window resize so the canvas fills the new column
+    // width; skipped when the modal is not open to avoid unnecessary work.
     window.addEventListener('resize', () => {
       if (!dom.modal.classList.contains('open')) return;
       renderSVG();
     });
 
+    // Delete/Backspace keyboard shortcut for removing the selected shape;
+    // ignored when focus is inside a text input to avoid swallowing edits.
     window.addEventListener('keydown', event => {
       if (!dom.modal.classList.contains('open')) return;
       if (!pv.selectedId) return;
@@ -246,12 +291,16 @@
       deleteShape(pv.selectedId);
     });
 
+    // All three close triggers (X button, Cancel, overlay click) route to the
+    // same closeDXFPreview so behaviour is consistent.
     dom.close.addEventListener('click', closeDXFPreview);
     dom.cancel.addEventListener('click', closeDXFPreview);
     dom.modal.addEventListener('click', event => {
       if (event.target === dom.modal) closeDXFPreview();
     });
 
+    // Apply commits the edited shapes back to the file in app state, triggers a
+    // persist, re-renders the file list, then closes the modal.
     dom.apply.addEventListener('click', () => {
       previewService.applyPreviewToFile({
         state,

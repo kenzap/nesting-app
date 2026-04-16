@@ -2,6 +2,8 @@
 
 (function defineSheetModal(globalScope) {
   function createSheetModal({ state, dom, schedulePersistJobState, renderSheets }) {
+    // Returns true when the current form values exactly match a preset button's dimensions.
+    // Used by syncSheetPresetButtons to decide which preset (if any) should appear highlighted.
     function presetMatches(btn) {
       return (
         dom.sheetWidthMode.value === 'fixed' &&
@@ -10,12 +12,16 @@
       );
     }
 
+    // Adds or removes the "active" class on every preset button to reflect the current form state.
+    // Called whenever the width, height, or mode inputs change.
     function syncSheetPresetButtons() {
       document.querySelectorAll('.preset-btn').forEach(btn => {
         btn.classList.toggle('active', presetMatches(btn));
       });
     }
 
+    // Resets the modal form to default values (3000 × 1250, fixed mode) and clears the editing ID.
+    // Clearing the ID ensures a subsequent submit creates a new sheet instead of overwriting one.
     function resetSheetForm() {
       state.editingSheetId = null;
       dom.sheetWidthMode.value = 'fixed';
@@ -26,6 +32,8 @@
       updateSheetModeControls();
     }
 
+    // Opens the sheet modal in add mode (blank form) or edit mode (pre-filled from an existing sheet).
+    // Guards against adding a second sheet since only one is currently supported.
     function openSheetEditor(sheetId = null) {
       if (!sheetId) {
         if (state.sheets.length >= 1) return;
@@ -47,11 +55,14 @@
       dom.sheetModal.classList.add('open');
     }
 
+    // Closes the sheet modal and resets the form so the next open always starts clean.
     function closeSheetDialog() {
       dom.sheetModal.classList.remove('open');
       resetSheetForm();
     }
 
+    // Disables the width input when "unlimited" mode is selected and updates the help text
+    // to explain what each mode means, then syncs the preset button highlights.
     function updateSheetModeControls() {
       const mode = dom.sheetWidthMode.value;
       const unlimited = mode === 'unlimited';
@@ -69,6 +80,8 @@
       syncSheetPresetButtons();
     }
 
+    // Wires all modal interactions: open/close buttons, mode dropdown, width/height inputs for
+    // preset sync, preset button clicks, and the confirm button that creates or updates the sheet.
     function bind() {
       dom.addSheetBtnDialog.addEventListener('click', () => openSheetEditor());
       dom.closeSheet.addEventListener('click', closeSheetDialog);

@@ -2,6 +2,7 @@ const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { cleanupTempArtifacts } = require('../utils/temp-retention');
 
 let activeSparrowProcess = null;
 let activeSparrowRun = null;
@@ -37,35 +38,147 @@ function readJsonIfExists(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 }
 
-function latestSvgPerStrip(runDir, safeName) {
-  const solsDir = path.join(runDir, 'output', `sols_${safeName}`);
-  if (!fs.existsSync(solsDir)) return [];
+function countPlacedItemsInSvg(svgText) {
+  const text = String(svgText || '');
+  const matches = text.match(/<use\b[^>]*href="#item_[^"]+"/g);
+  return matches ? matches.length : 0;
+}
 
-  const stripDirs = fs.readdirSync(solsDir, { withFileTypes: true })
+function collectStripSvgsFromDir(baseDir, { isPreview }) {
+  if (!baseDir || !fs.existsSync(baseDir)) return [];
+
+  const stripDirs = fs.readdirSync(baseDir, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && /^strip_\d+$/i.test(entry.name))
     .map(entry => entry.name)
     .sort();
 
-  return stripDirs.map(dirName => {
-    const stripDir = path.join(solsDir, dirName);
-    const svgFiles = fs.readdirSync(stripDir)
-      .filter(name => name.toLowerCase().endsWith('.svg'))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const latest = svgFiles[svgFiles.length - 1];
-    if (!latest) return null;
-    const svgPath = path.join(stripDir, latest);
-    return {
-      index: Number(dirName.match(/\d+/)?.[0] || 0),
-      svg_path: svgPath,
-      json_path: null,
-      svg: fs.readFileSync(svgPath, 'utf-8'),
-      is_preview: true,
-    };
-  }).filter(Boolean);
+  if (stripDirs.length) {
+    return stripDirs.map(dirName => {
+      const stripDir = path.join(baseDir, dirName);
+      const svgFiles = fs.readdirSync(stripDir)
+        .filter(name => name.toLowerCase().endsWith('.svg'))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const latest = svgFiles[svgFiles.length - 1];
+      if (!latest) return null;
+      const svgPath = path.join(stripDir, latest);
+      const svgText = fs.readFileSync(svgPath, 'utf-8');
+      return {
+        index: Number(dirName.match(/\d+/)?.[0] || 0),
+        svg_path: svgPath,
+        json_path: null,
+        svg: svgText,
+        item_count: countPlacedItemsInSvg(svgText),
+        is_preview: isPreview,
+      };
+    }).filter(Boolean);
+  }
+
+  const flatSvgFiles = fs.readdirSync(baseDir)
+    .filter(name => name.toLowerCase().endsWith('.svg'))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const latestFlat = flatSvgFiles[flatSvgFiles.length - 1];
+  if (!latestFlat) return [];
+
+  const svgPath = path.join(baseDir, latestFlat);
+  const stripWidthMatch = latestFlat.match(/^\d+_([-\d.]+)_/);
+  const stripWidth = stripWidthMatch ? Number(stripWidthMatch[1]) : null;
+  const svgText = fs.readFileSync(svgPath, 'utf-8');
+
+  return [{
+    index: 1,
+    svg_path: svgPath,
+    json_path: null,
+    svg: svgText,
+    strip_width: Number.isFinite(stripWidth) ? stripWidth : null,
+    item_count: countPlacedItemsInSvg(svgText),
+    is_preview: isPreview,
+  }];
+}
+
+function collectContinuousFinalArtifacts(outputDir, safeName) {
+  if (!outputDir || !fs.existsSync(outputDir)) return null;
+
+  const finalJsonPath = path.join(outputDir, `final_${safeName}.json`);
+  const finalSvgPath = path.join(outputDir, `final_${safeName}.svg`);
+  if (!fs.existsSync(finalJsonPath) || !fs.existsSync(finalSvgPath)) return null;
+
+  const finalJson = readJsonIfExists(finalJsonPath);
+  const solution = finalJson?.solution;
+  if (!solution) return null;
+
+  const svgText = fs.readFileSync(finalSvgPath, 'utf-8');
+  const stripWidth = Number(solution.strip_width);
+  const density = Number(solution.density ?? finalJson?.density);
+  const itemCount = Array.isArray(solution.placed_items)
+    ? solution.placed_items.length
+    : countPlacedItemsInSvg(svgText);
+
+  return {
+    summaryPath: finalJsonPath,
+    summary: {
+      name: finalJson?.name || safeName,
+      strip_count: 1,
+      density: Number.isFinite(density) ? density : null,
+      is_preview: false,
+      strips: [{
+        index: 1,
+        svg_path: finalSvgPath,
+        json_path: finalJsonPath,
+        svg: svgText,
+        strip_width: Number.isFinite(stripWidth) ? stripWidth : null,
+        density: Number.isFinite(density) ? density : null,
+        item_count: Number.isFinite(itemCount) ? itemCount : 0,
+        is_preview: false,
+      }],
+    },
+  };
+}
+
+function resolveOutputSubdir(runDir, preferredName, prefix) {
+  const preferredPath = path.join(runDir, 'output', preferredName);
+  if (fs.existsSync(preferredPath)) return preferredPath;
+
+  const outputDir = path.join(runDir, 'output');
+  if (!fs.existsSync(outputDir)) return null;
+
+  const matches = fs.readdirSync(outputDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(prefix))
+    .map(entry => path.join(outputDir, entry.name))
+    .sort((a, b) => {
+      try {
+        return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+      } catch {
+        return 0;
+      }
+    });
+
+  return matches[0] || null;
+}
+
+function latestSvgPerStrip(runDir, safeName) {
+  const solsDir = resolveOutputSubdir(runDir, `sols_${safeName}`, 'sols_');
+  return collectStripSvgsFromDir(solsDir, { isPreview: true });
 }
 
 function collectSparrowArtifacts(runDir, safeName) {
-  const finalDir = path.join(runDir, 'output', `final_${safeName}`);
+  const outputDir = path.join(runDir, 'output');
+  const continuousFinal = collectContinuousFinalArtifacts(outputDir, safeName);
+  if (continuousFinal) return continuousFinal;
+
+  const finalDir = resolveOutputSubdir(runDir, `final_${safeName}`, 'final_');
+  if (!finalDir) {
+    const strips = latestSvgPerStrip(runDir, safeName);
+    return {
+      summaryPath: null,
+      summary: strips.length ? {
+        name: safeName,
+        strip_count: strips.length,
+        strips,
+        is_preview: true,
+      } : null,
+    };
+  }
+
   const summaryPath = path.join(finalDir, 'summary.json');
   const summary = readJsonIfExists(summaryPath);
 
@@ -89,14 +202,14 @@ function collectSparrowArtifacts(runDir, safeName) {
     };
   }
 
-  const strips = latestSvgPerStrip(runDir, safeName);
+  const strips = collectStripSvgsFromDir(finalDir, { isPreview: false });
   return {
     summaryPath,
     summary: strips.length ? {
       name: safeName,
       strip_count: strips.length,
       strips,
-      is_preview: true,
+      is_preview: false,
     } : null,
   };
 }
@@ -139,7 +252,9 @@ function registerSparrowIpc() {
       const safeName = String(payload?.name || 'nesting-job')
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'nesting-job';
-      const runDir = path.join(app.getPath('temp'), 'nestkit-runs', `${safeName}-${Date.now()}`);
+      const runsRootDir = path.join(app.getPath('temp'), 'nestkit-runs');
+      cleanupTempArtifacts(runsRootDir);
+      const runDir = path.join(runsRootDir, `${safeName}-${Date.now()}`);
       fs.mkdirSync(runDir, { recursive: true });
 
       const inputPath = path.join(runDir, `${safeName}.json`);
@@ -242,8 +357,21 @@ function registerSparrowIpc() {
       return { success: false, error: 'Run not found' };
     }
 
-    const artifacts = collectSparrowArtifacts(activeSparrowRun.runDir, activeSparrowRun.safeName);
     const status = activeSparrowRun.status;
+    const artifacts = status === 'running'
+      ? {
+          summaryPath: null,
+          summary: (() => {
+            const strips = latestSvgPerStrip(activeSparrowRun.runDir, activeSparrowRun.safeName);
+            return strips.length ? {
+              name: activeSparrowRun.safeName,
+              strip_count: strips.length,
+              strips,
+              is_preview: true,
+            } : null;
+          })(),
+        }
+      : collectSparrowArtifacts(activeSparrowRun.runDir, activeSparrowRun.safeName);
     const error = status === 'error'
       ? (activeSparrowRun.stderr.trim() || activeSparrowRun.stdout.trim() || activeSparrowRun.error || 'Sparrow failed')
       : null;

@@ -466,6 +466,26 @@ body.platform-mac .topbar-left {
 .canvas-tabs {
   display: flex;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.canvas-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.canvas-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.canvas-tabs::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 999px;
 }
 
 .canvas-tab {
@@ -478,6 +498,8 @@ body.platform-mac .topbar-left {
   border: none;
   background: transparent;
   transition: background .12s, color .12s;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .canvas-tab:hover { background: var(--surface2); color: var(--text); }
 .canvas-tab.active {
@@ -540,9 +562,9 @@ body.platform-mac .topbar-left {
 
 .svg-container {
   position: relative;
-  width: max-content;
+  width: 100%;
+  min-width: max-content;
   height: max-content;
-  min-width: 100%;
   min-height: 100%;
   display: grid;
   place-items: center;

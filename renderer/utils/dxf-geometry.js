@@ -1,10 +1,15 @@
 (function attachNestDxfGeometry(global) {
   'use strict';
 
+  // Shared numeric constants used throughout geometry calculations.
+  // EPS is the "effectively zero area" threshold; LOOP_TOLERANCE is the snap
+  // distance for merging nearly-identical graph nodes into one.
   const EPS = 1e-6;
   const TWO_PI = Math.PI * 2;
   const LOOP_TOLERANCE = 1e-3;
 
+  // Ray-casting point-in-polygon test. Used to decide whether one contour
+  // lies inside another when building the hole hierarchy.
   function pointInPoly(px, py, vertices) {
     let inside = false;
     const n = vertices.length;
@@ -19,14 +24,21 @@
     return inside;
   }
 
+  // Euclidean distance between two {x, y} points. Used wherever edge lengths
+  // or chord lengths need to be compared.
   function dist(a, b) {
     return Math.hypot((b.x || 0) - (a.x || 0), (b.y || 0) - (a.y || 0));
   }
 
+  // Returns true when two points are within eps of each other.
+  // Used to detect shared vertices when stitching edges into loops.
   function samePoint(a, b, eps = 1e-4) {
     return !!a && !!b && Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <= eps;
   }
 
+  // Extracts {start, end} from a LINE entity regardless of whether the parser
+  // stored the data in ent.start/ent.end or ent.vertices, normalising the
+  // two formats into one consistent shape.
   function getLineEndpoints(ent) {
     if (!ent || ent.type !== 'LINE') return null;
     if (ent.start && ent.end &&
@@ -45,6 +57,9 @@
     return null;
   }
 
+  // Calculates the physical start and end {x, y} points of an ARC entity from
+  // its centre, radius, and start/end angles so the arc can be treated as an
+  // edge with known endpoints when building contour graphs.
   function getArcEndpoints(ent) {
     if (!ent || ent.type !== 'ARC' || !ent.center || !Number.isFinite(ent.radius)) return null;
     const startAngle = Number.isFinite(ent.startAngle) ? ent.startAngle : 0;
@@ -61,10 +76,15 @@
     };
   }
 
+  // Snaps a point to a grid of size eps and returns a string key so that
+  // nearly-identical points are merged into the same node in the contour graph.
   function pointKey(point, eps = LOOP_TOLERANCE) {
     return `${Math.round(point.x / eps)},${Math.round(point.y / eps)}`;
   }
 
+  // Removes consecutive duplicate points from an array to avoid zero-length
+  // edges. When closed=true it also strips the repeated closing vertex so
+  // polygon algorithms don't double-count it.
   function dedupePoints(points, closed = false) {
     const out = [];
     points.forEach(point => {
@@ -75,10 +95,16 @@
     return out;
   }
 
+  // Returns a compact string key for a single point, snapped to a coarser grid
+  // than pointKey. Used to build Set-based signatures for whole-polygon
+  // deduplication rather than graph-node merging.
   function pointSig(point, precision = 1e-4) {
     return `${Math.round(point.x / precision)},${Math.round(point.y / precision)}`;
   }
 
+  // Generates a canonical string for a closed polygon that is identical
+  // regardless of starting vertex or winding direction. Used to detect and
+  // discard duplicate contours extracted from the same DXF layer.
   function normalizedClosedPointSignature(points, precision = 1e-4) {
     const ring = dedupePoints(points, true);
     if (!ring.length) return '';
@@ -94,6 +120,8 @@
     return [...rotations(forward), ...rotations(backward)].sort()[0] || '';
   }
 
+  // Computes the axis-aligned bounding box of a point array. Used as a quick
+  // spatial index for containment pre-tests and layout calculations.
   function bboxFromPoints(points) {
     if (!points.length) return null;
     const xs = points.map(point => point.x);
@@ -106,6 +134,8 @@
     };
   }
 
+  // Shoelace formula for signed polygon area. A positive result means CCW
+  // winding; negative means CW. Used by normalizeWindingCCW to fix winding order.
   function polygonSignedArea(points) {
     let area = 0;
     for (let i = 0; i < points.length; i++) {
@@ -116,11 +146,16 @@
     return area / 2;
   }
 
+  // Reverses the point order if the polygon is CW so everything downstream
+  // can assume CCW winding without needing to check itself.
   function normalizeWindingCCW(points) {
     if (polygonSignedArea(points) < 0) points.reverse();
     return points;
   }
 
+  // Finds a point guaranteed to be inside the polygon, first trying the
+  // centroid and falling back to a triangle centroid. Used as a probe point
+  // for containment tests when building the hole hierarchy.
   function interiorPoint(points) {
     if (!points.length) return null;
     const avg = points.reduce((acc, point) => ({
@@ -137,11 +172,15 @@
     };
   }
 
+  // Quick bounding-box pre-test run before the more expensive pointInPoly check.
+  // Avoids the full ray-cast for points that are obviously outside the bbox.
   function bboxContainsPoint(bbox, point, eps = 1e-4) {
     return point.x >= bbox.minX - eps && point.x <= bbox.maxX + eps &&
            point.y >= bbox.minY - eps && point.y <= bbox.maxY + eps;
   }
 
+  // Merges two bounding boxes into one that covers both. Handles null inputs so
+  // callers can accumulate a bbox by starting with null and unioning each entity.
   function unionBBox(a, b) {
     if (!a) return b || null;
     if (!b) return a || null;
@@ -153,6 +192,9 @@
     };
   }
 
+  // Adjusts an end angle so the arc sweeps in the intended direction (CCW or CW)
+  // without wrapping past the start angle unexpectedly. Required because DXF
+  // arcs can straddle the 0/2π boundary.
   function normalizeAngleSpan(start, end, ccw) {
     let s = start;
     let e = end;
@@ -164,6 +206,9 @@
     return { start: s, end: e };
   }
 
+  // Converts a DXF polyline bulge value into a sequence of arc points so that
+  // curved polyline segments are tessellated correctly. Bulge encodes tan(θ/4)
+  // of the included arc angle, which this function decodes into centre + radius.
   function bulgeToPoints(start, end, bulge, maxStepDeg = 12) {
     if (!bulge || Math.abs(bulge) < EPS) return [{ x: end.x, y: end.y }];
     const chord = dist(start, end);
@@ -195,6 +240,9 @@
     return points;
   }
 
+  // Tessellates a DXF ELLIPSE entity into a flat point array, handling the
+  // rotation of the major axis and partial ellipses (start/end parameters).
+  // Needed because the nesting solver works with point polygons, not parametric curves.
   function ellipseToPoints(ent, forceClosed = false) {
     if (!ent.center || !ent.majorAxisEndPoint) return [];
     const rx = Math.hypot(ent.majorAxisEndPoint.x, ent.majorAxisEndPoint.y);
@@ -229,6 +277,9 @@
     return dedupePoints(points, closed);
   }
 
+  // Expands a LWPOLYLINE/POLYLINE vertex array into a flat point array by
+  // converting any bulge values to arc point sequences. This is the primary
+  // path for turning polyline geometry into solver-ready polygons.
   function polylineVerticesToPoints(vertices, close = true) {
     if (!vertices || vertices.length < 2) return [];
     const points = [{ x: vertices[0].x, y: vertices[0].y }];
@@ -242,6 +293,9 @@
     return dedupePoints(points, close);
   }
 
+  // Returns the fit points (preferred) or control points of a SPLINE as a simple
+  // point array. Accurate enough for nesting polygon approximation without needing
+  // full B-spline evaluation.
   function splineToPoints(ent) {
     const raw = (ent.fitPoints && ent.fitPoints.length > 1)
       ? ent.fitPoints
@@ -249,6 +303,8 @@
     return dedupePoints(raw.map(point => ({ x: point.x, y: point.y })), !!ent.closed);
   }
 
+  // Tessellates a CIRCLE into 48 evenly-spaced points so it can be treated as
+  // a closed polygon by the nesting solver and geometry helpers.
   function circleToPoints(ent) {
     if (!ent.center || !ent.radius || ent.radius < EPS) return [];
     const steps = 48;
@@ -263,6 +319,9 @@
     return points;
   }
 
+  // Returns any one representative point from an entity without full tessellation.
+  // Used as a quick containment probe to decide which layer or group an entity
+  // belongs to.
   function samplePoint(ent) {
     if (!ent || typeof ent !== 'object') return null;
     switch (ent.type) {
@@ -291,6 +350,8 @@
     }
   }
 
+  // Same as samplePoint but wrapped in try/catch so a malformed entity doesn't
+  // crash the caller. Returns null on any error.
   function safeSamplePoint(ent) {
     try {
       return samplePoint(ent);
@@ -299,6 +360,8 @@
     }
   }
 
+  // Returns the unit vector pointing from point a to point b. Used when
+  // comparing edge directions to detect nearly-collinear segments.
   function vectorBetween(a, b) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -306,12 +369,16 @@
     return { x: dx / len, y: dy / len };
   }
 
+  // Returns the absolute angle in radians between two direction vectors.
+  // Used to measure how sharply two edges diverge at a shared vertex.
   function angleDelta(a, b) {
     const dot = (a.x * b.x) + (a.y * b.y);
     const cross = (a.x * b.y) - (a.y * b.x);
     return Math.abs(Math.atan2(cross, dot));
   }
 
+  // Computes the bounding box of any supported DXF entity type by tessellating
+  // or reading its geometry. Used for spatial indexing and layout bounds checks.
   function entityBBox(ent) {
     const xs = [];
     const ys = [];
@@ -351,6 +418,9 @@
     };
   }
 
+  // Ensures a polygon point array ends with a copy of the first point (the
+  // "closed ring" convention the nesting solver expects) without creating a
+  // duplicate if the ring is already closed.
   function closePointRing(points) {
     const ring = dedupePoints(points, true);
     if (!ring.length) return [];

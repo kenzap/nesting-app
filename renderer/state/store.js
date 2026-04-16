@@ -2,6 +2,8 @@
 
 (function defineNestStore(globalScope) {
   function createAppStore() {
+    // The single source of truth for the whole renderer. All modules read from
+    // and write to this object — no hidden module-level caches.
     const state = {
       files: [],
       sheets: [],
@@ -18,6 +20,9 @@
 
     let persistJobTimer = null;
 
+    // Serialises just the job-relevant subset of state (files + sheets), leaving
+    // out runtime-only fields like nestResult or zoom. This is the shape that
+    // gets written to the job-state JSON file on disk.
     function snapshotJobState() {
       const { clonePlain, effectiveFileQty } = globalScope.NestHelpers;
       return {
@@ -40,6 +45,9 @@
       };
     }
 
+    // Sends the current job snapshot to the main process via IPC so it can be
+    // written to the job-state JSON file. Logs an error if the save fails so
+    // silent data-loss is visible in the console.
     async function persistJobStateNow() {
       if (!window.electronAPI?.saveJobState) return;
       const result = await window.electronAPI.saveJobState(snapshotJobState());
@@ -48,6 +56,9 @@
       }
     }
 
+    // Debounces disk writes with a 120 ms timer so rapid state changes (e.g.
+    // clicking quantity up/down repeatedly) are coalesced into a single write
+    // instead of hammering the filesystem on every keystroke.
     function schedulePersistJobState() {
       if (persistJobTimer) window.clearTimeout(persistJobTimer);
       persistJobTimer = window.setTimeout(() => {
@@ -56,6 +67,9 @@
       }, 120);
     }
 
+    // Reads the saved job-state file on startup and restores files + sheets into
+    // state. Returns true if anything was restored so the caller can skip the
+    // blank-slate initialisation path.
     async function hydrateJobState() {
       if (!window.electronAPI?.loadJobState) return false;
       const result = await window.electronAPI.loadJobState();

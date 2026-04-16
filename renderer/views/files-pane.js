@@ -4,6 +4,9 @@
   function createFilesPane({ state, dom, schedulePersistJobState, hydrateFileShapesForList }) {
     const { uid, formatBytes, effectiveFileQty } = globalScope.NestHelpers;
 
+    // Rebuilds the DXF files sidebar so it matches current state.
+    // Shows each file's shape count, size, and total qty, wires up the ✕ remove buttons,
+    // and disables the Clear button when the list is empty.
     function renderFiles() {
       dom.fileList.innerHTML = '';
       if (dom.clearFilesBtn) dom.clearFilesBtn.disabled = state.files.length === 0;
@@ -47,6 +50,8 @@
       dom.dropZone.style.display = 'flex';
     }
 
+    // Accepts an array of file objects and adds them to state, skipping duplicates by name.
+    // Kicks off background DXF parsing for each new file so shapes are ready before the user runs nesting.
     function addFiles(fileObjs) {
       const newlyAdded = [];
       fileObjs.forEach(f => {
@@ -66,6 +71,8 @@
       });
     }
 
+    // Removes a single file from state by its ID and refreshes the list.
+    // Returns true when a file was actually found and removed, so callers can decide whether to persist.
     function removeJobFileById(fileId) {
       if (!fileId) return false;
       const before = state.files.length;
@@ -77,6 +84,8 @@
       return false;
     }
 
+    // Wires the Clear-all button and the Add-file button to their respective actions.
+    // In Electron the Add-file button opens the native file picker; in the browser it loads three demo files.
     function bind() {
       dom.clearFilesBtn?.addEventListener('click', () => {
         if (!state.files.length) return;

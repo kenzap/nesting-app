@@ -24,6 +24,8 @@ The workflow is:
 5. Review sheets live while the algorithm works.
 6. Export final sheets, including DXF output with original layer structure and engraving geometry.
 
+You can also check this video for live [nesting demo](https://youtu.be/b55Bph1dwPY).
+
 ## Core Features
 
 - DXF import by click or drag and drop
@@ -107,11 +109,26 @@ npx electron-builder
 ## Repository Structure
 
 ```text
-assets/                 logos, preview media
+assets/                 app icons, preview media, branding assets
+main/                   Electron main-process modules
+  app.js                window, menu, About panel, app lifecycle
+  ipc/                  file dialogs, Sparrow, DXF export IPC handlers
+  utils/                main-process helpers such as temp retention cleanup
 native/                 platform-specific native binaries
-renderer/               Electron renderer UI
-main.js                 Electron main process and native engine integration
-preload.js              secure renderer bridge
+  macos/bin/            Sparrow and preprocess binaries for macOS
+  windows/bin/          Sparrow and preprocess binaries for Windows
+renderer/               Electron renderer application
+  state/                app state store and mutations
+  views/                panes, modals, canvas, DXF preview UI rendering
+  services/             nesting, DXF parsing/preview, export workflows
+  utils/                DXF geometry, color, SVG, and preview helpers
+  helpers.js            shared renderer-only formatting helpers
+  index.html            renderer shell
+  renderer.js           renderer bootstrap and module wiring
+  styles.css            application styling
+shared/                 constants and settings used by main + renderer
+preload.js              secure Electron bridge exposed to the renderer
+main.js                 thin bootstrap that starts the main-process modules
 dist/                   packaged builds
 ```
 

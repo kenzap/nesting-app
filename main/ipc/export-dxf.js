@@ -1,9 +1,10 @@
-const { ipcMain } = require('electron');
+const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { normalizeSettings } = require('../../shared/settings');
 
 function registerExportDxfIpc() {
+  const isDev = !app.isPackaged || process.argv.includes('--dev');
   // Write one DXF per strip using placement data from the strip JSON files.
   ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, inputPath, exportItems = {}, strips }) => {
     try {
@@ -560,11 +561,65 @@ function registerExportDxfIpc() {
         return ['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'POLYLINE', 'ELLIPSE', 'SPLINE'].includes(entity?.type);
       }
 
+      // Computes a tight bounding box over all transformed geometry in the sheet.
+      // Used to fill $EXTMIN/$EXTMAX in the DXF HEADER so viewers can auto-zoom to fit.
+      function computeSheetBbox(sheetEntities) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const expand = (x, y) => {
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        };
+        const expandR = (x, y, r) => { expand(x - r, y - r); expand(x + r, y + r); };
+        sheetEntities.forEach(({ entity, rotation, tx, ty }) => {
+          if (!entity) return;
+          if (entity.type === 'LINE') {
+            const s = transformPoint(entity.start || {}, rotation, tx, ty);
+            const e = transformPoint(entity.end || {}, rotation, tx, ty);
+            expand(s.x, s.y); expand(e.x, e.y);
+          } else if (entity.type === 'CIRCLE') {
+            const c = transformPoint(entity.center || {}, rotation, tx, ty);
+            expandR(c.x, c.y, Number(entity.radius) || 0);
+          } else if (entity.type === 'ARC') {
+            // Use a conservative circle envelope — good enough for EXTMIN/EXTMAX.
+            const c = transformPoint(entity.center || {}, rotation, tx, ty);
+            expandR(c.x, c.y, Number(entity.radius) || 0);
+          } else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
+            (entity.vertices || []).forEach(v => {
+              const p = transformPoint(v, rotation, tx, ty);
+              expand(p.x, p.y);
+            });
+          } else if (entity.type === 'ELLIPSE' && entity.center) {
+            const c = transformPoint(entity.center, rotation, tx, ty);
+            const major = entity.majorAxisEndPoint;
+            const r = major ? Math.hypot(Number(major.x) || 0, Number(major.y) || 0) : 0;
+            expandR(c.x, c.y, r);
+          } else if (entity.type === 'SPLINE') {
+            [...(entity.controlPoints || []), ...(entity.fitPoints || [])].forEach(pt => {
+              const p = transformPoint(pt, rotation, tx, ty);
+              expand(p.x, p.y);
+            });
+          }
+        });
+        return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+      }
+
       function buildDXF(sheetEntities, engravings, layerDefs, emitDebug) {
         const lines = [];
         const L = s => lines.push(s);
         let handleSeed = 0x100;
         const nextHandle = () => (handleSeed++).toString(16).toUpperCase();
+
+        // Compute drawing extents up front so the HEADER can reference them.
+        // Many viewers (and all cutting-machine software) require $EXTMIN/$EXTMAX
+        // to know the drawing boundaries before reading entity data.
+        const bbox = computeSheetBbox(sheetEntities);
+        const bMinX = bbox ? +bbox.minX.toFixed(4) : 0;
+        const bMinY = bbox ? +bbox.minY.toFixed(4) : 0;
+        const bMaxX = bbox ? +bbox.maxX.toFixed(4) : 0;
+        const bMaxY = bbox ? +bbox.maxY.toFixed(4) : 0;
 
         L('0'); L('SECTION');
         L('2'); L('HEADER');
@@ -572,6 +627,30 @@ function registerExportDxfIpc() {
         L('1'); L('AC1014');
         L('9'); L('$HANDSEED');
         L('5'); L('FFFF');
+        L('9'); L('$INSBASE');
+        L('10'); L('0.0');
+        L('20'); L('0.0');
+        L('30'); L('0.0');
+        L('9'); L('$EXTMIN');
+        L('10'); L(`${bMinX}`);
+        L('20'); L(`${bMinY}`);
+        L('30'); L('0.0');
+        L('9'); L('$EXTMAX');
+        L('10'); L(`${bMaxX}`);
+        L('20'); L(`${bMaxY}`);
+        L('30'); L('0.0');
+        L('9'); L('$LIMMIN');
+        L('10'); L('0.0');
+        L('20'); L('0.0');
+        L('9'); L('$LIMMAX');
+        L('10'); L(`${Math.ceil(bMaxX)}`);
+        L('20'); L(`${Math.ceil(bMaxY)}`);
+        L('9'); L('$CLAYER');
+        L('8'); L('0');
+        L('9'); L('$LTSCALE');
+        L('40'); L('1.0');
+        L('9'); L('$TEXTSTYLE');
+        L('7'); L('STANDARD');
         L('0'); L('ENDSEC');
 
         L('0'); L('SECTION');
@@ -630,7 +709,8 @@ function registerExportDxfIpc() {
         L('71'); L('0');
         L('42'); L('1.0');
         L('3'); L('');
-        L('4'); L('');
+        // Group code 4 (BigFont filename) intentionally omitted — an empty value
+        // produces a blank line in the output that many DXF parsers reject.
         L('0'); L('ENDTAB');
 
         L('0'); L('TABLE');
@@ -868,25 +948,27 @@ function registerExportDxfIpc() {
         const dxf = buildDXF(sheetEntities, engravings, layerDefs, emitDebug);
         const outPath = path.join(outputDir, `${safeName}_sheet_${idx}.dxf`);
         fs.writeFileSync(outPath, dxf, 'utf-8');
-        const debugPath = path.join(outputDir, `${safeName}_sheet_${idx}.debug.json`);
-        fs.writeFileSync(debugPath, JSON.stringify({
-          strip_index: strip.index,
-          strip_json_path: strip.json_path,
-          input_path: inputPath || null,
-          sheet_width_mode: strip.sheet_width_mode || null,
-          sheet_width: strip.sheet_width ?? null,
-          strip_width: strip.strip_width ?? null,
-          strip_height: strip.strip_height ?? null,
-          export_item_key_count: Object.keys(exportItems || {}).length,
-          placed_item_count: placedItems.length,
-          sheet_entity_count: sheetEntities.length,
-          engraving_count: engravings.length,
-          emitted_entity_counts: emitDebug.emitted,
-          skipped_entity_count: emitDebug.skipped.length,
-          skipped_entity_samples: emitDebug.skipped.slice(0, 40),
-          layer_defs: layerDefs,
-          rows: debugRows,
-        }, null, 2), 'utf-8');
+        if (isDev) {
+          const debugPath = path.join(outputDir, `${safeName}_sheet_${idx}.debug.json`);
+          fs.writeFileSync(debugPath, JSON.stringify({
+            strip_index: strip.index,
+            strip_json_path: strip.json_path,
+            input_path: inputPath || null,
+            sheet_width_mode: strip.sheet_width_mode || null,
+            sheet_width: strip.sheet_width ?? null,
+            strip_width: strip.strip_width ?? null,
+            strip_height: strip.strip_height ?? null,
+            export_item_key_count: Object.keys(exportItems || {}).length,
+            placed_item_count: placedItems.length,
+            sheet_entity_count: sheetEntities.length,
+            engraving_count: engravings.length,
+            emitted_entity_counts: emitDebug.emitted,
+            skipped_entity_count: emitDebug.skipped.length,
+            skipped_entity_samples: emitDebug.skipped.slice(0, 40),
+            layer_defs: layerDefs,
+            rows: debugRows,
+          }, null, 2), 'utf-8');
+        }
         fileCount++;
       }
 

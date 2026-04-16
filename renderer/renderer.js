@@ -1,5 +1,8 @@
 'use strict';
 
+// ─── Platform detection ───────────────────────────────────────────────────────
+// We sniff the OS once at startup so CSS can tweak things like scrollbar style
+// or window-control spacing that differ between Mac, Windows and Linux.
 const platformString = String(
   navigator.userAgentData?.platform ||
   navigator.platform ||
@@ -15,6 +18,9 @@ if (platformString.includes('win')) {
   document.body.classList.add('platform-linux');
 }
 
+// ─── DOM references ───────────────────────────────────────────────────────────
+// Single lookup at startup so every other function can grab an element cheaply
+// by name instead of calling getElementById each time.
 const dom = {
   startBtn: document.getElementById('startBtn'),
   stopBtn: document.getElementById('stopBtn'),
@@ -66,12 +72,21 @@ const dom = {
   canvasArea: document.getElementById('canvasArea'),
 };
 
+// ─── App state + shared helpers ───────────────────────────────────────────────
+// The store owns everything that needs to survive between UI actions: loaded
+// files, sheets, the last solver result, etc. Persistence (save/load) is
+// handled inside createAppStore so the rest of the app doesn't have to think
+// about it.
 const { state, schedulePersistJobState, hydrateJobState } = window.NestStore.createAppStore();
 const { DEFAULT_ENGRAVING_COLOR } = window.NestConstants;
 const { partLabelFromName } = window.NestHelpers;
 
+// Timer used to auto-clear drag-debug messages after a few seconds.
 let dragDebugTimer = null;
 
+// ─── Status chip ──────────────────────────────────────────────────────────────
+// Updates the small coloured dot + text in the top bar that tells the user
+// whether the solver is idle, running, finished or in an error state.
 function setStatus(status) {
   state.status = status;
   const dot = dom.statusChip.querySelector('.status-dot');
@@ -81,16 +96,27 @@ function setStatus(status) {
   label.textContent = labels[status] || status;
 }
 
+// Tints the bottom status bar red when the solver returns an error so the
+// problem is obvious even if the user isn't looking at the chip.
 function setNestStatsTone(tone = '') {
   if (!dom.canvasStatusbar) return;
   dom.canvasStatusbar.classList.toggle('error', tone === 'error');
 }
 
+// Toggles the dotted-grid placeholder that fills the canvas area when no
+// nesting result is loaded yet.
 function syncViewportEmptyState(isEmpty) {
   if (!dom.viewport) return;
   dom.viewport.classList.toggle('empty-grid', !!isEmpty);
 }
 
+// ─── Service APIs ─────────────────────────────────────────────────────────────
+// Each "service" or "view" module is a self-contained unit that owns a slice of
+// the UI. We wire them together here by passing in the shared state, dom refs,
+// and any cross-module callbacks they need.
+
+// Settings modal — reads/writes solver parameters (gap, spacing, rotation, etc.)
+// and triggers a preview refresh whenever the user hits Apply.
 const settingsModalApi = window.NestSettingsModal.createSettingsModal({
   state,
   dom,
@@ -100,10 +126,14 @@ const settingsModalApi = window.NestSettingsModal.createSettingsModal({
   },
 });
 
+// Snapshot of the current solver settings so other modules don't have to reach
+// into the settings modal directly.
 function currentNestingSettings() {
   return settingsModalApi.currentNestingSettings();
 }
 
+// Returns which layer index (1-based) is designated for part labels / engraving
+// marks, or null when engraving is turned off entirely.
 function engravingLayerIndex(settings = currentNestingSettings()) {
   const raw = settings?.engravingLayer;
   if (raw === 'off' || raw === false || raw == null || raw === '') return null;
@@ -111,6 +141,9 @@ function engravingLayerIndex(settings = currentNestingSettings()) {
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : 2;
 }
 
+// Picks the best available colour for engraving text: uses the configured
+// layer colour when present, then falls back through layers 2 → 1 → a constant
+// default so the label is always visible regardless of DXF layer setup.
 function resolveEngravingColor(layers = []) {
   const idx = engravingLayerIndex();
   if (idx !== null && layers[idx - 1]?.color) return layers[idx - 1].color;
@@ -119,15 +152,21 @@ function resolveEngravingColor(layers = []) {
   return DEFAULT_ENGRAVING_COLOR;
 }
 
+// Returns whether labels should be drawn as simple centred text or as stroked
+// outlines — controlled by the "Engraving style" setting.
 function engravingStyle(settings = currentNestingSettings()) {
   return settings?.engravingStyle === 'simple' ? 'simple' : 'stroked';
 }
 
+// DXF service — parses DXF files into shape data and builds the JSON payload
+// that the solver and the export pipeline both consume.
 const dxfServiceApi = window.NestDxfService.createDxfService({
   state,
   getCurrentNestingSettings: currentNestingSettings,
 });
 
+// Canvas view — renders the solver's SVG output into the viewport, manages
+// per-sheet tabs, and handles pan/zoom.
 const canvasViewApi = window.NestCanvasView.createCanvasView({
   state,
   dom,
@@ -136,6 +175,8 @@ const canvasViewApi = window.NestCanvasView.createCanvasView({
   syncViewportEmptyState,
 });
 
+// Sheets pane — the list of configured sheets in the left sidebar.  Keeps the
+// tab row in sync whenever sheets are added, removed or reordered.
 let sheetModalApi = null;
 const sheetsPaneApi = window.NestSheetsPane.createSheetsPane({
   state,
@@ -145,6 +186,8 @@ const sheetsPaneApi = window.NestSheetsPane.createSheetsPane({
   renderTabs: canvasViewApi.renderTabs,
 });
 
+// Sheet modal — the dialog for adding or editing a single sheet (dimensions,
+// material, infinite-roll vs fixed-size mode).
 sheetModalApi = window.NestSheetModal.createSheetModal({
   state,
   dom,
@@ -152,11 +195,15 @@ sheetModalApi = window.NestSheetModal.createSheetModal({
   renderSheets: sheetsPaneApi.renderSheets,
 });
 
+// Export service — the DXF export modal that shows per-sheet utilisation and
+// writes one .dxf file per sheet to a user-chosen folder.
 const exportServiceApi = window.NestExportService.createExportService({
   state,
   dom,
 });
 
+// Nesting service — kicks off and monitors a solver run, polls for results, and
+// hands the finished placement data to the canvas view.
 const nestingServiceApi = window.NestNestingService.createNestingService({
   state,
   dom,
@@ -169,6 +216,8 @@ const nestingServiceApi = window.NestNestingService.createNestingService({
   syncExportButton: exportServiceApi.syncExportButton,
 });
 
+// Files pane — the list of loaded DXF files in the left sidebar with per-shape
+// quantity controls and the sketch-preview button.
 const filesPaneApi = window.NestFilesPane.createFilesPane({
   state,
   dom,
@@ -176,10 +225,16 @@ const filesPaneApi = window.NestFilesPane.createFilesPane({
   hydrateFileShapesForList: dxfServiceApi.hydrateFileShapesForList,
 });
 
+// DXF preview modal — opens the shape-selection overlay where users can pick
+// which contours to include and set per-shape quantities.
 const dxfPreviewModalApi = window.NestDxfPreviewModalView.createDxfPreviewModal({
   state,
 });
 
+// ─── Global surface ───────────────────────────────────────────────────────────
+// A handful of functions need to be reachable from other script files (notably
+// dxf-preview.js which runs in its own module scope).  We attach only what is
+// genuinely cross-module; everything else stays local.
 window.state = state;
 window.renderFiles = filesPaneApi.renderFiles;
 window.schedulePersistJobState = schedulePersistJobState;
@@ -195,6 +250,11 @@ window.openDXFPreview = dxfPreviewModalApi.openDXFPreview;
 window.parseDXFToShapes = window.NestDxfPreviewService.parseDXFToShapes;
 window.refreshDXFPreview = dxfPreviewModalApi.refreshDXFPreview;
 
+// ─── Drag-and-drop helpers ────────────────────────────────────────────────────
+
+// Writes a short timestamped message to the status bar during drag events so
+// we can see exactly what the browser reported without opening DevTools.
+// Auto-clears after 5 seconds so it doesn't clutter normal use.
 function showDragDebug(message, details = '') {
   setNestStatsTone('');
   dom.nestStats.textContent = `[DND] ${message}`;
@@ -210,6 +270,9 @@ function showDragDebug(message, details = '') {
   }, 5000);
 }
 
+// Converts the browser's raw FileList into the plain objects the app uses
+// internally, filtering out anything that isn't a .dxf file.  Electron exposes
+// a real filesystem path on each File; we grab that so the solver can read it.
 function normalizeDroppedFiles(fileList) {
   const files = [...fileList]
     .filter(f => f.name.toLowerCase().endsWith('.dxf'))
@@ -225,12 +288,17 @@ function normalizeDroppedFiles(fileList) {
   return files;
 }
 
+// Quick guard used in drag-enter/over handlers: returns true when the
+// DataTransfer actually carries file content rather than, say, selected text.
 function dataTransferHasFiles(dt) {
   if (!dt) return false;
   if (dt.files?.length) return true;
   return Array.from(dt.items || []).some(item => item.kind === 'file');
 }
 
+// Central handler for any drop event.  Extracts files from the DataTransfer,
+// hands them to the files pane, and logs what happened to the debug bar.
+// Returns true when at least one DXF was found and accepted.
 function handleDroppedDataTransfer(dt) {
   showDragDebug(
     `drop received: ${dt?.files?.length || 0} file${dt?.files?.length === 1 ? '' : 's'}`,
@@ -249,6 +317,9 @@ function handleDroppedDataTransfer(dt) {
   return true;
 }
 
+// The left-side lists overflow vertically but they live inside a flex layout
+// that prevents the default scroll behaviour.  This fixes wheel-scroll so
+// they feel natural without breaking parent-container scroll.
 function bindExplicitListScroll(listEl) {
   if (!listEl) return;
   listEl.addEventListener('wheel', e => {
@@ -258,6 +329,9 @@ function bindExplicitListScroll(listEl) {
   }, { passive: false });
 }
 
+// Wires up all drag-and-drop surfaces: the dedicated drop zone in the sidebar,
+// the canvas area (so you can drop onto a result mid-session), and a global
+// window-level listener that catches drops landing anywhere else on the page.
 function bindDragAndDrop() {
   dom.dropZone.addEventListener('dragover', e => {
     e.preventDefault();
@@ -274,6 +348,8 @@ function bindDragAndDrop() {
     handleDroppedDataTransfer(e.dataTransfer);
   });
 
+  // Clicking the drop zone opens the native file picker as an alternative to
+  // dragging — useful on touchpads or when files are buried deep in Finder.
   dom.dropZone.addEventListener('click', async () => {
     if (window.electronAPI?.openFileDialog) {
       const files = await window.electronAPI.openFileDialog();
@@ -287,6 +363,8 @@ function bindDragAndDrop() {
     handleDroppedDataTransfer(e.dataTransfer);
   });
 
+  // Capture-phase listeners on the window catch drops that miss every named
+  // target (e.g. the user drags onto the title bar area).
   window.addEventListener('dragenter', e => {
     e.preventDefault();
     showDragDebug(`dragenter: files=${e.dataTransfer?.files?.length || 0} items=${e.dataTransfer?.items?.length || 0}`);
@@ -305,6 +383,8 @@ function bindDragAndDrop() {
     handleDroppedDataTransfer(e.dataTransfer);
   }, true);
 
+  // Remove the highlight when the drag leaves the entire browser window,
+  // not just one individual element (dragleave fires for every child otherwise).
   window.addEventListener('dragleave', e => {
     if (e.target === document || e.target === document.documentElement || e.target === document.body) {
       dom.dropZone.classList.remove('drag-over');
@@ -312,6 +392,9 @@ function bindDragAndDrop() {
   }, true);
 }
 
+// Closes any modal when the user clicks the dark overlay behind it.
+// The sheet modal has its own close logic, so we delegate to that API
+// instead of just removing the class directly.
 function bindOverlayClose() {
   [dom.settingsModal, dom.sheetModal].forEach(modal => {
     modal.addEventListener('click', e => {
@@ -325,6 +408,11 @@ function bindOverlayClose() {
   });
 }
 
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+// Called once on page load.  Binds all event listeners, restores persisted job
+// state (files + sheets from the last session), and brings every service module
+// to life.  Order matters: sheets must render before tabs, and settings must
+// load before the first preview attempt.
 (function bootstrapRenderer() {
   filesPaneApi.bind();
   sheetsPaneApi.renderSheets();
@@ -343,6 +431,8 @@ function bindOverlayClose() {
   sheetModalApi.updateSheetModeControls();
   syncViewportEmptyState(true);
 
+  // Restore the previous session's files and sheets, then re-render both lists.
+  // If nothing was saved (first launch), we start clean.
   hydrateJobState().then(restored => {
     if (!restored) {
       state.files = [];

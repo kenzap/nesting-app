@@ -10,7 +10,13 @@
   }) {
     const { formatWidthMeters, partLabelFromName } = globalScope.NestHelpers;
     const { DEFAULT_ENGRAVING_COLOR } = globalScope.NestConstants;
+    const FIT_INSET_X = 40;
+    const FIT_INSET_Y = 28;
+    const SVG_PREVIEW_MARGIN_X = 80;
+    const SVG_PREVIEW_MARGIN_Y = 24;
 
+    // Same logic as renderer.js — returns the 1-based engraving layer number,
+    // or null if engraving is turned off. Kept here so the canvas view is self-contained.
     function engravingLayerIndex(settings = getCurrentNestingSettings()) {
       const raw = settings?.engravingLayer;
       if (raw === 'off' || raw === false || raw == null || raw === '') return null;
@@ -18,6 +24,8 @@
       return Number.isFinite(parsed) && parsed >= 1 ? parsed : 2;
     }
 
+    // Picks the best available hex colour for engraving labels.
+    // Falls back through the configured engraving layer → layer 2 → layer 1 → the app default.
     function resolveEngravingColor(layers = []) {
       const idx = engravingLayerIndex();
       if (idx !== null && layers[idx - 1]?.color) return layers[idx - 1].color;
@@ -26,10 +34,14 @@
       return DEFAULT_ENGRAVING_COLOR;
     }
 
+    // Convenience accessor — only one sheet config is supported at a time,
+    // so always pull from index 0 rather than scattering that assumption everywhere.
     function currentSheetConfig() {
       return state.sheets[0] || {};
     }
 
+    // When the sheet is in fixed-width mode the solver still reports its own strip width,
+    // so we override the display value with the user's configured width instead.
     function displayStripWidth(strip, sheet = currentSheetConfig()) {
       if (sheet?.widthMode === 'fixed') {
         const configuredWidth = Number(sheet?.width);
@@ -38,6 +50,8 @@
       return Number(strip?.strip_width) || 0;
     }
 
+    // The solver calculates density against its own strip width, not the user's target width.
+    // In fixed-width mode we re-derive utilisation so the status bar reflects the correct percentage.
     function displayStripDensity(strip, sheet = currentSheetConfig()) {
       if (!strip) return null;
       const rawDensity = Number(strip?.density);
@@ -58,6 +72,8 @@
       return usedArea / fixedArea;
     }
 
+    // The Sparrow solver encodes sheet container frames as a strict 4-point path string.
+    // This parser lets us read those coordinates back so we can rewrite the frame dimensions.
     function parseRectPathData(pathData) {
       const match = /^M([-\d.]+),([-\d.]+) L([-\d.]+),([-\d.]+) L([-\d.]+),([-\d.]+) L([-\d.]+),([-\d.]+) z$/i.exec((pathData || '').trim());
       if (!match) return null;
@@ -73,17 +89,15 @@
       };
     }
 
+    // Inverse of parseRectPathData — builds the 4-point closed path string
+    // from an origin and dimensions, ready to write back into the SVG DOM.
     function formatRectPathData(x, y, width, height) {
       return `M${x},${y} L${x + width},${y} L${x + width},${y + height} L${x},${y + height} z`;
     }
 
-    function prependTranslate(element, dx, dy) {
-      if (!element || (!dx && !dy)) return;
-      const current = (element.getAttribute('transform') || '').trim();
-      const translate = `translate(${dx} ${dy})`;
-      element.setAttribute('transform', current ? `${translate} ${current}` : translate);
-    }
-
+    // In fixed-width mode the solver's viewBox and frame rectangles are sized to the solver's
+    // strip width, not the user's target. This rewrites those elements in-place and re-serialises
+    // the SVG so that what gets rendered matches the configured sheet width.
     function adjustSvgForFixedWidth(svg, strip, targetWidth) {
       if (!svg || !Number.isFinite(targetWidth) || targetWidth <= 0) return svg;
 
@@ -99,24 +113,20 @@
         w: viewBoxParts[2] || 0,
         h: viewBoxParts[3] || 0,
       };
-      if (!Number.isFinite(vb.w) || targetWidth <= vb.w + 0.001) return svg;
+      if (!Number.isFinite(vb.w) || vb.w <= 0) return svg;
 
-      const xShift = vb.x < -0.001 ? -vb.x : 0;
-      const frameOriginX = xShift ? vb.x : 0;
+      const previewMinX = -SVG_PREVIEW_MARGIN_X;
+      const previewMinY = vb.y - SVG_PREVIEW_MARGIN_Y;
+      const previewWidth = targetWidth + (SVG_PREVIEW_MARGIN_X * 2);
+      const previewHeight = vb.h + (SVG_PREVIEW_MARGIN_Y * 2);
 
-      if (xShift) {
-        Array.from(root.children).forEach(child => {
-          if (child.nodeType !== 1) return;
-          if (String(child.nodeName).toLowerCase() === 'defs') return;
-          prependTranslate(child, xShift, 0);
-        });
-      }
-
-      root.setAttribute('viewBox', `0 ${vb.y} ${targetWidth} ${vb.h}`);
-      root.setAttribute('width', `${targetWidth}`);
+      root.setAttribute('viewBox', `${previewMinX} ${previewMinY} ${previewWidth} ${previewHeight}`);
+      root.setAttribute('width', `${previewWidth}`);
 
       const sourceWidth = Number(strip?.strip_width) || vb.w;
+      const frameOriginX = 0;
       const frameGroups = Array.from(root.querySelectorAll('g[id^="container_"]'));
+      let normalizedAnyFrame = false;
       frameGroups.forEach(group => {
         const framePath = group.querySelector('path');
         if (!framePath) return;
@@ -127,6 +137,7 @@
         if (!Number.isFinite(width) || !Number.isFinite(height)) return;
         if (Math.abs(width - sourceWidth) > 0.1) return;
         framePath.setAttribute('d', formatRectPathData(frameOriginX, rect.y0, targetWidth, height));
+        normalizedAnyFrame = true;
 
         const title = group.querySelector('title');
         if (title) {
@@ -137,10 +148,26 @@
         }
       });
 
+      const dashedOutline = root.querySelector('#highlight_cd_shapes > path:last-of-type');
+      if (dashedOutline) {
+        const rect = parseRectPathData(dashedOutline.getAttribute('d'));
+        if (rect) {
+          const width = rect.x1 - rect.x0;
+          const height = rect.y2 - rect.y1;
+          if (Number.isFinite(width) && Number.isFinite(height) && (Math.abs(width - sourceWidth) <= 0.1 || normalizedAnyFrame)) {
+            dashedOutline.setAttribute('d', formatRectPathData(0, rect.y0, targetWidth, height));
+          }
+        }
+      }
+
       const serializer = new XMLSerializer();
       return serializer.serializeToString(root);
     }
 
+    // Main SVG post-processor — applies the dark colour scheme to the raw solver output.
+    // Injects a grid background, recolours part fills to navy with a blue glow, tightens
+    // the sheet border style, strips solver stat labels, and calls adjustSvgForFixedWidth
+    // when the sheet is in fixed-width mode.
     function styleStripSVG(svg, strip = null) {
       if (!svg) return '';
 
@@ -178,6 +205,9 @@
       return styled;
     }
 
+    // Rebuilds the sheet tab row above the canvas from the current solver result.
+    // Each tab wires up a click handler to showNestResult and the active tab is
+    // kept in view via smooth scrollIntoView.
     function renderTabs() {
       dom.canvasTabs.innerHTML = '';
       if (state.nestResult?.strips?.length) {
@@ -191,13 +221,22 @@
             dom.canvasTabs.querySelectorAll('.canvas-tab').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             state.activeStripIndex = i;
+            btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
             showNestResult(i);
           });
           dom.canvasTabs.appendChild(btn);
+          if (i === activeIndex) {
+            requestAnimationFrame(() => {
+              btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            });
+          }
         });
       }
     }
 
+    // Generates a fake placement SVG from the currently loaded files and sheet config.
+    // This keeps the canvas looking populated while the real solver is running,
+    // rather than showing an empty viewport.
     function generateMockNestSVG(sheetIndex) {
       const sheet = state.sheets[sheetIndex];
       if (!sheet) return null;
@@ -295,47 +334,66 @@
       };
     }
 
+    // Central display function for a given sheet index.
+    // Prefers a real solver result (styled via styleStripSVG) and falls back to the mock
+    // preview when none is available yet. Updates the status bar with parts count,
+    // utilisation percentage, and strip width.
     function showNestResult(sheetIndex) {
       if (state.nestResult?.strips?.[sheetIndex]?.svg) {
         const strip = state.nestResult.strips[sheetIndex];
         const sheet = currentSheetConfig();
         state.activeStripIndex = sheetIndex;
         dom.svgContainer.innerHTML = styleStripSVG(strip.svg, strip);
-        dom.svgContainer.style.display = 'flex';
+        dom.svgContainer.style.display = 'grid';
         dom.emptyState.style.display = 'none';
         syncViewportEmptyState(false);
-        const placed = state.nestResult.strips.reduce((sum, item) => sum + (item.item_count || 0), 0);
+        const placed = Number(strip.item_count) || 0;
         const densityValue = displayStripDensity(strip, sheet);
-        const density = Number.isFinite(densityValue) ? `${(densityValue * 100).toFixed(1)}%` : 'n/a';
+        const density = Number.isFinite(densityValue) ? `${(densityValue * 100).toFixed(1)}%` : null;
         const usedWidth = formatWidthMeters(displayStripWidth(strip, sheet));
         const previewPrefix = strip.is_preview || state.nestResult.is_preview ? 'Preview · ' : '';
         setNestStatsTone('');
-        dom.nestStats.textContent = `${previewPrefix}Sheet ${sheetIndex + 1} of ${state.nestResult.strips.length} · ${placed} parts placed · Utilization: ${density} · Width: ${usedWidth}`;
-        applyZoom();
+        const partsText = placed > 0 ? ` · ${placed} parts` : '';
+        const utilText = density ? ` · Utilization: ${density}` : '';
+        dom.nestStats.textContent = `${previewPrefix}Sheet ${sheetIndex + 1} of ${state.nestResult.strips.length}${partsText}${utilText} · Width: ${usedWidth}`;
+        applyZoom(true);
         return;
       }
 
       const result = generateMockNestSVG(sheetIndex);
       if (!result) return;
       dom.svgContainer.innerHTML = result.svg;
-      dom.svgContainer.style.display = 'flex';
+      dom.svgContainer.style.display = 'grid';
       dom.emptyState.style.display = 'none';
       syncViewportEmptyState(false);
       const placed = state.files.reduce((a, f) => a + f.qty, 0);
       const mockWidth = formatWidthMeters(state.sheets[sheetIndex]?.width);
       setNestStatsTone('');
       dom.nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}% · Width: ${mockWidth}`;
-      applyZoom();
+      applyZoom(true);
     }
 
-    function applyZoom() {
+    // After a zoom change the SVG may be larger or smaller than the viewport.
+    // This scrolls to the midpoint of the overflow so the content stays centred.
+    function centerViewportOnContent() {
+      if (!dom.viewport) return;
+      const maxScrollLeft = Math.max(0, dom.viewport.scrollWidth - dom.viewport.clientWidth);
+      const maxScrollTop = Math.max(0, dom.viewport.scrollHeight - dom.viewport.clientHeight);
+      dom.viewport.scrollLeft = maxScrollLeft / 2;
+      dom.viewport.scrollTop = maxScrollTop / 2;
+    }
+
+    // Resizes the SVG element to reflect state.zoom relative to the SVG's natural dimensions.
+    // On the first call it reads and caches those natural dimensions from the viewBox so that
+    // all subsequent zoom levels are calculated consistently from the same baseline.
+    function applyZoom(recenter = false) {
       const el = dom.svgContainer.querySelector('svg');
       if (el) {
         const viewBox = (el.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
         const baseWidth = Number(el.dataset.baseWidth) || viewBox[2] || el.viewBox?.baseVal?.width || el.clientWidth || 1;
         const baseHeight = Number(el.dataset.baseHeight) || viewBox[3] || el.viewBox?.baseVal?.height || el.clientHeight || 1;
-        const fitWidth = Math.max(1, (dom.viewport?.clientWidth || baseWidth) - 8);
-        const fitHeight = Math.max(1, (dom.viewport?.clientHeight || baseHeight) - 8);
+        const fitWidth = Math.max(1, (dom.viewport?.clientWidth || baseWidth) - (FIT_INSET_X * 2));
+        const fitHeight = Math.max(1, (dom.viewport?.clientHeight || baseHeight) - (FIT_INSET_Y * 2));
         const fitScale = Math.min(fitWidth / baseWidth, fitHeight / baseHeight, 1);
         el.dataset.baseWidth = String(baseWidth);
         el.dataset.baseHeight = String(baseHeight);
@@ -344,12 +402,18 @@
         el.style.transform = '';
       }
       dom.zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+      if (recenter) {
+        requestAnimationFrame(() => centerViewportOnContent());
+      }
     }
 
+    // Wires up all canvas interaction: zoom-in/out/fit buttons update state.zoom and call
+    // applyZoom, while mousedown/mousemove/mouseup on the viewport implement click-drag panning.
+    // Also re-applies zoom on window resize so the fit scale stays accurate.
     function bind() {
       dom.zoomIn.addEventListener('click', () => { state.zoom = Math.min(4, state.zoom + 0.15); applyZoom(); });
       dom.zoomOut.addEventListener('click', () => { state.zoom = Math.max(0.2, state.zoom - 0.15); applyZoom(); });
-      dom.fitView.addEventListener('click', () => { state.zoom = 1; applyZoom(); });
+      dom.fitView.addEventListener('click', () => { state.zoom = 1; applyZoom(true); });
 
       let viewportDrag = null;
       dom.viewport?.addEventListener('mousedown', e => {
@@ -376,7 +440,7 @@
       });
 
       window.addEventListener('resize', () => {
-        applyZoom();
+        applyZoom(true);
       });
     }
 

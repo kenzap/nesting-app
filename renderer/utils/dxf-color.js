@@ -1,7 +1,8 @@
 (function attachNestDxfColor(global) {
   'use strict';
 
-  // Common AutoCAD Color Index values used throughout preview and export.
+  // Lookup table mapping the most common AutoCAD Color Index (ACI) values to hex colours.
+  // Unknown values are rounded to the nearest ten to find the closest listed entry.
   const ACI = {
     1: '#FF4444', 2: '#FFFF44', 3: '#44DD44', 4: '#44DDDD',
     5: '#4488FF', 6: '#DD44DD', 7: '#CCCCCC', 8: '#888888', 9: '#BBBBBB',
@@ -11,11 +12,17 @@
     130: '#FF6688', 140: '#FF8855', 150: '#FFAA55',
   };
 
+  // Converts an ACI number to a hex colour string by looking it up in the table.
+  // Returns null for the special DXF values 0 ("by block") and 256 ("by layer"),
+  // which don't represent actual colours.
   function aciToHex(value) {
     if (!value || value === 256 || value === 0) return null;
     return ACI[value] || ACI[Math.round(value / 10) * 10] || null;
   }
 
+  // Accepts any colour string and returns it in consistent #rrggbb format.
+  // Returns null if the input doesn't look like a valid hex colour, so callers
+  // can safely fall through to another colour source.
   function normalizeHexColor(value) {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
@@ -24,6 +31,9 @@
     return null;
   }
 
+  // Cleans up an ACI value that dxf-parser may return as a string, float, or
+  // negative number. Returns null for non-numeric input so downstream code
+  // can distinguish "no colour set" from colour index 0.
   function normalizeAci(value) {
     const num = Number(value);
     if (!Number.isFinite(num)) return null;
@@ -31,6 +41,8 @@
     return aci || 0;
   }
 
+  // Converts a 24-bit packed RGB integer (DXF group code 420 true colour) into
+  // a #rrggbb hex string so it can be used alongside ACI-derived colours.
   function trueColorToHex(value) {
     if (!Number.isFinite(value)) return null;
     const n = value >>> 0;

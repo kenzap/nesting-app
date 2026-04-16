@@ -1,6 +1,7 @@
 const { app, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { cleanupTempArtifacts } = require('../utils/temp-retention');
 
 function registerFileIpc({ getMainWindow }) {
   // Parse a DXF file and return structured entity data.
@@ -37,6 +38,7 @@ function registerFileIpc({ getMainWindow }) {
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'nesting-job';
       const tempDir = path.join(app.getPath('temp'), 'nestkit-debug');
+      cleanupTempArtifacts(tempDir);
       fs.mkdirSync(tempDir, { recursive: true });
 
       const fileName = `${safeName}-placement.json`;

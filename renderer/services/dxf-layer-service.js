@@ -9,6 +9,8 @@
     let paletteIndex = 0;
     const colorCache = {};
 
+    // Looks up a layer by name in the layer table with whitespace-tolerant
+    // fuzzy matching, because DXF files sometimes pad layer names with spaces.
     function findLayerDef(name) {
       if (layerTable[name]) return layerTable[name];
       const trimmed = String(name || '').trim();
@@ -17,6 +19,9 @@
       return matchKey ? layerTable[matchKey] : null;
     }
 
+    // Extracts a hex colour from a layer definition, checking all the different
+    // ways AutoCAD can encode colour: explicit hex, 24-bit true-color integer,
+    // and ACI palette index.
     function resolveLayerDefColor(def) {
       if (!def) return null;
       const explicitHex = normalizeHexColor(def.color) || normalizeHexColor(def.trueColor) || normalizeHexColor(def.rgb);
@@ -31,6 +36,9 @@
       return null;
     }
 
+    // Public API that returns a cached hex colour for a layer name. If the layer
+    // has no defined colour, assigns the next colour from FALLBACK_PALETTE so
+    // every layer gets a distinct, visible colour in the preview.
     function layerColor(name) {
       if (colorCache[name]) return colorCache[name];
       const def = findLayerDef(name);
@@ -38,6 +46,9 @@
       return colorCache[name];
     }
 
+    // Returns the display colour for a single entity. Checks entity-level overrides
+    // first (true color, ACI), then falls back to the layer colour. ACI values
+    // 256 and 0 are the DXF convention for "inherit from layer".
     function resolveEntityColor(entity, fallbackLayer = '0') {
       if (!entity) return layerColor(fallbackLayer);
       const explicitHex = normalizeHexColor(entity.color) || normalizeHexColor(entity.trueColor);

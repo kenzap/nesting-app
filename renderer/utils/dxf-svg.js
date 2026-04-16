@@ -3,9 +3,14 @@
 
   const { getLineEndpoints, polylineVerticesToPoints, splineToPoints, circleToPoints, TWO_PI } = global.NestDxfGeometry;
 
+  // Short coordinate formatters used wherever SVG output is serialised.
+  // f rounds to 3 decimal places; f1 to 1 — keeping the output compact
+  // without accumulating visible rounding error.
   const f = n => (+n).toFixed(3);
   const f1 = n => (+n).toFixed(1);
 
+  // Creates a seeded Park-Miller LCG pseudo-random number generator.
+  // Used for mock DXF data so the same filename always produces the same shapes.
   function mkRng(seed) {
     let s = (seed & 0x7fffffff) || 1;
     return () => {
@@ -14,12 +19,17 @@
     };
   }
 
+  // djb2 string hash — converts a filename string to a stable integer seed
+  // so mkRng produces a deterministic sequence for each file.
   function hashStr(str) {
     let h = 5381;
     for (let i = 0; i < str.length; i++) h = ((h << 5) + h ^ str.charCodeAt(i)) >>> 0;
     return h;
   }
 
+  // Converts a point array to an SVG path string (M…L…Z). The ox and originMaxY
+  // parameters flip DXF coordinates (Y-up, arbitrary origin) into SVG space
+  // (Y-down, top-left origin).
   function pathFromPoints(points, ox, originMaxY, close = true) {
     if (!points || points.length < 2) return '';
     const tx = point => point.x - ox;
@@ -32,6 +42,9 @@
     return d;
   }
 
+  // Builds the SVG arc path for a DXF ARC entity, applying the DXF-to-SVG
+  // coordinate flip. Handles the full-circle edge case with two arc commands
+  // because SVG cannot express a 360° arc in a single <path> arc segment.
   function arcEntPath(ent, ox, originMaxY) {
     const cx = ent.center.x - ox;
     const cy = originMaxY - ent.center.y;
@@ -52,6 +65,9 @@
     return `M${f(x1)},${f(y1)} A${f(r)},${f(r)},0,${large},1,${f(x2)},${f(y2)}`;
   }
 
+  // Renders a SPLINE as a smooth cubic Bézier SVG path using Catmull-Rom
+  // tangent estimation, giving a visually accurate curve without needing
+  // full B-spline evaluation.
   function splinePath(ent, ox, originMaxY) {
     const raw = (ent.fitPoints && ent.fitPoints.length > 1)
       ? ent.fitPoints
@@ -73,6 +89,9 @@
     return d;
   }
 
+  // Dispatches to the correct SVG path builder for each DXF entity type and
+  // returns a ready-to-embed SVG element string. Used to render decor items
+  // (non-outline entities) inside shape preview thumbnails.
   function entityToSVGStr(ent, ox, originMaxY, color) {
     const sw = `stroke="${color}" stroke-width="0.8" opacity="0.85" fill="none"`;
     switch (ent.type) {

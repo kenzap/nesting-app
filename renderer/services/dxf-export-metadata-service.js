@@ -3,6 +3,9 @@
 
   const { getLineEndpoints } = global.NestDxfGeometry;
 
+  // Normalises a point to a plain {x, y, z} object, stripping any extra
+  // properties that parsed DXF entities carry so the export JSON stays clean.
+  // Returns null if the point lacks finite x/y coordinates.
   function serializePoint(point) {
     if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
     return {
@@ -12,6 +15,9 @@
     };
   }
 
+  // Creates a stripped-down, JSON-safe copy of a DXF entity keeping only the
+  // fields the export pipeline needs (type, layer, geometry, color). Falls back
+  // to contourEntityToPoints for polylines that lack explicit vertex data.
   function serializeEntityForExport(ent, contourEntityToPoints) {
     if (!ent || !ent.type) return null;
 

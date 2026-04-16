@@ -1,29 +1,29 @@
 'use strict';
 
 /**
- * Pure helpers shared by the renderer.
+ * Pure utility functions shared across renderer modules.
  *
- * The goal of this module is to hold logic that can be understood in isolation:
- * no DOM access, no Electron bridge calls, and no hidden dependence on global
- * app state. That makes the code easier to test, easier to move around later,
- * and much easier to read when we revisit the project after a while.
+ * Nothing here touches the DOM, calls Electron, or reads global state —
+ * it's just data-in / data-out logic.  Keeping it that way means any of
+ * these can be unit-tested in isolation and safely reused wherever needed
+ * without worrying about side effects.
  */
 (function attachNestHelpers(globalScope) {
   /**
-   * Create a short client-side id for temporary UI objects.
+   * Makes a short random ID for temporary UI list items.
    *
-   * This is intentionally lightweight. We use it for renderer-side list items,
-   * not for anything that needs cryptographic uniqueness.
+   * Not cryptographically strong — that's fine, we just need something
+   * unique enough to key DOM elements within a single session.
    */
   function uid() {
     return Math.random().toString(36).slice(2, 9);
   }
 
   /**
-   * Convert a raw byte count into the compact text users expect in file lists.
+   * Turns a raw byte number into a readable string like "1.4 MB".
    *
-   * The output is intentionally human-first rather than machine-precise, because
-   * it is only shown as quick context in the UI.
+   * Shown next to each file in the sidebar so users can quickly tell if they
+   * accidentally loaded a huge file — precision beyond one decimal isn't useful.
    */
   function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`;
@@ -32,10 +32,10 @@
   }
 
   /**
-   * Present a sheet or strip width in meters for the bottom status bar.
+   * Converts a millimetre width to a "X.XX m" string for the status bar.
    *
-   * We keep this forgiving because solver output may occasionally omit width or
-   * report a non-positive value while a run is still warming up.
+   * Gracefully returns "n/a" for missing or zero values — the solver sometimes
+   * reports dimensions incrementally while a run is still starting up.
    */
   function formatWidthMeters(mm) {
     if (!Number.isFinite(mm) || mm <= 0) return 'n/a';
@@ -43,31 +43,30 @@
   }
 
   /**
-   * Normalize coordinates to a stable precision before we compare or export
-   * polygon data.
+   * Rounds a coordinate to 4 decimal places before any comparison or export.
    *
-   * Four decimals has been a good compromise so far: it keeps geometry stable
-   * enough for deduplication without inflating exported JSON with noisy digits.
+   * Four decimals is the sweet spot: tight enough to deduplicate near-identical
+   * points from parser floating-point noise, loose enough not to bloat JSON
+   * with meaningless trailing digits.
    */
   function roundCoord(value) {
     return Math.round((Number(value) + Number.EPSILON) * 1e4) / 1e4;
   }
 
   /**
-   * Turn a DXF filename into a short engraving-friendly label.
+   * Strips the ".dxf" extension so the filename can be used as a part label.
    *
-   * Example:
-   * `1k.dxf` -> `1k`
+   * Example: "bracket_v2.dxf" → "bracket_v2"
    */
   function partLabelFromName(name) {
     return String(name || '').replace(/\.dxf$/i, '').trim();
   }
 
   /**
-   * Convert the rotation step setting from UI text into a usable numeric step.
+   * Parses the "rotation step" dropdown value into a usable number.
    *
-   * `none` means "do not rotate at all", so we deliberately return `null`
-   * instead of a number in that case.
+   * Returns null for "none" (no rotation allowed) so callers can treat null
+   * as a clear off-switch without having to compare strings themselves.
    */
   function normalizeRotationStep(value) {
     if (value === 'none') return null;
@@ -76,10 +75,10 @@
   }
 
   /**
-   * Expand a single rotation step into the list of solver orientations.
+   * Builds the full list of allowed angles from a single step value.
    *
-   * Example:
-   * `90` -> `[0, 90, 180, 270]`
+   * The solver needs an explicit array, not just a step size.
+   * Example: step 90 → [0, 90, 180, 270]
    */
   function buildAllowedOrientations(rotationStepValue) {
     const step = normalizeRotationStep(rotationStepValue);
@@ -95,27 +94,26 @@
   }
 
   /**
-   * Compare two export points after normalization.
+   * Checks whether two polygon points are the same after rounding.
    *
-   * We treat points as equal when their rounded coordinates match. That makes
-   * duplicate cleanup resilient to tiny parser or transform drift.
+   * Used during polygon cleanup to detect consecutive duplicates that arose
+   * from floating-point drift in the DXF parser or coordinate transforms.
    */
   function sameExportPoint(a, b) {
     return !!a && !!b && roundCoord(a.x) === roundCoord(b.x) && roundCoord(a.y) === roundCoord(b.y);
   }
 
   /**
-   * Clean polygon points before they are handed to the nesting solver.
+   * Cleans up a raw polygon ring before it goes to the solver or export.
    *
-   * This routine intentionally does a few practical repairs:
-   * - drops invalid points
-   * - removes consecutive duplicates
-   * - removes repeated interior vertices
-   * - ensures the ring closes cleanly
+   * Does four lightweight repairs in order:
+   *  1. Drops any points with non-finite coordinates.
+   *  2. Collapses consecutive duplicate points.
+   *  3. Removes any point that appears more than once in the ring interior.
+   *  4. Re-closes the ring with a clean copy of the first vertex.
    *
-   * The result is still simple and predictable, which is important because
-   * overly clever polygon repair can create geometry that no longer matches the
-   * original part.
+   * Intentionally conservative — aggressive "healing" can silently change
+   * the shape, which is worse than letting a slightly noisy polygon through.
    */
   function sanitizePolygonPoints(points) {
     if (!Array.isArray(points) || !points.length) return [];
@@ -152,20 +150,22 @@
   }
 
   /**
-   * Deep-clone plain JSON-compatible structures.
+   * Deep-clones any plain JSON-serialisable value.
    *
-   * This is intentionally limited: it is perfect for our saved renderer state
-   * and export payloads, but not for Dates, Maps, or richer classes.
+   * Good enough for state snapshots and export payloads.  Not suitable for
+   * objects containing Dates, Maps, Sets or class instances — those lose their
+   * type through JSON round-trip.
    */
   function clonePlain(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
   }
 
   /**
-   * Calculate the effective quantity for a part file.
+   * Figures out how many copies of a part the solver should actually cut.
    *
-   * Once a DXF has been split into shapes, the real demand should come from the
-   * visible per-shape quantities rather than the file's old top-level quantity.
+   * Once a DXF is split into individual shapes, each shape has its own qty
+   * and visibility toggle.  The file-level qty becomes stale at that point,
+   * so we sum the visible shape quantities instead.
    */
   function effectiveFileQty(file) {
     if (Array.isArray(file?.shapes) && file.shapes.length) {
@@ -178,11 +178,11 @@
   }
 
   /**
-   * Generate a readable job name for exported placement payloads.
+   * Creates a human-readable name for a nesting job.
    *
-   * We preserve the single-file case because it makes debug files and solver
-   * folders much easier to recognize. For multi-file jobs we fall back to a
-   * timestamped name that stays stable and sortable.
+   * Single-file jobs use the filename (e.g. "bracket_v2") so the resulting
+   * solver folder is immediately recognisable.  Multi-file jobs get a
+   * timestamp-based name that sorts chronologically in the filesystem.
    */
   function buildJobName(files, now = new Date()) {
     if (Array.isArray(files) && files.length === 1 && files[0]?.name) {

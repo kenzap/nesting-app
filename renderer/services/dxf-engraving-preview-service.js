@@ -175,6 +175,9 @@
     ' ': [],
   };
 
+  // Lays out a text label as SVG using the embedded font data above. Scales the
+  // character height to fit inside the part's bounding box and switches between
+  // the filled-outline style and the lightweight stroke-only style via `style`.
   function buildPreviewLabelSvg(text, bbox, color, style) {
     if (!bbox || !Number.isFinite(bbox.w) || !Number.isFinite(bbox.h)) return '';
     const raw = String(text || '').toUpperCase().replace(/[^A-Z0-9 _-]/g, ' ').trim();

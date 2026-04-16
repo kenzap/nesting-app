@@ -8,6 +8,8 @@
   const PAD = 18;
 
   function createDxfPreviewCanvasView({ pv, getCanvasWrap, getLayerConfig }) {
+    // Reads the live rendered width of the canvas column so the SVG fills the
+    // actual available space instead of falling back to the hardcoded default.
     function getCanvasWidth() {
       const fallback = DEFAULT_CANVAS_W;
       const col = getCanvasWrap()?.parentElement;
@@ -19,6 +21,9 @@
       return Math.max(fallback, Math.floor(colWidth - 8));
     }
 
+    // Arranges shapes into rows, wrapping to a new row whenever the next shape
+    // would overflow the canvas width. Returns an {x,y} position for each shape
+    // in the same order as the input array so buildPreviewSVG can translate them.
     function autoLayout(shapes, canvasWidth) {
       let x = PAD;
       let y = PAD;
@@ -36,6 +41,9 @@
       });
     }
 
+    // Assembles the full SVG markup for the preview canvas — background, dot
+    // grid, and one <g> per shape with selection glow, decor layers, boundary
+    // items, engraving label, and a name caption underneath.
     function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth) {
       const maxX = positions.reduce((max, pos, index) => Math.max(max, pos.x + shapes[index].bbox.w + PAD), 0);
       const maxY = positions.reduce((max, pos, index) => Math.max(max, pos.y + shapes[index].bbox.h + 14), 0) + PAD;
@@ -97,6 +105,8 @@
 </svg>`;
     }
 
+    // Scales the inner SVG element via CSS transform and expands its wrapper div
+    // to match, so the scrollable container reports the correct zoomed dimensions.
     function applyZoomTransform() {
       const inner = document.getElementById('pvwSVGInner');
       const canvasInner = document.getElementById('pvCanvasInner');
@@ -110,6 +120,9 @@
       canvasInner.style.height = `${svgHeight * pv.zoom}px`;
     }
 
+    // Top-level render entry point — computes fresh layout, injects the SVG into
+    // the DOM, applies the current zoom, then attaches click listeners so each
+    // shape <g> fires the caller-supplied onSelectShape callback.
     function renderSVG(onSelectShape) {
       pv.canvasWidth = getCanvasWidth();
       pv.positions = autoLayout(pv.shapes, pv.canvasWidth);
@@ -121,6 +134,8 @@
       });
     }
 
+    // Replaces the canvas area with a spinner while the DXF file is being parsed,
+    // so the user sees feedback instead of an empty or stale canvas.
     function showLoading() {
       const canvasWrap = getCanvasWrap();
       canvasWrap.innerHTML = `

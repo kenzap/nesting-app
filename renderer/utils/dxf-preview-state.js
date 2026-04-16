@@ -1,6 +1,9 @@
 (function attachNestDxfPreviewState(global) {
   'use strict';
 
+  // Deep-clones a single shape object so that edits made inside the preview
+  // modal don't mutate the original. Uses shallow spread for scalar fields but
+  // explicitly clones all arrays (polygonPoints, decorItems, exportEntities, etc.).
   function clonePreviewShape(shape) {
     return {
       ...shape,
@@ -23,6 +26,9 @@
     };
   }
 
+  // Clones a full {shapes, layers} preview data object by running clonePreviewShape
+  // on every shape. Keeps the preview session fully isolated from the source data
+  // so any modal edits can be discarded or committed deliberately.
   function clonePreviewData(data) {
     if (!data) return null;
     return {
@@ -31,6 +37,9 @@
     };
   }
 
+  // Stamps the DXF filename (without extension) as the partLabel on every shape.
+  // Called after cloning so each preview session gets a fresh label derived from
+  // the current filename without affecting the stored originals.
   function applyPartLabelsToPreviewData(data, filename) {
     if (!data?.shapes?.length) return data;
     const labelText = typeof global.getPartLabelText === 'function'

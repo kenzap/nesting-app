@@ -5,12 +5,16 @@
     const { SETTINGS_DEFAULTS, normalizeSettings } = globalScope.NestSettings;
     const settingsFields = dom.settingsFields;
 
+    // Reads the current value of a single settings field, normalising checkboxes to
+    // booleans and number inputs to JS numbers so callers always get the right type.
     function settingFieldValue(field) {
       if (field.type === 'checkbox') return field.checked;
       if (field.type === 'number') return field.value === '' ? '' : Number(field.value);
       return field.value;
     }
 
+    // Writes a value back to a settings form field, handling the checkbox/text distinction.
+    // Silently skips fields whose key is not present in the provided settings object.
     function applySettingFieldValue(field, value) {
       if (value === undefined) return;
       if (field.type === 'checkbox') {
@@ -20,6 +24,8 @@
       field.value = `${value}`;
     }
 
+    // Reads every [data-setting-key] field in the modal at once and returns them as a plain object.
+    // Used before persisting so the saved data always reflects what the user currently sees in the form.
     function collectSettingsFromDialog() {
       return settingsFields.reduce((acc, field) => {
         acc[field.dataset.settingKey] = settingFieldValue(field);
@@ -27,18 +33,26 @@
       }, {});
     }
 
+    // Returns a fresh shallow copy of the built-in settings defaults.
+    // Always returns a new object so callers cannot accidentally mutate the originals.
     function dialogDefaults() {
       return { ...SETTINGS_DEFAULTS };
     }
 
+    // Pushes a settings object into every form field in the modal.
+    // Called both on initial open (to show current values) and on reset (to restore defaults).
     function applySettingsToDialog(settings) {
       settingsFields.forEach(field => applySettingFieldValue(field, settings[field.dataset.settingKey]));
     }
 
+    // Returns the active nesting settings: built-in defaults merged with anything saved to state.
+    // Other modules call this instead of reading state.settings directly, so defaults always fill any gaps.
     function currentNestingSettings() {
       return { ...dialogDefaults(), ...state.settings };
     }
 
+    // Reads the form, normalises the values, saves them to state, and writes through to disk via Electron IPC.
+    // Throws if the IPC bridge reports a failure so the caller can surface the error.
     async function persistCurrentSettings() {
       state.settings = normalizeSettings(collectSettingsFromDialog());
       if (!window.electronAPI?.saveAppSettings) return;
@@ -48,6 +62,8 @@
       }
     }
 
+    // Loads saved settings from disk on startup and populates the form.
+    // Falls back silently to defaults when no data is saved or the Electron bridge is unavailable.
     async function loadPersistedSettings() {
       const defaults = dialogDefaults();
       state.settings = { ...defaults };
@@ -64,6 +80,8 @@
       applySettingsToDialog(state.settings);
     }
 
+    // Wires open, close, apply, and reset buttons for the settings modal.
+    // Apply persists the form values and fires onSettingsApplied so previews refresh immediately.
     function bind() {
       dom.openSettings.addEventListener('click', () => dom.settingsModal.classList.add('open'));
       dom.closeSettings.addEventListener('click', () => dom.settingsModal.classList.remove('open'));
