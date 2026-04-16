@@ -1,5 +1,20 @@
 'use strict';
 
+const platformString = String(
+  navigator.userAgentData?.platform ||
+  navigator.platform ||
+  navigator.userAgent ||
+  ''
+).toLowerCase();
+
+if (platformString.includes('win')) {
+  document.body.classList.add('platform-win');
+} else if (platformString.includes('mac')) {
+  document.body.classList.add('platform-mac');
+} else {
+  document.body.classList.add('platform-linux');
+}
+
 // ── State ──────────────────────────────────────────────────
 const state = {
   files: [],     // { id, name, size, qty }
@@ -18,6 +33,7 @@ let nestInterval = null;
 let persistJobTimer = null;
 let sparrowRunAborted = false;
 let activeSparrowRunId = null;
+let dragDebugTimer = null;
 
 // ── DOM refs ───────────────────────────────────────────────
 const startBtn     = document.getElementById('startBtn');
@@ -30,10 +46,12 @@ const clearFilesBtn = document.getElementById('clearFilesBtn');
 const addFileBtn   = document.getElementById('addFileBtn');
 const addSheetBtn  = document.getElementById('addSheetBtn');
 const emptyState   = document.getElementById('emptyState');
+const viewport     = document.getElementById('viewport');
 const svgContainer = document.getElementById('svgContainer');
 const canvasTabs   = document.getElementById('canvasTabs');
 const zoomLabel    = document.getElementById('zoomLabel');
 const nestStats    = document.getElementById('nestStats');
+const canvasStatusbar = document.getElementById('canvasStatusbar');
 const openSettings = document.getElementById('openSettings');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettings = document.getElementById('closeSettings');
@@ -91,6 +109,65 @@ function setStatus(s) {
   label.textContent = labels[s] || s;
 }
 
+function setNestStatsTone(tone = '') {
+  if (!canvasStatusbar) return;
+  canvasStatusbar.classList.toggle('error', tone === 'error');
+}
+
+function syncViewportEmptyState(isEmpty) {
+  if (!viewport) return;
+  viewport.classList.toggle('empty-grid', !!isEmpty);
+}
+
+function extractSparrowErrorMessage(...chunks) {
+  const text = chunks
+    .map(chunk => String(chunk || ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+
+  if (!text) return 'Sparrow failed';
+
+  const lines = text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const explicitError = [...lines].reverse().find(line => /^error:/i.test(line));
+  if (explicitError) return explicitError.replace(/^error:\s*/i, '').trim();
+
+  const stripLength = [...lines].reverse().find(line =>
+    /requires strip length .* exceeding the configured maximum/i.test(line)
+  );
+  if (stripLength) return stripLength;
+
+  const lastMeaningful = [...lines].reverse().find(line => !/^\[info\]/i.test(line));
+  return lastMeaningful || lines[lines.length - 1] || 'Sparrow failed';
+}
+
+function showRunError(message, details = '') {
+  setStatus('error');
+  setNestStatsTone('error');
+  const summary = message || 'Sparrow failed';
+  nestStats.textContent = `Run failed: ${summary}`;
+  nestStats.title = details || summary;
+}
+
+function showDragDebug(message, details = '') {
+  setNestStatsTone('');
+  nestStats.textContent = `[DND] ${message}`;
+  nestStats.title = details || message;
+  if (dragDebugTimer) window.clearTimeout(dragDebugTimer);
+  dragDebugTimer = window.setTimeout(() => {
+    if (nestStats.textContent.startsWith('[DND]')) {
+      nestStats.textContent = state.nestResult?.strips?.length
+        ? nestStats.textContent
+        : 'Drag DXF files here to import';
+      nestStats.title = '';
+    }
+  }, 5000);
+}
+
 const DEFAULT_ALLOWED_ORIENTATIONS = [0, 30, 45, 90, 180, 270];
 const DEFAULT_ENGRAVING_COLOR = '#4488FF';
 
@@ -115,6 +192,10 @@ function resolveEngravingColor(layers = []) {
   if (layers[1]?.color) return layers[1].color;
   if (layers[0]?.color) return layers[0].color;
   return DEFAULT_ENGRAVING_COLOR;
+}
+
+function engravingStyle(settings = currentNestingSettings()) {
+  return settings?.engravingStyle === 'simple' ? 'simple' : 'stroked';
 }
 
 function currentNestingSettings() {
@@ -251,6 +332,7 @@ window.getPartLabelText = partLabelFromName;
 window.getPartLabelConfig = (layers = []) => ({
   enabled: engravingLayerIndex() !== null,
   color: resolveEngravingColor(layers),
+  style: engravingStyle(),
 });
 
 function baseJobName() {
@@ -383,21 +465,16 @@ function styleStripSVG(svg) {
       }
     : { x: 0, y: 0, w: 3000, h: 1250 };
 
-  // Grid spacing: ~2% of sheet width so it scales with zoom
-  const gridStep = Math.round(vb.w / 50 / 5) * 5 || 50;
-
   const bgMarkup = `
 <defs>
-<pattern id="nestGrid" width="${gridStep}" height="${gridStep}" patternUnits="userSpaceOnUse">
-<path d="M${gridStep} 0 L0 0 0 ${gridStep}" fill="none" stroke="#1a1d2a" stroke-width="${(gridStep * 0.025).toFixed(1)}"/>
+<pattern id="nestGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+<path d="M40 0 L0 0 0 40" fill="none" stroke="#1b1f2b" stroke-width="0.8"/>
 </pattern>
 <filter id="partGlow" x="-4%" y="-4%" width="108%" height="108%">
 <feGaussianBlur stdDeviation="${vb.w * 0.0015}" result="blur"/>
 <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
 </filter>
-</defs>
-<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="#0d0f18"/>
-<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="url(#nestGrid)"/>`;
+</defs>`;
 
   styled = styled.replace(/<svg([^>]*)>/i, `<svg$1>\n${bgMarkup}`);
 
@@ -405,7 +482,7 @@ function styleStripSVG(svg) {
   // Sparrow: fill="#D3D3D3" stroke="black" (the sheet rectangle)
   styled = styled.replace(
     /fill="#D3D3D3"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi,
-    (_, sw) => `fill="#12151f" stroke="#2e3550" stroke-width="${sw}"`
+    (_, sw) => `fill="url(#nestGrid)" stroke="#2e3550" stroke-width="${sw}"`
   );
 
   // ── Placed part fills ─────────────────────────────────────
@@ -515,6 +592,7 @@ async function loadPersistedSettings() {
   if (!('engravingLayer' in persisted) && 'showPartLabels' in persisted) {
     persisted.engravingLayer = persisted.showPartLabels ? '2' : 'off';
   }
+  if (!('engravingStyle' in persisted)) persisted.engravingStyle = 'stroked';
   delete persisted.showPartLabels;
   state.settings = { ...defaults, ...persisted };
   applySettingsToDialog(state.settings);
@@ -586,6 +664,11 @@ clearFilesBtn?.addEventListener('click', () => {
 // ── Sheet list rendering ───────────────────────────────────
 function renderSheets() {
   sheetList.innerHTML = '';
+  if (addSheetBtn) {
+    const allowAnotherSheet = state.sheets.length === 0;
+    addSheetBtn.style.visibility = allowAnotherSheet ? 'visible' : 'hidden';
+    addSheetBtn.disabled = !allowAnotherSheet;
+  }
   state.sheets.forEach(s => {
     const widthLabel = s.widthMode === 'unlimited'
       ? `${s.height} × Unlimited mm`
@@ -760,7 +843,6 @@ function generateMockNestSVG(sheetIndex) {
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
   ${defs}
   <rect width="${W}" height="${H}" fill="#0d0f18"/>
-  <rect width="${W}" height="${H}" fill="url(#grid)"/>
   <rect x="8" y="8" width="${W-16}" height="${H-16}" rx="3" fill="none" stroke="#2e3550" stroke-width="1" stroke-dasharray="6 4"/>
   ${shapesSVG}
   <text x="${W/2}" y="${H-8}" text-anchor="middle" font-size="9" fill="#3a4566" font-family="monospace">
@@ -776,10 +858,12 @@ function showNestResult(sheetIndex) {
     svgContainer.innerHTML = styleStripSVG(strip.svg);
     svgContainer.style.display = 'flex';
     emptyState.style.display = 'none';
+    syncViewportEmptyState(false);
     const placed = state.nestResult.strips.reduce((sum, item) => sum + (item.item_count || 0), 0);
     const density = Number.isFinite(strip.density) ? `${(strip.density * 100).toFixed(1)}%` : 'n/a';
     const usedWidth = formatWidthMeters(strip.strip_width);
     const previewPrefix = strip.is_preview || state.nestResult.is_preview ? 'Preview · ' : '';
+    setNestStatsTone('');
     nestStats.textContent = `${previewPrefix}Sheet ${sheetIndex + 1} of ${state.nestResult.strips.length} · ${placed} parts placed · Utilization: ${density} · Width: ${usedWidth}`;
     applyZoom();
     return;
@@ -790,8 +874,10 @@ function showNestResult(sheetIndex) {
   svgContainer.innerHTML = result.svg;
   svgContainer.style.display = 'flex';
   emptyState.style.display = 'none';
+  syncViewportEmptyState(false);
   const placed = state.files.reduce((a, f) => a + f.qty, 0);
   const mockWidth = formatWidthMeters(state.sheets[sheetIndex]?.width);
+  setNestStatsTone('');
   nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}% · Width: ${mockWidth}`;
   applyZoom();
 }
@@ -815,6 +901,7 @@ async function pollSparrowRun(runId) {
     renderTabs();
     showNestResult(state.activeStripIndex || 0);
   } else if (result.status === 'running') {
+    setNestStatsTone('');
     nestStats.textContent = 'Running placement… waiting for first preview';
   }
 
@@ -823,6 +910,8 @@ async function pollSparrowRun(runId) {
     nestInterval = null;
     activeSparrowRunId = null;
     setStatus('done');
+    setNestStatsTone('');
+    nestStats.title = '';
     startBtn.classList.remove('running');
     startBtn.disabled = false;
     stopBtn.disabled = true;
@@ -834,7 +923,10 @@ async function pollSparrowRun(runId) {
     clearInterval(nestInterval);
     nestInterval = null;
     activeSparrowRunId = null;
-    throw new Error(result.error || 'Sparrow failed');
+    const combinedDetails = [result.error, result.stderr, result.stdout].filter(Boolean).join('\n');
+    const err = new Error(extractSparrowErrorMessage(result.error, result.stderr, result.stdout));
+    err.sparrowDetails = combinedDetails;
+    throw err;
   }
 
   if (result.status === 'stopped') {
@@ -854,15 +946,19 @@ startBtn.addEventListener('click', async () => {
   let exported;
   try {
     exported = await exportPlacementJSON();
+    setNestStatsTone('');
     nestStats.textContent = `Placement JSON saved to ${exported.path}`;
   } catch (err) {
     console.error('[Placement JSON] Export failed:', err);
     setStatus('error');
+    setNestStatsTone('error');
     nestStats.textContent = `Export failed: ${err.message}`;
     return;
   }
 
   setStatus('running');
+  setNestStatsTone('');
+  nestStats.title = '';
   sparrowRunAborted = false;
   startBtn.classList.add('running');
   startBtn.disabled = true;
@@ -880,6 +976,8 @@ startBtn.addEventListener('click', async () => {
       rngSeed: 42,
       earlyTermination: !!settings.earlyStopping,
       maxStripLength: primarySheet.widthMode === 'unlimited' ? null : Number(primarySheet.width) || null,
+      stripMargin: Number(settings.sheetMargin) || 0,
+      minItemSeparation: Number(settings.partSpacing) || 0,
       align: settings.preferredAlignment === 'bottom' ? 'bottom' : 'top',
     });
 
@@ -887,6 +985,7 @@ startBtn.addEventListener('click', async () => {
       throw new Error(result?.error || 'Failed to start Sparrow');
     }
     activeSparrowRunId = result.runId;
+    setNestStatsTone('');
     nestStats.textContent = `Placement running… input saved to ${result.inputPath}`;
 
     if (nestInterval) clearInterval(nestInterval);
@@ -897,12 +996,11 @@ startBtn.addEventListener('click', async () => {
         await pollSparrowRun(activeSparrowRunId);
       } catch (pollError) {
         if (sparrowRunAborted) return;
-        console.error('[Sparrow] Live preview failed:', pollError);
+        console.error('[Sparrow] Live preview failed:', pollError?.sparrowDetails || pollError);
         clearInterval(nestInterval);
         nestInterval = null;
         activeSparrowRunId = null;
-        setStatus('error');
-        nestStats.textContent = `Run failed: ${pollError.message}`;
+        showRunError(pollError.message, pollError?.sparrowDetails || pollError.message);
         startBtn.classList.remove('running');
         startBtn.disabled = false;
         stopBtn.disabled = true;
@@ -911,14 +1009,13 @@ startBtn.addEventListener('click', async () => {
     }, 500);
   } catch (err) {
     if (sparrowRunAborted) return;
-    console.error('[Sparrow] Run failed:', err);
+    console.error('[Sparrow] Run failed:', err?.sparrowDetails || err);
     activeSparrowRunId = null;
     if (nestInterval) {
       clearInterval(nestInterval);
       nestInterval = null;
     }
-    setStatus('error');
-    nestStats.textContent = `Run failed: ${err.message}`;
+    showRunError(err.message, err?.sparrowDetails || err.message);
     startBtn.classList.remove('running');
     startBtn.disabled = false;
     stopBtn.disabled = true;
@@ -940,7 +1037,9 @@ stopBtn.addEventListener('click', async () => {
   clearInterval(nestInterval);
   nestInterval = null;
   setStatus('idle');
+  setNestStatsTone('');
   nestStats.textContent = 'Placement stopped';
+  nestStats.title = '';
   startBtn.classList.remove('running');
   startBtn.disabled = false;
   stopBtn.disabled = true;
@@ -965,6 +1064,45 @@ function addFiles(fileObjs) {
   });
 }
 
+function normalizeDroppedFiles(fileList) {
+  const files = [...fileList]
+    .filter(f => f.name.toLowerCase().endsWith('.dxf'))
+    .map(f => ({
+      name: f.name,
+      size: f.size,
+      path: f.path || window.electronAPI?.getPathForDroppedFile?.(f) || null,
+    }));
+  showDragDebug(
+    `normalized ${files.length} DXF file${files.length === 1 ? '' : 's'}`,
+    files.map(f => `${f.name} :: ${f.path || 'no-path'}`).join('\n')
+  );
+  return files;
+}
+
+function dataTransferHasFiles(dt) {
+  if (!dt) return false;
+  if (dt.files?.length) return true;
+  return Array.from(dt.items || []).some(item => item.kind === 'file');
+}
+
+function handleDroppedDataTransfer(dt) {
+  showDragDebug(
+    `drop received: ${dt?.files?.length || 0} file${dt?.files?.length === 1 ? '' : 's'}`,
+    Array.from(dt?.files || []).map(f => `${f.name} :: ${f.path || 'no-path'}`).join('\n')
+  );
+  const files = normalizeDroppedFiles(dt?.files || []);
+  if (!files.length) {
+    showDragDebug('drop ignored: no DXF files found');
+    return false;
+  }
+  addFiles(files);
+  showDragDebug(
+    `added ${files.length} DXF file${files.length === 1 ? '' : 's'}`,
+    files.map(f => `${f.name} :: ${f.path || 'no-path'}`).join('\n')
+  );
+  return true;
+}
+
 function bindExplicitListScroll(listEl) {
   if (!listEl) return;
   listEl.addEventListener('wheel', e => {
@@ -978,13 +1116,22 @@ dropZone.addEventListener('dragover', e => {
   e.preventDefault();
   dropZone.classList.add('drag-over');
 });
+dropZone.addEventListener('dragenter', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  const files = [...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.dxf'));
-  // Electron adds .path to File objects — carry it through so preview can parse
-  addFiles(files.map(f => ({ name: f.name, size: f.size, path: f.path || null })));
+  handleDroppedDataTransfer(e.dataTransfer);
+});
+
+dropZone.addEventListener('click', async () => {
+  if (window.electronAPI?.openFileDialog) {
+    const files = await window.electronAPI.openFileDialog();
+    addFiles(files);
+  }
 });
 
 // Also allow dropping anywhere on the canvas area
@@ -993,9 +1140,39 @@ document.getElementById('canvasArea').addEventListener('dragover', e => {
 });
 document.getElementById('canvasArea').addEventListener('drop', e => {
   e.preventDefault();
-  const files = [...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.dxf'));
-  if (files.length) addFiles(files.map(f => ({ name: f.name, size: f.size, path: f.path || null })));
+  handleDroppedDataTransfer(e.dataTransfer);
 });
+
+// Prevent the window from treating dropped files as a navigation/open-file action,
+// and accept DXF drops anywhere in the app window. Capture phase is important on
+// Windows because some intermediate elements never bubble these events reliably.
+window.addEventListener('dragenter', e => {
+  e.preventDefault();
+  showDragDebug(
+    `dragenter: files=${e.dataTransfer?.files?.length || 0} items=${e.dataTransfer?.items?.length || 0}`
+  );
+  if (dataTransferHasFiles(e.dataTransfer)) dropZone.classList.add('drag-over');
+}, true);
+
+window.addEventListener('dragover', e => {
+  e.preventDefault();
+  showDragDebug(
+    `dragover: files=${e.dataTransfer?.files?.length || 0} items=${e.dataTransfer?.items?.length || 0}`
+  );
+  if (dataTransferHasFiles(e.dataTransfer)) dropZone.classList.add('drag-over');
+}, true);
+
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleDroppedDataTransfer(e.dataTransfer);
+}, true);
+
+window.addEventListener('dragleave', e => {
+  if (e.target === document || e.target === document.documentElement || e.target === document.body) {
+    dropZone.classList.remove('drag-over');
+  }
+}, true);
 
 bindExplicitListScroll(fileList);
 bindExplicitListScroll(sheetList);
@@ -1027,6 +1204,7 @@ function resetSheetForm() {
 
 function openSheetEditor(sheetId = null) {
   if (!sheetId) {
+    if (state.sheets.length >= 1) return;
     resetSheetForm();
     sheetModal.classList.add('open');
     return;
@@ -1103,6 +1281,11 @@ confirmSheet.addEventListener('click', () => {
       sheet.id === state.editingSheetId ? { ...sheet, ...sheetData } : sheet
     );
   } else {
+    if (state.sheets.length >= 1) {
+      renderSheets();
+      closeSheetDialog();
+      return;
+    }
     state.sheets.push({
       id: uid(),
       ...sheetData,
@@ -1326,7 +1509,19 @@ resetSettings.addEventListener('click', async () => {
 // ── Zoom controls ──────────────────────────────────────────
 function applyZoom() {
   const el = svgContainer.querySelector('svg');
-  if (el) el.style.transform = `scale(${state.zoom})`;
+  if (el) {
+    const viewBox = (el.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
+    const baseWidth = Number(el.dataset.baseWidth) || viewBox[2] || el.viewBox?.baseVal?.width || el.clientWidth || 1;
+    const baseHeight = Number(el.dataset.baseHeight) || viewBox[3] || el.viewBox?.baseVal?.height || el.clientHeight || 1;
+    const fitWidth = Math.max(1, (viewport?.clientWidth || baseWidth) - 8);
+    const fitHeight = Math.max(1, (viewport?.clientHeight || baseHeight) - 8);
+    const fitScale = Math.min(fitWidth / baseWidth, fitHeight / baseHeight, 1);
+    el.dataset.baseWidth = String(baseWidth);
+    el.dataset.baseHeight = String(baseHeight);
+    el.style.width = `${baseWidth * fitScale * state.zoom}px`;
+    el.style.height = `${baseHeight * fitScale * state.zoom}px`;
+    el.style.transform = '';
+  }
   zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
 }
 
@@ -1334,11 +1529,41 @@ zoomIn.addEventListener('click', () => { state.zoom = Math.min(4, state.zoom + 0
 zoomOut.addEventListener('click', () => { state.zoom = Math.max(0.2, state.zoom - 0.15); applyZoom(); });
 fitView.addEventListener('click', () => { state.zoom = 1; applyZoom(); });
 
+let viewportDrag = null;
+
+viewport?.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  viewportDrag = {
+    startX: e.clientX,
+    startY: e.clientY,
+    scrollLeft: viewport.scrollLeft,
+    scrollTop: viewport.scrollTop,
+  };
+  viewport.classList.add('dragging');
+});
+
+window.addEventListener('mousemove', e => {
+  if (!viewportDrag || !viewport) return;
+  viewport.scrollLeft = viewportDrag.scrollLeft - (e.clientX - viewportDrag.startX);
+  viewport.scrollTop = viewportDrag.scrollTop - (e.clientY - viewportDrag.startY);
+});
+
+window.addEventListener('mouseup', () => {
+  if (!viewportDrag || !viewport) return;
+  viewportDrag = null;
+  viewport.classList.remove('dragging');
+});
+
+window.addEventListener('resize', () => {
+  applyZoom();
+});
+
 // ── Seed demo data ─────────────────────────────────────────
 (function seedDemo() {
   loadPersistedSettings();
   loadLastExportFolder();
   updateSheetModeControls();
+  syncViewportEmptyState(true);
   hydrateJobState().then(restored => {
     if (!restored) {
       state.files = [];

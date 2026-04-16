@@ -1,0 +1,134 @@
+# Kenzap Nesting App
+
+![Kenzap Nesting Preview](assets/preview.gif)
+
+A desktop nesting application for DXF-based sheet and strip layouts, with live preview, built-in state-of-the-art 2D nesting algorithm, DXF sheet export, engraving, and cross-platform support.
+
+## Downloads
+
+- [Windows x64](https://github.com/kenzap/nesting-app/releases/latest)
+- [macOS Apple Silicon](https://github.com/kenzap/nesting-app/releases/latest)
+
+Download the matching build from the latest GitHub release page to skip compilation.
+
+## How It Works
+
+Simply drag and drop one or more DXF sketch drawings. Kenzap Nesting automatically detects nestable shapes. Set quantities for each drawing and adjust engraving settings as needed. Click the RUN button to send the job to the native nesting engine and preview the resulting sheets with nested shapes. Export to DXF format with all items packed and ready for placement.
+
+The workflow is:
+
+1. Add DXF parts.
+2. Detect separate shapes and internal cut and engraving geometry.
+3. Configure sheet size, strip behavior, spacing, rotation, additional engraving, and other algorithm settings.
+4. Run the native nesting engine.
+5. Review sheets live while the algorithm works.
+6. Export final sheets, including DXF output with original layer structure and engraving geometry.
+
+## Core Features
+
+- DXF import by click or drag and drop
+- Multi-shape detection within a single DXF sketch
+- DXF multi-layer and color support
+- Preview dialog for per-shape quantity, removal, restore, and layer-aware review
+- Support for mixed geometry such as lines, arcs, circles, polylines, ellipses, and splines
+- Live nesting preview while the algorithm is still running
+- Windows and macOS native integration
+- Polygon placement JSON export for cloud or offline algorithm workflows
+- DXF export with preserved layer structure and geometry reconstruction
+- Plate size optimization
+- Configurable spacing, sheet margin, orientation step, alignment, and engraving
+- Engraving styles:
+  - `Simple` for single-line lettering
+  - `Stroked` for outlined lettering
+
+## Research Credit
+
+This project builds on ideas from recent research in computational geometry and nesting.
+
+More info:
+
+- [Computational Geometry research reference](https://arxiv.org/abs/2509.13329)
+
+## Run Natively
+
+### Requirements
+
+- Node.js
+- npm
+- Native algorithm binaries placed under:
+  - `native/macos/bin/`
+  - `native/windows/bin/`
+
+To compile the binaries, please refer to the [Sparrow](https://github.com/JeroenGar/sparrow) repository.
+
+### Development Run
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the app:
+
+```bash
+npm run dev
+```
+
+`npm run dev` opens Electron with DevTools enabled, which is helpful for debugging renderer issues and algorithm integration.
+
+## Build the App
+
+### Windows x64
+
+Windows portable build (running from macOS):
+
+```bash
+npx electron-builder --win portable --x64
+```
+
+Windows installer build (running from macOS):
+
+```bash
+npm run dist:win
+```
+
+### macOS
+
+```bash
+npx electron-builder
+```
+
+### Notes
+
+- The build examples above are tested on macOS M-series chips. To cross-compile from Windows to macOS, you may need to adjust some parameters.
+- Windows and macOS packages include the Electron app (UI and visualization) and bundled native binaries (nesting algorithm).
+
+## Repository Structure
+
+```text
+assets/                 logos, preview media
+native/                 platform-specific native binaries
+renderer/               Electron renderer UI
+main.js                 Electron main process and native engine integration
+preload.js              secure renderer bridge
+dist/                   packaged builds
+```
+
+## Current Focus
+
+Kenzap Nesting is designed for practical DXF nesting workflows:
+
+- Accurate multi-contour import
+- Format-agnostic support
+- Brand-specific machined tool path integration
+- Cloud integration for superior nesting performance
+
+## Feedback
+
+- Bugs & feature requests: [GitHub Issues](https://github.com/kenzap/nesting-app/issues)
+- Community discussion: [r/kenzap](https://www.reddit.com/r/kenzap/)
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](/Users/pavel/Extensions/nesting-app/LICENSE).

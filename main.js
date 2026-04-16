@@ -1,11 +1,140 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const packageJson = require('./package.json');
 
 let mainWindow;
 let activeSparrowProcess = null;
 let activeSparrowRun = null;
+const isDevMode = process.argv.includes('--dev') || process.argv.includes('--devtools');
+const productName = packageJson.productName || 'KENZAP NEST';
+const appDescription = packageJson.description || 'DXF nesting application';
+
+function configureAppMetadata() {
+  app.setName(productName);
+  app.setAboutPanelOptions({
+    applicationName: productName,
+    applicationVersion: packageJson.version,
+    version: packageJson.version,
+    copyright: 'Copyright © Kenzap Pte Ltd',
+    credits: `${appDescription}\n\nDXF nesting desktop application with live preview, native solver integration, and production DXF export.`,
+  });
+}
+
+function buildApplicationMenu() {
+  const template = [
+    {
+      label: productName,
+      submenu: [
+        { role: 'about', label: `About ${productName}` },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide', label: `Hide ${productName}` },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit', label: `Quit ${productName}` },
+      ],
+    },
+    {
+      label: 'File',
+      submenu: [
+        { role: 'close' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
+  ];
+
+  if (process.platform !== 'darwin') {
+    template[0] = {
+      label: productName,
+      submenu: [
+        { role: 'about', label: `About ${productName}` },
+        { type: 'separator' },
+        { role: 'quit', label: `Exit ${productName}` },
+      ],
+    };
+    template[3].submenu = [
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'resetZoom' },
+      { role: 'zoomIn' },
+      { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ];
+    template[4].submenu = [
+      { role: 'minimize' },
+      { role: 'close' },
+    ];
+  }
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function nativePlatformDir() {
+  switch (process.platform) {
+    case 'win32':
+      return 'windows';
+    case 'darwin':
+      return 'macos';
+    default:
+      return process.platform;
+  }
+}
+
+function nativeExecutableName(baseName) {
+  return process.platform === 'win32' ? `${baseName}.exe` : baseName;
+}
+
+function nativeBaseDir() {
+  const relativeParts = ['native', nativePlatformDir(), 'bin'];
+  const packagedDir = path.join(process.resourcesPath, ...relativeParts);
+  if (app.isPackaged && fs.existsSync(packagedDir)) return packagedDir;
+  return path.join(__dirname, ...relativeParts);
+}
+
+function resolveNativeExecutable(baseName) {
+  return path.join(nativeBaseDir(), nativeExecutableName(baseName));
+}
 
 function readJsonIfExists(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -77,6 +206,7 @@ function collectSparrowArtifacts(runDir, safeName) {
 }
 
 function createWindow() {
+  const windowIcon = path.join(__dirname, 'assets', 'icon-square.png');
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -89,13 +219,21 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, 'assets', 'icon.png'),
+    icon: windowIcon,
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  if (isDevMode) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 }
 
-app.whenReady().then(createWindow);
+configureAppMetadata();
+
+app.whenReady().then(() => {
+  buildApplicationMenu();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -203,12 +341,14 @@ ipcMain.handle('save-job-state', async (event, jobState) => {
 
 ipcMain.handle('get-native-engine-info', async () => {
   try {
-    const baseDir = path.join(__dirname, 'native', 'macos', 'bin');
-    const sparrowPath = path.join(baseDir, 'sparrow');
-    const dxfPreprocessPath = path.join(baseDir, 'dxf_preprocess');
+    const baseDir = nativeBaseDir();
+    const sparrowPath = resolveNativeExecutable('sparrow');
+    const dxfPreprocessPath = resolveNativeExecutable('dxf_preprocess');
 
     return {
       success: true,
+      platform: process.platform,
+      packaged: app.isPackaged,
       baseDir,
       sparrowPath,
       dxfPreprocessPath,
@@ -228,8 +368,8 @@ ipcMain.handle('run-sparrow', async (event, payload, options = {}) => {
       return { success: false, error: 'Sparrow is already running' };
     }
 
-    const baseDir = path.join(__dirname, 'native', 'macos', 'bin');
-    const sparrowPath = path.join(baseDir, 'sparrow');
+    const baseDir = nativeBaseDir();
+    const sparrowPath = resolveNativeExecutable('sparrow');
     if (!fs.existsSync(sparrowPath)) {
       return { success: false, error: `Sparrow executable not found at ${sparrowPath}` };
     }
@@ -255,6 +395,12 @@ ipcMain.handle('run-sparrow', async (event, payload, options = {}) => {
     }
     if (Number.isFinite(options.maxStripLength) && options.maxStripLength > 0) {
       args.push('--max-strip-length', String(options.maxStripLength));
+    }
+    if (Number.isFinite(options.stripMargin) && options.stripMargin >= 0) {
+      args.push('--strip-margin', String(options.stripMargin));
+    }
+    if (Number.isFinite(options.minItemSeparation) && options.minItemSeparation >= 0) {
+      args.push('--min-item-separation', String(options.minItemSeparation));
     }
     if (options.align === 'top') args.push('--align-top');
     if (options.align === 'bottom') args.push('--align-bottom');
@@ -679,6 +825,7 @@ ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, inputPat
       const startX = bbox.minX + (availableW - totalW) / 2;
       const baseY = bbox.minY + availableH * 0.58 - charH / 2;
       const entities = [];
+      const style = exportSettings.engravingStyle === 'simple' ? 'simple' : 'stroked';
       const pushLoop = (loop, ox) => {
         if (!Array.isArray(loop) || loop.length < 2) return;
         for (let i = 0; i < loop.length; i++) {
@@ -695,7 +842,7 @@ ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, inputPat
 
       chars.forEach((ch, idx) => {
         const ox = startX + idx * charW * charAdvance;
-        const loops = OUTLINE_FONT[ch];
+        const loops = style === 'stroked' ? OUTLINE_FONT[ch] : null;
         if (Array.isArray(loops) && loops.length) {
           loops.forEach(loop => pushLoop(loop, ox));
           return;

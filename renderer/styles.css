@@ -4,7 +4,7 @@
 :root {
   --bg:           #0f1117;
   --surface:      #171a24;
-  --surface2:     #1e2130;
+  --surface2:     #1e21305c;
   --surface3:     #252a3a;
   --border:       #2a2f42;
   --border-light: #343a52;
@@ -57,9 +57,20 @@ html, body {
   z-index: 10;
 }
 
-.topbar-left  { flex: 1; display: flex; align-items: center; padding-left: var(--traffic-safe); min-width: 0; }
+.topbar-left  { flex: 1; display: none; align-items: center; min-width: 0; }
 .topbar-center { display: flex; align-items: center; justify-content: center; position: absolute; left: 50%; transform: translateX(-50%); }
 .topbar-right { flex: 1; display: flex; align-items: center; justify-content: flex-end; }
+
+body.platform-win .topbar-left,
+body.platform-linux .topbar-left {
+  display: flex;
+  padding-left: 0;
+}
+
+body.platform-mac .topbar-left {
+  display: none;
+  padding-left: var(--traffic-safe);
+}
 
 .app-logo {
   display: flex;
@@ -488,34 +499,39 @@ html, body {
 
 .canvas-viewport {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
+  cursor: grab;
+  scrollbar-gutter: stable both-edges;
+  background: var(--bg);
 }
 
-/* grid pattern */
-.canvas-viewport::before {
-  content: '';
-  position: absolute;
-  inset: 0;
+.canvas-viewport.empty-grid {
   background-image:
     linear-gradient(var(--surface2) 1px, transparent 1px),
     linear-gradient(90deg, var(--surface2) 1px, transparent 1px);
-  background-size: 32px 32px;
-  opacity: .4;
-  pointer-events: none;
+  background-size: 40px 40px;
+  background-position: 0 0;
 }
 
+.canvas-viewport.dragging {
+  cursor: grabbing;
+}
+
+/* grid pattern */
 .canvas-empty-state {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   color: var(--text-muted);
   z-index: 1;
   text-align: center;
+  pointer-events: none;
 }
 .empty-icon { opacity: .3; }
 .empty-title { font-size: 15px; font-weight: 600; color: var(--text-dim); }
@@ -523,19 +539,24 @@ html, body {
 .empty-sub strong { color: var(--text-dim); }
 
 .svg-container {
-  position: absolute;
-  inset: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  position: relative;
+  width: max-content;
+  height: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  overflow: visible;
   z-index: 1;
 }
 .svg-container svg {
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: var(--radius);
-  box-shadow: 0 8px 40px rgba(0,0,0,.5);
+  max-width: none;
+  max-height: none;
+  flex: 0 0 auto;
+  display: block;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .canvas-statusbar {
@@ -547,6 +568,26 @@ html, body {
   min-height: 28px;
   display: flex;
   align-items: center;
+  gap: 8px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.canvas-statusbar-icon {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  flex: 0 0 auto;
+}
+
+.canvas-statusbar.error {
+  color: #ffd8d8;
+  background: rgba(247,95,95,.12);
+  border-top-color: rgba(247,95,95,.35);
+}
+
+.canvas-statusbar.error .canvas-statusbar-icon {
+  display: inline-flex;
 }
 
 /* ── Modal ─────────────────────────────────────────────── */

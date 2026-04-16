@@ -1,7 +1,14 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+  getPathForDroppedFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
   parseDXF:       (filePath) => ipcRenderer.invoke('parse-dxf', filePath),
   savePlacementJSON: (payload) => ipcRenderer.invoke('save-placement-json', payload),
   loadAppSettings: () => ipcRenderer.invoke('load-app-settings'),

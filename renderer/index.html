@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nesting App</title>
+  <title>Kenzao Nest</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -146,13 +146,6 @@
             <option value="5">5°</option>
           </select>
         </div>
-        <div class="setting-row">
-          <label>Mirror Parts</label>
-          <label class="toggle">
-            <input type="checkbox" data-setting-key="mirrorParts" />
-            <span class="toggle-track"></span>
-          </label>
-        </div>
       </div>
 
       <div class="settings-section">
@@ -185,9 +178,7 @@
         <div class="setting-row">
           <label>Export format</label>
           <select data-setting-key="exportFormat">
-            <option value="svg" selected>SVG</option>
             <option value="dxf">DXF</option>
-            <option value="pdf">PDF</option>
           </select>
         </div>
         <div class="setting-row">
@@ -199,6 +190,13 @@
             <option value="3">3rd layer</option>
             <option value="4">4th layer</option>
             <option value="5">5th layer</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label>Engraving style</label>
+          <select data-setting-key="engravingStyle">
+            <option value="simple">Simple - single line</option>
+            <option value="stroked" selected>Stroked - outlined</option>
           </select>
         </div>
       </div>
@@ -291,7 +289,7 @@
 
   <!-- TOP BAR -->
   <header class="topbar">
-    <!-- <div class="topbar-left">
+    <div class="topbar-left">
       <div class="app-logo">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
           <rect x="1" y="1" width="9" height="6" rx="1.5" fill="#4f8ef7"/>
@@ -299,9 +297,9 @@
           <rect x="1" y="9" width="5" height="12" rx="1.5" fill="#4f8ef7" opacity="0.5"/>
           <rect x="8" y="12" width="13" height="9" rx="1.5" fill="#4f8ef7" opacity="0.85"/>
         </svg>
-        <span class="app-name">NestKit</span>
+        <span class="app-name">KENZAP NEST</span>
       </div>
-    </div> -->
+    </div>
 
     <div class="topbar-center">
       <div class="run-controls">
@@ -429,7 +427,13 @@
         <div class="svg-container" id="svgContainer" style="display:none;"></div>
       </div>
 
-      <div class="canvas-statusbar">
+      <div class="canvas-statusbar" id="canvasStatusbar">
+        <span class="canvas-statusbar-icon" id="nestStatsIcon" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1.2L11 10.2H1L6 1.2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+            <path d="M6 4v2.7M6 8.7h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </span>
         <span id="nestStats"></span>
       </div>
     </main>
