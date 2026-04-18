@@ -747,6 +747,46 @@
         addProbe(vertices[Math.floor(vertices.length / 2)]);
         addProbe(vertices[vertices.length - 1]);
       }
+    } else if (entity?.type === 'SPLINE') {
+      // Prefer fit points (the actual curve passthrough points) when present;
+      // fall back to control points.  Always probe start, mid, and end so a
+      // spline that begins or ends inside an outer contour is detected as
+      // tier-3 "inside" even when its midpoint happens to fall outside.
+      const pts = (entity.fitPoints?.length ? entity.fitPoints : entity.controlPoints || [])
+        .filter(p => Number.isFinite(p?.x) && Number.isFinite(p?.y));
+      if (pts.length) {
+        addProbe(pts[0]);
+        addProbe(pts[Math.floor(pts.length / 2)]);
+        addProbe(pts[pts.length - 1]);
+      }
+    } else if (entity?.type === 'CIRCLE') {
+      // Probe center plus the four cardinal points on the circumference.
+      // A single center probe fails when the circle straddles a contour
+      // boundary; the cardinal points ensure at least one probe is inside.
+      if (entity.center && Number.isFinite(entity.radius)) {
+        addProbe(entity.center);
+        const r = entity.radius;
+        addProbe({ x: entity.center.x + r, y: entity.center.y });
+        addProbe({ x: entity.center.x - r, y: entity.center.y });
+        addProbe({ x: entity.center.x,     y: entity.center.y + r });
+        addProbe({ x: entity.center.x,     y: entity.center.y - r });
+      }
+    } else if (entity?.type === 'ELLIPSE') {
+      // Probe center plus the four axis tips.
+      // majorAxisEndPoint is the major semi-axis vector relative to center;
+      // the minor semi-axis is perpendicular with length = axisRatio * |major|.
+      if (entity.center && entity.majorAxisEndPoint) {
+        addProbe(entity.center);
+        const mx = Number(entity.majorAxisEndPoint.x) || 0;
+        const my = Number(entity.majorAxisEndPoint.y) || 0;
+        const ratio = Number.isFinite(entity.axisRatio) ? entity.axisRatio : 1;
+        // minor axis is the perpendicular unit vector scaled by ratio * |major|
+        const minorScale = ratio;
+        addProbe({ x: entity.center.x + mx,              y: entity.center.y + my });
+        addProbe({ x: entity.center.x - mx,              y: entity.center.y - my });
+        addProbe({ x: entity.center.x + (-my * minorScale), y: entity.center.y + (mx * minorScale) });
+        addProbe({ x: entity.center.x - (-my * minorScale), y: entity.center.y - (mx * minorScale) });
+      }
     }
 
     addProbe(safeSamplePoint(entity));
@@ -1100,6 +1140,20 @@
         break;
       case 'SPLINE':
         [...(entity.controlPoints || []), ...(entity.fitPoints || [])].forEach(p => add(p?.x, p?.y));
+        break;
+      case 'ELLIPSE':
+        // Sample center and axis tips so ellipses contribute to the alpha-shape
+        // point cloud even when the geometry library doesn't convert them.
+        if (entity.center && entity.majorAxisEndPoint) {
+          add(entity.center.x, entity.center.y);
+          const mx = Number(entity.majorAxisEndPoint.x) || 0;
+          const my = Number(entity.majorAxisEndPoint.y) || 0;
+          const ratio = Number.isFinite(entity.axisRatio) ? entity.axisRatio : 1;
+          add(entity.center.x + mx, entity.center.y + my);
+          add(entity.center.x - mx, entity.center.y - my);
+          add(entity.center.x + (-my * ratio), entity.center.y + (mx * ratio));
+          add(entity.center.x - (-my * ratio), entity.center.y - (mx * ratio));
+        }
         break;
       default: break;
     }
@@ -1688,6 +1742,7 @@
     });
 
     const assignmentTrace = [];
+    const chainQueue = []; // entities not claimed by the main pass; retried by chain-closure
 
     others.forEach(entity => {
       if (['HATCH', 'TEXT', 'MTEXT', 'DIMENSION', 'INSERT'].includes(entity.type)) return;
@@ -1723,6 +1778,7 @@
           candidates,
         });
       } else {
+        chainQueue.push(entity);
         assignmentTrace.push({
           entity: debugEntitySummary(entity),
           assignedOuterId: null,
@@ -1733,6 +1789,59 @@
         });
       }
     });
+
+    // Chain-closure pass: entities whose bbox directly touches (gap ≈ 0) an
+    // already-assigned decorator are pulled into the same sketch group.
+    // This rescues intermediate spline or line segments that bridge two outer-
+    // contour regions and are therefore too far from every outer-contour bbox to
+    // pass the nearThreshold inside scoreEntityForOuterContour.
+    // The loop repeats until nothing new is claimed, so chains of arbitrary
+    // length are resolved in O(length) iterations.
+    {
+      let anyChained = true;
+      let queue = chainQueue.slice();
+      while (anyChained && queue.length > 0) {
+        anyChained = false;
+        const nextQueue = [];
+        queue.forEach(entity => {
+          const eBbox = entityBBox(entity);
+          if (!eBbox) return; // can't compute geometry — leave unassigned
+          let matchedGroup = null;
+          for (let gi = 0; gi < mergedGroups.length; gi++) {
+            const group = mergedGroups[gi];
+            const touches = group.decorators.some(dec => {
+              const db = entityBBox(dec);
+              return db && bboxGapDistance(eBbox, db) <= LOOP_TOLERANCE * 10;
+            });
+            if (touches) { matchedGroup = group; break; }
+          }
+          if (matchedGroup) {
+            matchedGroup.decorators.push(entity);
+            // Update the trace entry so debug counts and UI stay accurate.
+            const traceEntry = assignmentTrace.find(
+              t => t.entity.handle === (entity.handle || null) && t.assignedOuterId === null
+            );
+            if (traceEntry) {
+              traceEntry.assignedOuterId = matchedGroup.outer.id;
+              traceEntry.assignedOuterLayer = matchedGroup.outer.layer;
+              traceEntry.matchedOuterId = matchedGroup.outer.id;
+              traceEntry.winningScore = {
+                tier: 1,
+                reason: 'chain-closure',
+                insideCount: 0,
+                overlapArea: 0,
+                gap: 0,
+                outerArea: matchedGroup.outer.area || 0,
+              };
+            }
+            anyChained = true;
+          } else {
+            nextQueue.push(entity); // still unresolved; try again next round
+          }
+        });
+        queue = nextQueue;
+      }
+    }
 
     mergedGroups.forEach(group => {
       const { contourSourceEntities, decorators, contours } = group;
