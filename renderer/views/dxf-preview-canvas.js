@@ -70,6 +70,7 @@
           ? (shape.outerBoundaryItems || []).filter(item => !hasActiveLayer || item.layer === activeLayer)
           : [];
         const allowSelectionFill = !!shape.selectionFillAllowed;
+        const selectionPath = shape.selectionPathData || shape.pathData;
         const dimmedOuterOpacity = hasActiveLayer && activeLayer !== shape.layer && layerMatch ? 0.05 : (isSelected ? 0.25 : 0.09);
         const dimmedStrokeOpacity = hasActiveLayer && activeLayer !== shape.layer && layerMatch ? 0.25 : 1;
         const previewLabel = getLayerConfig(shape);
@@ -81,9 +82,9 @@
 <g class="pvw-shape" data-id="${shape.id}"
    transform="translate(${f(pos.x)},${f(pos.y)})"
    opacity="${isDimmed ? 0.12 : 1}" style="cursor:pointer">
-  ${showOuter && isSelected && allowSelectionFill ? `<path d="${shape.pathData}" fill="white" fill-opacity="0.06" fill-rule="${shape.fillRule}" stroke="none"/>` : ''}
-  ${showOuter && isSelected ? `<path d="${shape.pathData}" fill="none" stroke="${shape.layerColor}" stroke-width="2.4" stroke-opacity="0.45" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
-  ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers ? `<path d="${shape.pathData}" fill="${shape.layerColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${shape.layerColor}" stroke-opacity="${dimmedStrokeOpacity}" stroke-width="${isSelected ? 2 : 1.4}" stroke-linejoin="round" ${isSelected && (!hasActiveLayer || activeLayer === shape.layer) ? 'filter="url(#pvwGlow)"' : ''}/>` : ''}
+  ${showOuter && isSelected && allowSelectionFill ? `<path d="${selectionPath}" fill="white" fill-opacity="0.06" fill-rule="${shape.fillRule}" stroke="none"/>` : ''}
+  ${showOuter && isSelected ? `<path d="${selectionPath}" fill="none" stroke="${shape.layerColor}" stroke-width="2.4" stroke-opacity="0.45" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
+  ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers ? `<path d="${shape.pathData}" fill="${shape.layerColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${shape.layerColor}" stroke-opacity="${dimmedStrokeOpacity}" stroke-width="1.4" stroke-linejoin="round"/>` : ''}
   ${visibleBoundaryItems.map(item => item.svg).join('\n')}
   ${visibleDecorItems.map(item => item.svg).join('\n')}
   ${previewLabelSvg}

@@ -129,8 +129,9 @@
       case 'LWPOLYLINE':
       case 'POLYLINE': {
         if (!ent.vertices || ent.vertices.length < 2) return '';
-        const points = polylineVerticesToPoints(ent.vertices, false);
-        const d = pathFromPoints(points, ox, originMaxY, false);
+        const isClosed = ent.closed !== false;
+        const points = polylineVerticesToPoints(ent.vertices, isClosed);
+        const d = pathFromPoints(points, ox, originMaxY, isClosed);
         return d ? `<path d="${d}" ${sw} stroke-linecap="round" stroke-linejoin="round"/>` : '';
       }
       default:

@@ -7,6 +7,7 @@
   const { groupByContour, contourEntityToPath, contourEntityToPoints, debugDXF } = global.NestDxfShapeDetectionService;
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
+  const { normalizeSettings } = global.NestSettings;
 
   const { f1, mkRng, hashStr } = svg;
   const { unionBBox, entityBBox, closePointRing } = geometry;
@@ -101,34 +102,223 @@
     });
   }
 
+  // Collapses the multi-group result into one sketch when multi-sketch
+  // detection is disabled. We keep the largest contour as the nesting boundary
+  // and treat every other group as supporting geometry within the same sketch.
+  function mergeGroupsIntoSingleSketch(groups) {
+    if (!groups.length) return groups;
+    const primary = groups
+      .slice()
+      .sort((a, b) => ((b.outer?.area || 0) - (a.outer?.area || 0)))[0];
+    if (!primary?.outer) return groups;
+
+    const merged = {
+      outer: primary.outer,
+      contours: [...primary.contours],
+      decorators: [...primary.decorators],
+      bbox: primary.bbox,
+      layer: primary.layer,
+    };
+
+    groups.forEach(group => {
+      if (group === primary) return;
+      merged.bbox = unionBBox(merged.bbox, group.bbox);
+      group.contours.forEach(contour => {
+        if (contour.id === group.outer?.id) {
+          merged.contours.push({ ...contour, depth: 0, parentId: primary.outer.id });
+        } else {
+          merged.contours.push({ ...contour, depth: 0, parentId: contour.parentId || primary.outer.id });
+        }
+      });
+      group.decorators.forEach(entity => merged.decorators.push(entity));
+    });
+
+    return [merged];
+  }
+
+  // Builds one preview shape from the entire DXF entity set. Used when
+  // multi-sketch detection is off: we still need one reliable polygon for
+  // nesting, but we should render all parsed geometry instead of only the
+  // entities that contour grouping happened to attach to a sub-shape.
+  function buildWholeSketchShape(entities, groups, layerTable, context) {
+    if (!groups.length) return null;
+    const primary = groups
+      .slice()
+      .sort((a, b) => ((b.outer?.area || 0) - (a.outer?.area || 0)))[0];
+    const outer = primary?.outer;
+    if (!outer) return null;
+
+    const { layerColor, resolveEntityColor, layerOrder, layerMap } = context;
+    const renderEntities = [];
+    const seenEntities = new Set();
+    const skippedRenderEntities = [];
+    const addEntity = entity => {
+      if (!entity || seenEntities.has(entity)) return;
+      seenEntities.add(entity);
+      renderEntities.push(entity);
+    };
+
+    entities.forEach(addEntity);
+
+    let renderBBox = outer.bbox;
+    groups.forEach(group => {
+      renderBBox = unionBBox(renderBBox, group.bbox);
+      group.contours.forEach(contour => { renderBBox = unionBBox(renderBBox, contour.bbox); });
+    });
+    renderEntities.forEach(entity => { renderBBox = unionBBox(renderBBox, entityBBox(entity)); });
+    if (!renderBBox) return null;
+
+    const { minX, maxY, maxX, minY } = renderBBox;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (width < 0.5 || height < 0.5) return null;
+
+    const hasSyntheticOuter = outer.entity?.type === 'LINE_LOOP';
+    const outerPath = contourEntityToPath(outer.entity, minX, maxY);
+    if (!outerPath) return null;
+
+    const outerSourceEntities = hasSyntheticOuter ? (outer.entity?.sourceEntities || []) : [outer.entity];
+    const outerEntitySet = new Set(outerSourceEntities.filter(Boolean));
+
+    const decorItems = [];
+    renderEntities.forEach(entity => {
+      if (!entity || ['HATCH', 'TEXT', 'MTEXT', 'DIMENSION', 'INSERT'].includes(entity.type)) return;
+      if (outerEntitySet.has(entity)) return;
+      const layerName = entity.layer || outer.layer || '0';
+      const color = resolveEntityColor(entity, layerName);
+      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+      if (!svgStr) {
+        skippedRenderEntities.push({
+          type: entity.type || 'UNKNOWN',
+          handle: entity.handle || null,
+          layer: layerName,
+        });
+        return;
+      }
+      layerMap.set(layerName, layerColor(layerName));
+      decorItems.push({
+        type: 'entity',
+        layer: layerName,
+        color,
+        svg: svgStr,
+      });
+    });
+
+    const contourLayers = [...new Set(groups.flatMap(group => group.contours.map(contour => contour.layer || '0').filter(Boolean)))];
+    const preferredOuterLayer = layerOrder.find(layerName => contourLayers.includes(layerName)) || contourLayers[0] || outer.layer || '0';
+    layerMap.set(preferredOuterLayer, layerColor(preferredOuterLayer));
+
+    const exportEntityMap = new Map();
+    const addExportEntity = entity => {
+      if (!entity) return;
+      const key = entity.handle || JSON.stringify([
+        entity.type, entity.layer,
+        entity.start?.x, entity.start?.y,
+        entity.end?.x, entity.end?.y,
+        entity.center?.x, entity.center?.y,
+        entity.radius, entity.startAngle, entity.endAngle,
+        entity.vertices?.length,
+      ]);
+      if (!exportEntityMap.has(key)) {
+        const serialized = serializeEntityForExport(entity, contourEntityToPoints);
+        if (serialized) exportEntityMap.set(key, serialized);
+      }
+    };
+    renderEntities.forEach(addExportEntity);
+
+    const outerBoundaryItems = outerSourceEntities.map(entity => {
+      const layerName = entity.layer || '0';
+      const color = resolveEntityColor(entity, layerName);
+      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+      if (!svgStr) return null;
+      return { layer: layerName, color, svg: svgStr };
+    }).filter(Boolean);
+
+    debugDXF('Single sketch build', {
+      totalEntities: entities.length,
+      renderedEntities: decorItems.length + outerBoundaryItems.length,
+      skippedEntities: skippedRenderEntities.length,
+      skippedByType: skippedRenderEntities.reduce((acc, item) => {
+        acc[item.type] = (acc[item.type] || 0) + 1;
+        return acc;
+      }, {}),
+      skippedEntities: skippedRenderEntities,
+    });
+
+    return {
+      id: 's_0',
+      name: 'Sketch 1',
+      layer: preferredOuterLayer,
+      layerColor: resolveEntityColor(outer.entity, preferredOuterLayer),
+      hasSyntheticOuter,
+      mixedOuterLayers: false,
+      selectionFillAllowed: false,
+      outerBoundaryItems,
+      pathData: outerPath,
+      selectionPathData: outerPath,
+      fillRule: 'nonzero',
+      polygonPoints: closePointRing(outer.points),
+      bbox: { w: width, h: height },
+      decorSVG: decorItems.map(item => item.svg),
+      decorItems,
+      exportEntities: [...exportEntityMap.values()],
+      ownerLayers: [preferredOuterLayer],
+      involvedLayers: [...new Set([preferredOuterLayer, ...decorItems.map(item => item.layer)])],
+      holes: [],
+      qty: 1,
+      visible: true,
+      selected: false,
+    };
+  }
+
   // Core DXF-to-shapes pipeline. Takes a parsed DXF object and the original raw
   // text, detects contours, builds SVG path data, collects decorator entities,
   // and returns the shape + layer list the rest of the app uses.
-  function parseDXFToShapes(dxf, raw) {
+  function parseDXFToShapes(dxf, raw, settingsInput = {}) {
+    const settings = normalizeSettings(settingsInput);
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
     const layerOrder = Object.keys(layerTable);
     const { layerColor, resolveEntityColor } = createLayerResolver(layerTable);
-    const groups = groupByContour(entities);
-    if (!groups.length) return null;
+    const detectedGroups = groupByContour(entities);
+    if (!detectedGroups.length) return null;
 
     const shapes = [];
     const layerMap = new Map();
     let idx = 0;
 
+    if (settings.multiSketchDetection === false) {
+      const wholeSketch = buildWholeSketchShape(
+        entities,
+        detectedGroups,
+        layerTable,
+        { layerColor, resolveEntityColor, layerOrder, layerMap }
+      );
+      if (wholeSketch) shapes.push(wholeSketch);
+    } else {
+      const groups = detectedGroups;
+
     groups.forEach(group => {
       const { outer, contours, decorators, bbox } = group;
       let renderBBox = bbox;
+      const peerOuterContours = contours.filter(contour =>
+        contour.id !== outer.id &&
+        contour.depth === 0
+      );
+      const syntheticSupportContours = contours.filter(contour =>
+        contour.id !== outer.id &&
+        contour.entity?.type === 'LINE_LOOP'
+      );
 
       const holeContours = contours.filter(contour =>
         contour.id !== outer.id &&
-        contour.layer === outer.layer &&
         contour.depth % 2 === 1 &&
         contour.entity?.type !== 'LINE_LOOP'
       );
 
       const closedDecorContours = contours.filter(contour =>
         contour.id !== outer.id &&
+        contour.depth !== 0 &&
         !(contour.layer === outer.layer && contour.depth % 2 === 1)
       );
 
@@ -140,16 +330,48 @@
       const height = maxY - minY;
       if (width < 0.5 || height < 0.5) return;
 
-      const contourPaths = [outer, ...holeContours]
-        .map((contour, index) => {
-          if (index === 0) return contourEntityToPath(contour.entity, minX, maxY);
-          return svg.pathFromPoints([...contour.points].reverse(), minX, maxY, true);
-        })
-        .filter(Boolean);
+      const topLevelContours = [outer, ...peerOuterContours];
+      const boundaryContourPaths = [];
+      const boundaryItems = [];
+
+      topLevelContours.forEach(contour => {
+        const path = contourEntityToPath(contour.entity, minX, maxY);
+        if (path) {
+          boundaryContourPaths.push(path);
+          return;
+        }
+        if (contour.entity?.type === 'LINE_LOOP') {
+          (contour.entity?.sourceEntities || []).forEach(entity => {
+            const layerName = entity.layer || contour.layer || '0';
+            const color = resolveEntityColor(entity, layerName);
+            const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+            if (!svgStr) return;
+            boundaryItems.push({ layer: layerName, color, svg: svgStr, contourId: contour.id });
+          });
+        }
+      });
+
+      syntheticSupportContours.forEach(contour => {
+        (contour.entity?.sourceEntities || []).forEach(entity => {
+          const layerName = entity.layer || contour.layer || '0';
+          const color = resolveEntityColor(entity, layerName);
+          const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+          if (!svgStr) return;
+          boundaryItems.push({ layer: layerName, color, svg: svgStr, contourId: contour.id });
+        });
+      });
+
+      const contourPaths = [
+        ...boundaryContourPaths,
+        ...holeContours.map(contour => svg.pathFromPoints([...contour.points].reverse(), minX, maxY, true)).filter(Boolean),
+      ];
       const pathData = contourPaths.join(' ');
+      const selectionPathData = contourEntityToPath(outer.entity, minX, maxY) || boundaryContourPaths[0] || '';
       const fillRule = contourPaths.length > 1 ? 'evenodd' : 'nonzero';
 
       const decorItems = [];
+      const renderedDecoratorHandles = [];
+      const skippedDecoratorHandles = [];
       closedDecorContours.forEach(contour => {
         if (contour.entity?.type === 'LINE_LOOP') return;
         const layerName = contour.layer || '0';
@@ -167,7 +389,19 @@
       decorators.forEach(decorator => {
         const color = resolveEntityColor(decorator, outer.layer || '0');
         const svgStr = svg.entityToSVGStr(decorator, minX, maxY, color);
-        if (!svgStr) return;
+        if (!svgStr) {
+          skippedDecoratorHandles.push({
+            handle: decorator.handle || null,
+            type: decorator.type || 'UNKNOWN',
+            layer: decorator.layer || outer.layer || '0',
+          });
+          return;
+        }
+        renderedDecoratorHandles.push({
+          handle: decorator.handle || null,
+          type: decorator.type || 'UNKNOWN',
+          layer: decorator.layer || outer.layer || '0',
+        });
         decorItems.push({
           type: 'entity',
           layer: decorator.layer || outer.layer || '0',
@@ -189,7 +423,7 @@
       const ownerLayers = [preferredOuterLayer];
       ownerLayers.forEach(layerName => layerMap.set(layerName, layerColor(layerName)));
       const involvedLayers = [...new Set([...contourLayers, ...decorItems.map(item => item.layer)])];
-      const selectionFillAllowed = !hasSyntheticOuter && !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0;
+      const selectionFillAllowed = !hasSyntheticOuter && !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0 && peerOuterContours.length === 0;
 
       const exportEntityMap = new Map();
       const addExportEntity = entity => {
@@ -214,7 +448,9 @@
       closedDecorContours.forEach(contour => addExportEntity(contour.entity));
       decorators.forEach(addExportEntity);
 
-      const outerBoundaryItems = hasSyntheticOuter
+      const outerBoundaryItems = [
+        ...boundaryItems,
+        ...(hasSyntheticOuter
         ? (outer.entity?.sourceEntities || []).map(entity => {
             const layerName = entity.layer || '0';
             const color = resolveEntityColor(entity, layerName);
@@ -222,32 +458,93 @@
             if (!svgStr) return null;
             return { layer: layerName, color, svg: svgStr };
           }).filter(Boolean)
-        : [];
+        : []),
+      ];
+
+      debugDXF('Shape render summary', {
+        shapeId: `s_${idx}`,
+        outerId: outer.id,
+        contourIds: contours.map(contour => contour.id),
+        decoratorHandles: decorators.map(entity => ({
+          handle: entity.handle || null,
+          type: entity.type || 'UNKNOWN',
+          layer: entity.layer || outer.layer || '0',
+        })),
+        renderedDecoratorHandles,
+        skippedDecoratorHandles,
+        topLevelContours: topLevelContours.map(contour => ({
+          id: contour.id,
+          type: contour.entity?.type || 'UNKNOWN',
+          pathRendered: !!contourEntityToPath(contour.entity, minX, maxY),
+          boundaryItemCount: boundaryItems.filter(item => item.contourId === contour.id).length,
+          sourceEntityHandles: Array.isArray(contour.entity?.sourceEntities)
+            ? contour.entity.sourceEntities.map(entity => ({
+                handle: entity.handle || null,
+                type: entity.type || 'UNKNOWN',
+                layer: entity.layer || contour.layer || '0',
+              }))
+            : [],
+        })),
+        syntheticSupportContours: syntheticSupportContours.map(contour => ({
+          id: contour.id,
+          depth: contour.depth,
+          sourceEntityHandles: Array.isArray(contour.entity?.sourceEntities)
+            ? contour.entity.sourceEntities.map(entity => ({
+                handle: entity.handle || null,
+                type: entity.type || 'UNKNOWN',
+                layer: entity.layer || contour.layer || '0',
+              }))
+            : [],
+          boundaryItemCount: boundaryItems.filter(item => item.contourId === contour.id).length,
+        })),
+      });
+
+      debugDXF('Shape svg fragment', {
+        shapeId: `s_${idx}`,
+        outerId: outer.id,
+        contourIds: contours.map(contour => contour.id),
+        pathData,
+        selectionPathData,
+        fillRule,
+        outerBoundaryItems: outerBoundaryItems.map(item => ({
+          layer: item.layer,
+          color: item.color,
+          svg: item.svg,
+        })),
+        decorItems: decorItems.map(item => ({
+          type: item.type,
+          layer: item.layer,
+          color: item.color,
+          svg: item.svg,
+        })),
+      });
 
       shapes.push({
-        id: `s_${idx++}`,
-        name: `Shape ${idx}`,
-        layer: preferredOuterLayer,
-        layerColor: resolveEntityColor(ownerContour.entity, preferredOuterLayer),
-        hasSyntheticOuter,
-        mixedOuterLayers,
-        selectionFillAllowed,
-        outerBoundaryItems,
-        pathData,
-        fillRule,
-        polygonPoints: closePointRing(outer.points),
-        bbox: { w: width, h: height },
-        decorSVG: decorItems.map(item => item.svg),
-        decorItems,
-        exportEntities: [...exportEntityMap.values()],
-        ownerLayers,
-        involvedLayers,
-        holes: [],
-        qty: 1,
-        visible: true,
-        selected: false,
+          id: `s_${idx++}`,
+          name: `Shape ${idx}`,
+          layer: preferredOuterLayer,
+          layerColor: resolveEntityColor(ownerContour.entity, preferredOuterLayer),
+          hasSyntheticOuter,
+          mixedOuterLayers,
+          selectionFillAllowed,
+          outerBoundaryItems,
+          pathData,
+          selectionPathData,
+          fillRule,
+          polygonPoints: closePointRing(outer.points),
+          bbox: { w: width, h: height },
+          decorSVG: decorItems.map(item => item.svg),
+          decorItems,
+          exportEntities: [...exportEntityMap.values()],
+          ownerLayers,
+          involvedLayers,
+          holes: [],
+          qty: 1,
+          visible: true,
+          selected: false,
+        });
       });
-    });
+    }
 
     if (!shapes.length) return null;
 
@@ -324,10 +621,14 @@
     // mock data. Always returns something so the UI never hangs on a blank modal.
     async function preparePreviewData({ state, fileId, filename }) {
       const file = state.files.find(entry => entry.id === fileId);
+      const settings = typeof global.getCurrentNestingSettings === 'function'
+        ? global.getCurrentNestingSettings()
+        : {};
+      const matchesSketchMode = file?._multiSketchDetection === !!settings.multiSketchDetection;
       let data = null;
       let source = 'mock';
 
-      if (file?.shapes?.length) {
+      if (matchesSketchMode && file?.shapes?.length) {
         data = applyPartLabelsToPreviewData(clonePreviewData({ shapes: file.shapes, layers: file.layers || [] }), filename);
         source = 'saved';
       }
@@ -336,11 +637,12 @@
         try {
           const result = await global.electronAPI.parseDXF(file.path);
           if (result.success && result.data) {
-            const parsed = parseDXFToShapes(result.data, result.raw);
+            const parsed = parseDXFToShapes(result.data, result.raw, settings);
             if (parsed) {
               data = applyPartLabelsToPreviewData(clonePreviewData(parsed), filename);
               file.shapes = clonePreviewData(data).shapes;
               file.layers = clonePreviewData(data).layers;
+              file._multiSketchDetection = !!settings.multiSketchDetection;
               source = 'real';
             }
           }
@@ -361,6 +663,9 @@
       if (!file) return;
       file.shapes = shapes.map(shape => global.NestDxfPreviewState.clonePreviewShape(shape));
       file.layers = layers.map(layer => ({ ...layer }));
+      if (typeof global.getCurrentNestingSettings === 'function') {
+        file._multiSketchDetection = !!global.getCurrentNestingSettings().multiSketchDetection;
+      }
       file.qty = file.shapes
         .filter(shape => shape.visible !== false)
         .reduce((acc, shape) => acc + Math.max(1, parseInt(shape.qty || 1, 10)), 0);

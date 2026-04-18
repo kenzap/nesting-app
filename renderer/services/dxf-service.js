@@ -14,10 +14,12 @@
     // Guarantees a file has parsed shapes with export metadata before they're used.
     // If the shapes are already fully populated, skips the expensive IPC round-trip.
     async function ensureFileShapes(file) {
+      const settings = getCurrentNestingSettings();
+      const matchesSketchMode = file._multiSketchDetection === !!settings.multiSketchDetection;
       const hasUsableShapes = Array.isArray(file.shapes) && file.shapes.length;
       const hasExportMetadata = hasUsableShapes && file.shapes.every(shape => Array.isArray(shape.exportEntities));
       const hasLayerTable = Array.isArray(file.layers) && file.layers.length;
-      if (hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
+      if (matchesSketchMode && hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
       if (!file.path || !window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') {
         throw new Error(`No parsed shapes available for ${file.name}`);
       }
@@ -27,7 +29,7 @@
         throw new Error(result?.error || `Failed to parse ${file.name}`);
       }
 
-      const parsed = window.parseDXFToShapes(result.data, result.raw);
+      const parsed = window.parseDXFToShapes(result.data, result.raw, settings);
       if (!parsed?.shapes?.length) {
         throw new Error(`No nestable shapes found in ${file.name}`);
       }
@@ -37,6 +39,7 @@
         qty: file.qty || shape.qty || 1,
       }));
       file.layers = Array.isArray(parsed.layers) ? parsed.layers.map(layer => ({ ...layer })) : [];
+      file._multiSketchDetection = !!settings.multiSketchDetection;
       file.qty = effectiveFileQty(file);
       return file.shapes;
     }
