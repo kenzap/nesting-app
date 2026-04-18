@@ -206,13 +206,10 @@
     return { start: s, end: e };
   }
 
-  // Converts a DXF polyline bulge value into a sequence of arc points so that
-  // curved polyline segments are tessellated correctly. Bulge encodes tan(θ/4)
-  // of the included arc angle, which this function decodes into centre + radius.
-  function bulgeToPoints(start, end, bulge, maxStepDeg = 12) {
-    if (!bulge || Math.abs(bulge) < EPS) return [{ x: end.x, y: end.y }];
+  function bulgeToArcInfo(start, end, bulge) {
+    if (!bulge || Math.abs(bulge) < EPS) return null;
     const chord = dist(start, end);
-    if (chord < EPS) return [];
+    if (chord < EPS) return null;
     const theta = 4 * Math.atan(bulge);
     const radius = (chord * (1 + bulge * bulge)) / (4 * Math.abs(bulge));
     const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
@@ -224,16 +221,32 @@
     const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
     const rawEndAngle = Math.atan2(end.y - center.y, end.x - center.x);
     const span = normalizeAngleSpan(startAngle, rawEndAngle, bulge > 0);
-    const delta = span.end - span.start;
+    return {
+      center,
+      radius,
+      startAngle: span.start,
+      endAngle: span.end,
+      theta: span.end - span.start,
+    };
+  }
+
+  // Converts a DXF polyline bulge value into a sequence of arc points so that
+  // curved polyline segments are tessellated correctly. Bulge encodes tan(θ/4)
+  // of the included arc angle, which this function decodes into centre + radius.
+  function bulgeToPoints(start, end, bulge, maxStepDeg = 12) {
+    if (!bulge || Math.abs(bulge) < EPS) return [{ x: end.x, y: end.y }];
+    const arc = bulgeToArcInfo(start, end, bulge);
+    if (!arc) return [];
+    const delta = arc.theta;
     const step = (maxStepDeg * Math.PI) / 180;
     const steps = Math.max(2, Math.ceil(Math.abs(delta) / step));
     const points = [];
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
-      const angle = span.start + delta * t;
+      const angle = arc.startAngle + delta * t;
       points.push({
-        x: center.x + radius * Math.cos(angle),
-        y: center.y + radius * Math.sin(angle),
+        x: arc.center.x + arc.radius * Math.cos(angle),
+        y: arc.center.y + arc.radius * Math.sin(angle),
       });
     }
     points[points.length - 1] = { x: end.x, y: end.y };
@@ -450,6 +463,7 @@
     bboxContainsPoint,
     unionBBox,
     normalizeAngleSpan,
+    bulgeToArcInfo,
     bulgeToPoints,
     ellipseToPoints,
     polylineVerticesToPoints,

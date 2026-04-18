@@ -86,6 +86,25 @@
     console.log(`[DXF DEBUG] ${label}`, payload);
   }
 
+  // Some DXF producers emit circles as ARC entities whose sweep is effectively
+  // 360 degrees. Treating those as open edges pushes them into the alpha-shape
+  // fallback, which then invents synthetic contours around what should simply
+  // be a closed ring. We detect that pattern up front and route it through the
+  // normal closed-contour path instead.
+  function isEffectivelyClosedArc(ent) {
+    if (ent?.type !== 'ARC' || !ent.center || !Number.isFinite(ent.radius)) return false;
+    let span = Number.isFinite(ent.angleLength)
+      ? Math.abs(ent.angleLength)
+      : Math.abs((ent.endAngle || 0) - (ent.startAngle || 0));
+    while (span > TWO_PI) span -= TWO_PI;
+    if (span <= 0) span += TWO_PI;
+    if (span >= TWO_PI - 1e-3) return true;
+
+    const endpoints = getArcEndpoints(ent);
+    if (!endpoints) return false;
+    return samePoint(endpoints.start, endpoints.end, LOOP_TOLERANCE * 4);
+  }
+
   // Returns true for entity types that inherently form a closed ring (circle,
   // closed polyline, closed ellipse, closed spline). These can be used directly
   // as contours without any edge-chaining work.
@@ -95,6 +114,7 @@
       return ent.closed !== false;
     }
     if (ent.type === 'CIRCLE') return true;
+    if (isEffectivelyClosedArc(ent)) return true;
     if (ent.type === 'ELLIPSE') {
       const start = ent.startParameter ?? ent.startAngle ?? 0;
       const end = ent.endParameter ?? ent.endAngle ?? TWO_PI;
@@ -116,6 +136,14 @@
         return geometry.polylineVerticesToPoints(ent.vertices, true);
       case 'CIRCLE':
         return geometry.circleToPoints(ent);
+      case 'ARC':
+        if (isEffectivelyClosedArc(ent)) {
+          return geometry.circleToPoints({
+            center: ent.center,
+            radius: ent.radius,
+          });
+        }
+        return [];
       case 'ELLIPSE':
         return geometry.ellipseToPoints(ent, true);
       case 'SPLINE':
@@ -139,7 +167,9 @@
     const x2 = cx + r * Math.cos(endAngle);
     const y2 = cy - r * Math.sin(endAngle);
     const large = span > Math.PI ? 1 : 0;
-    const sweep = reversed ? 0 : 1;
+    // DXF angles are CCW in a Y-up coordinate system. After flipping into
+    // SVG's Y-down system the sweep direction reverses.
+    const sweep = reversed ? 1 : 0;
     return `A${f(r)},${f(r)},0,${large},${sweep},${f(x2)},${f(y2)}`;
   }
 
@@ -198,6 +228,7 @@
   // for any other type. Used by buildClosedContoursFromLines to build the graph
   // of connectable edges.
   function getOpenEdgeEndpoints(ent) {
+    if (isEffectivelyClosedArc(ent)) return null;
     if (ent?.type === 'LINE') return getLineEndpoints(ent);
     if (ent?.type === 'ARC') return getArcEndpoints(ent);
     return null;
@@ -1045,7 +1076,10 @@
     const explainedBBoxArea = explainedBBox
       ? Math.max(EPS, (explainedBBox.maxX - explainedBBox.minX) * (explainedBBox.maxY - explainedBBox.minY))
       : candidateBBoxArea;
-    const bboxCoverage = Math.min(1, explainedBBoxArea / candidateBBoxArea);
+    // What fraction of the full sketch extent does this candidate cover?
+    // Previously this was inverted (explainedBBoxArea / candidateBBoxArea), which
+    // always produced 1.0 because the explained bbox always contains the candidate.
+    const bboxCoverage = Math.min(1, candidateBBoxArea / explainedBBoxArea);
 
     const syntheticPenalty = candidate.entity?.type === 'LINE_LOOP' ? 1 : 0;
     const framePenalty = syntheticPenalty && bboxCoverage < 0.2 ? 1 : 0;
@@ -1062,18 +1096,28 @@
     };
   }
 
-  // Comparator for merged-group outer scoring. Real contours that explain more
-  // of the component win first; only then do we fall back to larger area.
+  // Comparator for merged-group outer scoring. The outer that covers the most
+  // of the merged sketch's total extent wins; synthetic status is only a
+  // tiebreaker for candidates with similar coverage.
   function compareMergedOuterScore(a, b) {
     if (!a && !b) return 0;
     if (!a) return -1;
     if (!b) return 1;
+    // Frame penalty first: a synthetic loop that barely covers the sketch is
+    // almost certainly an enclosing construction frame, not the real boundary.
     if (a.framePenalty !== b.framePenalty) return b.framePenalty - a.framePenalty;
+    // Coverage: the candidate whose bounding box spans the largest share of the
+    // full sketch extent is the best representative outer.  Round to the nearest
+    // percent so micro-differences don't swamp the synthetic preference below.
+    const covA = Math.round(a.bboxCoverage * 100);
+    const covB = Math.round(b.bboxCoverage * 100);
+    if (covA !== covB) return covA - covB;
+    // Among candidates with equal coverage, prefer a real DXF entity over a
+    // synthetic LINE_LOOP reconstruction.
     if (a.syntheticPenalty !== b.syntheticPenalty) return b.syntheticPenalty - a.syntheticPenalty;
     if (a.containedPeerOuters !== b.containedPeerOuters) return a.containedPeerOuters - b.containedPeerOuters;
     if (a.decoratorInsideCount !== b.decoratorInsideCount) return a.decoratorInsideCount - b.decoratorInsideCount;
     if (a.decoratorTouchCount !== b.decoratorTouchCount) return a.decoratorTouchCount - b.decoratorTouchCount;
-    if (a.bboxCoverage !== b.bboxCoverage) return a.bboxCoverage - b.bboxCoverage;
     if (a.area !== b.area) return a.area - b.area;
     return 0;
   }
@@ -1114,12 +1158,20 @@
       case 'ARC': {
         const ep = getArcEndpoints(entity);
         if (ep && entity.center && Number.isFinite(entity.radius)) {
-          add(ep.start.x, ep.start.y); add(ep.end.x, ep.end.y);
-          let sa = entity.startAngle || 0;
-          let ea = entity.endAngle || sa;
-          while (ea <= sa) ea += TWO_PI;
-          const ma = sa + (ea - sa) / 2;
-          add(entity.center.x + entity.radius * Math.cos(ma), entity.center.y + entity.radius * Math.sin(ma));
+          if (isEffectivelyClosedArc(entity)) {
+            for (let i = 0; i < 8; i++) {
+              const a = (i / 8) * TWO_PI;
+              add(entity.center.x + entity.radius * Math.cos(a), entity.center.y + entity.radius * Math.sin(a));
+            }
+          } else {
+            add(ep.start.x, ep.start.y);
+            add(ep.end.x, ep.end.y);
+            let sa = entity.startAngle || 0;
+            let ea = entity.endAngle || sa;
+            while (ea <= sa) ea += TWO_PI;
+            const ma = sa + (ea - sa) / 2;
+            add(entity.center.x + entity.radius * Math.cos(ma), entity.center.y + entity.radius * Math.sin(ma));
+          }
         }
         break;
       }
@@ -1404,6 +1456,11 @@
     const MAX_PTS = 500;
 
     componentMap.forEach((componentEntities, cid) => {
+      const closedArcCount = componentEntities.filter(isEffectivelyClosedArc).length;
+      if (closedArcCount) return;
+      if (componentEntities.length < 2) return;
+      const lineOnly = componentEntities.every(entity => entity?.type === 'LINE');
+
       // Collect and spatially deduplicate sample points from the component
       const pts = [];
       for (const entity of componentEntities) {
@@ -1422,6 +1479,7 @@
 
       const hull = computeAlphaShape(pts, alpha);
       if (!hull || hull.length < 3) return;
+      if (lineOnly && componentEntities.length <= 3 && hull.length <= 3) return;
 
       const normalized = normalizeWindingCCW([...hull]);
       if (!normalized.length) return;

@@ -43,8 +43,8 @@
   }
 
   // Builds the SVG arc path for a DXF ARC entity, applying the DXF-to-SVG
-  // coordinate flip. Handles the full-circle edge case with two arc commands
-  // because SVG cannot express a 360° arc in a single <path> arc segment.
+  // coordinate flip. Full circles are handled by CIRCLE entities elsewhere;
+  // ARC entities remain open so the preview matches the source geometry.
   function arcEntPath(ent, ox, originMaxY) {
     const cx = ent.center.x - ox;
     const cy = originMaxY - ent.center.y;
@@ -57,12 +57,10 @@
     const y2 = cy - r * Math.sin(eR);
     let span = Number.isFinite(ent.angleLength) ? ent.angleLength : (eR - sR);
     if (span <= 0) span += TWO_PI;
-    if (span >= TWO_PI - 1e-4) {
-      return `M${f(cx - r)},${f(cy)} A${f(r)},${f(r)},0,1,0,${f(cx + r)},${f(cy)}` +
-             ` A${f(r)},${f(r)},0,1,0,${f(cx - r)},${f(cy)} Z`;
-    }
     const large = span > Math.PI ? 1 : 0;
-    return `M${f(x1)},${f(y1)} A${f(r)},${f(r)},0,${large},1,${f(x2)},${f(y2)}`;
+    // DXF arcs sweep CCW in Y-up coordinates. After the SVG Y-flip the sweep
+    // direction must be inverted or the arc is drawn on the wrong side.
+    return `M${f(x1)},${f(y1)} A${f(r)},${f(r)},0,${large},0,${f(x2)},${f(y2)}`;
   }
 
   // Renders a SPLINE as a smooth cubic Bézier SVG path using Catmull-Rom

@@ -12,6 +12,17 @@
   const { f1, mkRng, hashStr } = svg;
   const { unionBBox, entityBBox, closePointRing } = geometry;
 
+  function dedupeRenderedItems(items) {
+    const seen = new Set();
+    return (items || []).filter(item => {
+      if (!item?.svg) return false;
+      const key = `${item.layer || '0'}::${item.svg}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   // Reads the raw DXF text line-by-line to pull out fields that dxf-parser
   // doesn't expose (handle, ACI color, true color, extrusion vector).
   // Returns a Map keyed by entity handle so callers can look up metadata fast.
@@ -303,11 +314,13 @@
       let renderBBox = bbox;
       const peerOuterContours = contours.filter(contour =>
         contour.id !== outer.id &&
-        contour.depth === 0
+        contour.depth === 0 &&
+        !contour.entity?.isAlphaShape
       );
       const syntheticSupportContours = contours.filter(contour =>
         contour.id !== outer.id &&
-        contour.entity?.type === 'LINE_LOOP'
+        contour.entity?.type === 'LINE_LOOP' &&
+        !contour.entity?.isAlphaShape
       );
 
       const holeContours = contours.filter(contour =>
@@ -448,8 +461,26 @@
       closedDecorContours.forEach(contour => addExportEntity(contour.entity));
       decorators.forEach(addExportEntity);
 
-      const outerBoundaryItems = [
+      // When the chosen outer is a synthetic LINE_LOOP, pathData is suppressed by
+      // the canvas (renderSyntheticPath = false). LINE_LOOP peer outers are covered
+      // by syntheticSupportContours → boundaryItems, but non-LINE_LOOP peer outers
+      // (e.g. LWPOLYLINE c_0, c_1) end up in neither boundaryItems nor
+      // outerBoundaryItems, making them invisible. Add them explicitly here.
+      const nonSyntheticPeerOuterItems = hasSyntheticOuter
+        ? peerOuterContours
+            .filter(c => c.entity?.type !== 'LINE_LOOP')
+            .flatMap(contour => {
+              const path = contourEntityToPath(contour.entity, minX, maxY);
+              if (!path) return [];
+              const layerName = contour.layer || '0';
+              const color = resolveEntityColor(contour.entity, layerName);
+              return [{ layer: layerName, color, svg: `<path d="${path}" fill="none" stroke="${color}" stroke-width="1.4" stroke-linejoin="round"/>` }];
+            })
+        : [];
+
+      const outerBoundaryItems = dedupeRenderedItems([
         ...boundaryItems,
+        ...nonSyntheticPeerOuterItems,
         ...(hasSyntheticOuter
         ? (outer.entity?.sourceEntities || []).map(entity => {
             const layerName = entity.layer || '0';
@@ -459,7 +490,7 @@
             return { layer: layerName, color, svg: svgStr };
           }).filter(Boolean)
         : []),
-      ];
+      ]);
 
       debugDXF('Shape render summary', {
         shapeId: `s_${idx}`,
@@ -516,6 +547,61 @@
           layer: item.layer,
           color: item.color,
           svg: item.svg,
+        })),
+      });
+
+      debugDXF('Shape contour sources', {
+        shapeId: `s_${idx}`,
+        outerId: outer.id,
+        contours: contours.map(contour => ({
+          id: contour.id,
+          depth: contour.depth,
+          type: contour.entity?.type || 'UNKNOWN',
+          isAlphaShape: !!contour.entity?.isAlphaShape,
+          isPrimary: !!contour.entity?.isPrimary,
+          isOuterBoundary: !!contour.entity?.isOuterBoundary,
+          sourceEntities: Array.isArray(contour.entity?.sourceEntities)
+            ? contour.entity.sourceEntities.map(entity => ({
+                handle: entity.handle || null,
+                type: entity.type || 'UNKNOWN',
+                layer: entity.layer || contour.layer || '0',
+                svg: svg.entityToSVGStr(entity, minX, maxY, resolveEntityColor(entity, entity.layer || contour.layer || '0')),
+              }))
+            : [],
+        })),
+      });
+
+      debugDXF('Shape contour geometry', {
+        shapeId: `s_${idx}`,
+        outerId: outer.id,
+        contours: contours.map(contour => ({
+          id: contour.id,
+          type: contour.entity?.type || 'UNKNOWN',
+          handle: contour.entity?.handle || null,
+          depth: contour.depth,
+          bbox: contour.bbox,
+          points: Array.isArray(contour.points)
+            ? contour.points.map(point => ({
+                x: +point.x.toFixed(3),
+                y: +point.y.toFixed(3),
+              }))
+            : [],
+          entityVertices: Array.isArray(contour.entity?.vertices)
+            ? contour.entity.vertices.map(vertex => ({
+                x: +vertex.x.toFixed(3),
+                y: +vertex.y.toFixed(3),
+                bulge: Number.isFinite(vertex.bulge) ? +vertex.bulge.toFixed(6) : null,
+              }))
+            : [],
+          entityCenter: contour.entity?.center
+            ? {
+                x: +contour.entity.center.x.toFixed(3),
+                y: +contour.entity.center.y.toFixed(3),
+              }
+            : null,
+          entityRadius: Number.isFinite(contour.entity?.radius)
+            ? +contour.entity.radius.toFixed(3)
+            : null,
         })),
       });
 
