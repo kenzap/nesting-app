@@ -14,6 +14,7 @@
     "electron-builder": "^24.13.3"
   },
   "dependencies": {
+    "@flatten-js/core": "^1.6.12",
     "dxf-parser": "^1.1.2"
   },
   "build": {
