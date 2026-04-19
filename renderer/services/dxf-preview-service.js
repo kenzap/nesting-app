@@ -12,6 +12,12 @@
     buildSketchGroups: () => [],
     extractPolygonForEntities: () => null,
   };
+  const { detectShapes: detectStructuredShapes } = global.NestDxfShapeStructureService || {
+    detectShapes: () => [],
+  };
+  const { detectRasterShapes } = global.NestDxfRasterEnvelopeService || {
+    detectRasterShapes: () => [],
+  };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
   const { normalizeSettings } = global.NestSettings;
@@ -120,6 +126,87 @@
       ownerLayers: usedLayers,
       involvedLayers: usedLayers,
       holes: [],
+      qty: 1,
+      visible: true,
+      selected: false,
+    };
+  }
+
+  function buildStructuredPreviewShape({ shapeRecord, index, layerOrder, layerColor, resolveEntityColor }) {
+    const entities = Array.isArray(shapeRecord?.entities) ? shapeRecord.entities : [];
+    if (!entities.length) return null;
+
+    let renderBBox = shapeRecord?.bbox || null;
+    entities.forEach(entity => { renderBBox = unionBBox(renderBBox, entityBBox(entity)); });
+    if (!renderBBox) return null;
+
+    const { minX, minY, maxX, maxY } = renderBBox;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (width < 0.5 || height < 0.5) return null;
+
+    const usedLayers = [...new Set(entities.map(entity => entity.layer || '0'))];
+    const preferredLayer = layerOrder.find(name => usedLayers.includes(name)) || shapeRecord.layer || usedLayers[0] || '0';
+
+    const outerBoundaryItems = dedupeRenderedItems(entities.map(entity => {
+      const layerName = entity.layer || '0';
+      const color = resolveEntityColor(entity, layerName);
+      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+      if (!svgStr) return null;
+      return { layer: layerName, color, svg: svgStr };
+    }).filter(Boolean));
+
+    const exportEntityMap = new Map();
+    entities.forEach(entity => {
+      const key = entity.handle || JSON.stringify([
+        entity.type, entity.layer,
+        entity.start?.x, entity.start?.y,
+        entity.end?.x, entity.end?.y,
+        entity.center?.x, entity.center?.y,
+        entity.radius, entity.startAngle, entity.endAngle,
+        entity.vertices?.length,
+      ]);
+      if (!exportEntityMap.has(key)) {
+        const serialized = serializeEntityForExport(entity, entityToPointsForExport);
+        if (serialized) exportEntityMap.set(key, serialized);
+      }
+    });
+
+    const polygonPoints = Array.isArray(shapeRecord?.polygonPoints) && shapeRecord.polygonPoints.length
+      ? shapeRecord.polygonPoints
+      : rectPolygonFromBBox(renderBBox);
+    const pathPoints = polygonPoints.length > 1 && polygonPoints[polygonPoints.length - 1]?.x === polygonPoints[0]?.x &&
+      polygonPoints[polygonPoints.length - 1]?.y === polygonPoints[0]?.y
+      ? polygonPoints.slice(0, -1)
+      : polygonPoints;
+    const polygonPath = pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
+    const fallbackPath = rectPath(width, height);
+    const selectionPath = polygonPath || fallbackPath;
+
+    return {
+      id: shapeRecord.id || `s_${index}`,
+      name: `Sketch ${index + 1}`,
+      layer: preferredLayer,
+      layerColor: layerColor(preferredLayer),
+      hasSyntheticOuter: !shapeRecord?.parentContour,
+      hasExtractedPolygon: !!shapeRecord?.polygonPoints?.length,
+      mixedOuterLayers: usedLayers.length > 1,
+      selectionFillAllowed: false,
+      outerBoundaryItems,
+      pathData: selectionPath,
+      selectionPathData: selectionPath,
+      fillRule: 'nonzero',
+      polygonPoints,
+      bbox: { w: width, h: height },
+      decorSVG: [],
+      decorItems: [],
+      exportEntities: [...exportEntityMap.values()],
+      ownerLayers: usedLayers,
+      involvedLayers: usedLayers,
+      holes: (shapeRecord.childClosedContours || []).map(contour => ({
+        id: contour.id,
+        points: contour.polygonPoints || contour.points || [],
+      })),
       qty: 1,
       visible: true,
       selected: false,
@@ -255,7 +342,7 @@
     const groups = settingsInput?.multiSketchDetection === false
       ? [renderableEntities]
       : buildSketchGroups(renderableEntities);
-    const shapes = groups
+    const rawPreviewShapes = groups
       .map((groupEntities, index) => buildRawPreviewShape({
         entities: groupEntities,
         index,
@@ -264,6 +351,23 @@
         resolveEntityColor,
       }))
       .filter(Boolean);
+    if (!rawPreviewShapes.length) return null;
+
+    const structuredShapes = detectStructuredShapes(renderableEntities, {
+      singleSketch: settingsInput?.multiSketchDetection === false,
+    });
+    const rasterShapes = detectRasterShapes(renderableEntities);
+    const shapes = structuredShapes.length
+      ? structuredShapes
+          .map((shapeRecord, index) => buildStructuredPreviewShape({
+            shapeRecord,
+            index,
+            layerOrder,
+            layerColor,
+            resolveEntityColor,
+          }))
+          .filter(Boolean)
+      : rawPreviewShapes;
     if (!shapes.length) return null;
 
     const usedLayers = [...new Set(shapes.flatMap(shape => shape.involvedLayers || [shape.layer]))];
@@ -284,6 +388,46 @@
         handle: entity.handle || null,
         type: entity.type,
         layer: entity.layer || '0',
+      })),
+    });
+
+    debugDXF('Shape pipeline compare', {
+      rawPreviewShapeCount: rawPreviewShapes.length,
+      rawPreviewShapes: rawPreviewShapes.map(shape => ({
+        id: shape.id,
+        layer: shape.layer,
+        bbox: shape.bbox,
+        hasExtractedPolygon: !!shape.hasExtractedPolygon,
+        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+        entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
+      })),
+      activePreviewShapeCount: shapes.length,
+      activePreviewShapes: shapes.map(shape => ({
+        id: shape.id,
+        layer: shape.layer,
+        bbox: shape.bbox,
+        hasExtractedPolygon: !!shape.hasExtractedPolygon,
+        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+        entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
+      })),
+      structuredShapeCount: structuredShapes.length,
+      structuredShapes: structuredShapes.map(shape => ({
+        id: shape.id,
+        layer: shape.layer,
+        parentContourId: shape.parentContour?.id || null,
+        parentContourType: shape.parentContour?.entity?.type || null,
+        childClosedContourCount: shape.childClosedContours?.length || 0,
+        openEntityCount: shape.openEntities?.length || 0,
+        entityCount: shape.entities?.length || 0,
+        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+      })),
+      rasterShapeCount: rasterShapes.length,
+      rasterShapes: rasterShapes.map(shape => ({
+        id: shape.id,
+        layer: shape.layer,
+        entityCount: shape.entities?.length || 0,
+        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+        bbox: shape.bbox,
       })),
     });
 
