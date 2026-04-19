@@ -3,6 +3,9 @@
 
   const geometry = global.NestDxfGeometry;
   const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  const graphUtils = global.NestDxfNestingGraphUtils || {};
+  const cycleRanking = global.NestDxfNestingCycleRanking || {};
+  const openBuilderHelpers = global.NestDxfOpenBuilderHelpers || {};
 
   if (!geometry) {
     global.NestDxfNestingPolygonService = {
@@ -34,6 +37,26 @@
     polygonSignedArea,
     normalizeWindingCCW,
   } = geometry;
+
+  const {
+    ringBBox,
+    segmentsIntersect,
+    enumerateSimpleCycles,
+    splitSegmentsAtIntersections,
+    buildGraphFromSegments,
+  } = graphUtils;
+
+  const {
+    extractOutermostSimpleLoop,
+  } = cycleRanking;
+
+  const {
+    findAttachedOpenEntities,
+    buildLocalGraph,
+    rankParentBuilderCycles,
+    buildOpenGraphFromShape,
+    rankOpenBuilderCycles,
+  } = openBuilderHelpers;
 
   function scorePolygonCoverage(polygon, entities) {
     const ring = closePointRing(polygon?.polygonPoints || polygon || []);
@@ -288,385 +311,6 @@
     }
   }
 
-  function bboxGap(a, b) {
-    if (!a || !b) return Infinity;
-    const dx = Math.max(0, a.minX - b.maxX, b.minX - a.maxX);
-    const dy = Math.max(0, a.minY - b.maxY, b.minY - a.maxY);
-    return Math.hypot(dx, dy);
-  }
-
-  function ringBBox(points) {
-    let bbox = null;
-    (points || []).forEach(point => {
-      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-      bbox = bbox
-        ? {
-            minX: Math.min(bbox.minX, point.x),
-            minY: Math.min(bbox.minY, point.y),
-            maxX: Math.max(bbox.maxX, point.x),
-            maxY: Math.max(bbox.maxY, point.y),
-          }
-        : { minX: point.x, minY: point.y, maxX: point.x, maxY: point.y };
-    });
-    return bbox;
-  }
-
-  function ringCenter(points) {
-    const ring = closePointRing(points || []);
-    if (ring.length < 4) return null;
-    const core = ring.slice(0, -1);
-    const total = core.reduce((acc, point) => ({
-      x: acc.x + point.x,
-      y: acc.y + point.y,
-    }), { x: 0, y: 0 });
-    return {
-      x: total.x / core.length,
-      y: total.y / core.length,
-    };
-  }
-
-  function pointOnSegment(point, a, b, tolerance) {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len2 = dx * dx + dy * dy;
-    if (len2 <= EPS) return dist(point, a) <= tolerance;
-    const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
-    if (t < -EPS || t > 1 + EPS) return false;
-    const px = a.x + dx * t;
-    const py = a.y + dy * t;
-    return Math.hypot(point.x - px, point.y - py) <= tolerance;
-  }
-
-  function segmentIntersectionPoint(a1, a2, b1, b2, tolerance) {
-    const r = { x: a2.x - a1.x, y: a2.y - a1.y };
-    const s = { x: b2.x - b1.x, y: b2.y - b1.y };
-    const denom = (r.x * s.y) - (r.y * s.x);
-    if (Math.abs(denom) <= EPS) return null;
-    const qp = { x: b1.x - a1.x, y: b1.y - a1.y };
-    const t = ((qp.x * s.y) - (qp.y * s.x)) / denom;
-    const u = ((qp.x * r.y) - (qp.y * r.x)) / denom;
-    if (t < -tolerance || t > 1 + tolerance || u < -tolerance || u > 1 + tolerance) return null;
-    return {
-      x: a1.x + (r.x * t),
-      y: a1.y + (r.y * t),
-    };
-  }
-
-  function orderedPointsAlongSegment(start, end, points, tolerance) {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const len2 = (dx * dx) + (dy * dy);
-    const ordered = points
-      .filter(point => pointOnSegment(point, start, end, tolerance))
-      .slice()
-      .sort((a, b) => {
-        const ta = len2 <= EPS ? 0 : (((a.x - start.x) * dx) + ((a.y - start.y) * dy)) / len2;
-        const tb = len2 <= EPS ? 0 : (((b.x - start.x) * dx) + ((b.y - start.y) * dy)) / len2;
-        return ta - tb;
-      });
-
-    const unique = [];
-    ordered.forEach(point => {
-      if (!unique.some(existing => samePoint(existing, point, tolerance))) unique.push(point);
-    });
-    return unique;
-  }
-
-  function edgeKey(a, b) {
-    return a < b ? `${a}_${b}` : `${b}_${a}`;
-  }
-
-  function ensureNode(point, nodes, tolerance) {
-    const match = nodes.findIndex(existing => samePoint(existing, point, tolerance));
-    if (match >= 0) return match;
-    nodes.push({ x: point.x, y: point.y });
-    return nodes.length - 1;
-  }
-
-  function addSegment(a, b, nodes, adjacency, edgeKeys, tolerance) {
-    if (!a || !b || dist(a, b) <= EPS) return;
-    const ai = ensureNode(a, nodes, tolerance);
-    const bi = ensureNode(b, nodes, tolerance);
-    if (ai === bi) return;
-    const key = edgeKey(ai, bi);
-    if (edgeKeys.has(key)) return;
-    edgeKeys.add(key);
-    if (!adjacency.has(ai)) adjacency.set(ai, []);
-    if (!adjacency.has(bi)) adjacency.set(bi, []);
-    adjacency.get(ai).push(bi);
-    adjacency.get(bi).push(ai);
-  }
-
-  function canonicalizeCycle(indices) {
-    if (!Array.isArray(indices) || indices.length < 3) return '';
-    const n = indices.length;
-    let best = null;
-    const consider = cycle => {
-      for (let offset = 0; offset < n; offset++) {
-        const rotated = [];
-        for (let i = 0; i < n; i++) rotated.push(cycle[(offset + i) % n]);
-        const key = rotated.join('_');
-        if (!best || key < best) best = key;
-      }
-    };
-    consider(indices);
-    consider(indices.slice().reverse());
-    return best || '';
-  }
-
-  function orientation(a, b, c) {
-    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-  }
-
-  function onSegment(a, b, p, eps = EPS) {
-    return p.x >= Math.min(a.x, b.x) - eps &&
-      p.x <= Math.max(a.x, b.x) + eps &&
-      p.y >= Math.min(a.y, b.y) - eps &&
-      p.y <= Math.max(a.y, b.y) + eps;
-  }
-
-  function segmentsIntersect(a1, a2, b1, b2, eps = EPS) {
-    const o1 = orientation(a1, a2, b1);
-    const o2 = orientation(a1, a2, b2);
-    const o3 = orientation(b1, b2, a1);
-    const o4 = orientation(b1, b2, a2);
-
-    if ((o1 > eps && o2 < -eps || o1 < -eps && o2 > eps) &&
-        (o3 > eps && o4 < -eps || o3 < -eps && o4 > eps)) return true;
-
-    if (Math.abs(o1) <= eps && onSegment(a1, a2, b1, eps)) return true;
-    if (Math.abs(o2) <= eps && onSegment(a1, a2, b2, eps)) return true;
-    if (Math.abs(o3) <= eps && onSegment(b1, b2, a1, eps)) return true;
-    if (Math.abs(o4) <= eps && onSegment(b1, b2, a2, eps)) return true;
-    return false;
-  }
-
-  function ringSelfIntersectionCount(points) {
-    let count = 0;
-    for (let i = 0; i < points.length; i++) {
-      const a1 = points[i];
-      const a2 = points[(i + 1) % points.length];
-      for (let j = i + 1; j < points.length; j++) {
-        if (Math.abs(i - j) <= 1) continue;
-        if (i === 0 && j === points.length - 1) continue;
-        const b1 = points[j];
-        const b2 = points[(j + 1) % points.length];
-        if (segmentsIntersect(a1, a2, b1, b2)) count += 1;
-      }
-    }
-    return count;
-  }
-
-  function enumerateSimpleCycles(nodes, adjacency, maxCycles = 500) {
-    const seen = new Set();
-    const cycles = [];
-
-    const visit = (startNode, currentNode, path, visited) => {
-      if (cycles.length >= maxCycles) return;
-      for (const next of (adjacency.get(currentNode) || [])) {
-        if (next === startNode) {
-          if (path.length < 3) continue;
-          const cycle = path.slice();
-          const key = canonicalizeCycle(cycle);
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          const points = cycle.map(index => nodes[index]);
-          if (points.length < 3) continue;
-          const area = Math.abs(polygonSignedArea(points));
-          if (area <= EPS) continue;
-          if (ringSelfIntersectionCount(points) > 0) continue;
-          cycles.push(points);
-          continue;
-        }
-        if (visited.has(next)) continue;
-        if (next < startNode) continue;
-        if (path.length >= Math.min(48, nodes.length + 1)) continue;
-        visited.add(next);
-        path.push(next);
-        visit(startNode, next, path, visited);
-        path.pop();
-        visited.delete(next);
-      }
-    };
-
-    [...adjacency.keys()].sort((a, b) => a - b).forEach(startNode => {
-      if (cycles.length >= maxCycles) return;
-      for (const next of (adjacency.get(startNode) || []).filter(index => index >= startNode)) {
-        const visited = new Set([startNode, next]);
-        visit(startNode, next, [startNode, next], visited);
-        if (cycles.length >= maxCycles) break;
-      }
-    });
-
-    return cycles;
-  }
-
-  function buildEntitySegments(entity, tolerance) {
-    const points = entityToPathPoints(entity, true);
-    if (points.length < 2) return [];
-    const segments = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      if (dist(points[i], points[i + 1]) <= EPS) continue;
-      segments.push([points[i], points[i + 1]]);
-    }
-    return segments;
-  }
-
-  function pointInsideRing(points, point) {
-    const ring = closePointRing(points || []);
-    const bbox = ringBBox(ring);
-    if (!ring.length || !bbox || !point || !bboxContainsPoint(bbox, point, LOOP_TOLERANCE * 12)) return false;
-    return pointInPoly(point.x, point.y, ring);
-  }
-
-  function findAttachedOpenEntities(shapeRecord, seedPoints, tolerance) {
-    const seedBBox = ringBBox(seedPoints);
-    const openEntities = (shapeRecord?.openEntities || []).filter(isRenderableEntity);
-    return openEntities.filter(entity => {
-      const box = entityBBox(entity);
-      if (!box || bboxGap(seedBBox, box) > tolerance * 80) return false;
-      const pathPoints = entityToPathPoints(entity, true);
-      if (!pathPoints.length) return false;
-      const touchesSeed = pathPoints.some(point => {
-        for (let i = 0; i < seedPoints.length - 1; i++) {
-          if (pointOnSegment(point, seedPoints[i], seedPoints[i + 1], tolerance * 12)) return true;
-        }
-        return false;
-      });
-      if (!touchesSeed) return false;
-      return box.minX < seedBBox.minX - tolerance ||
-        box.maxX > seedBBox.maxX + tolerance ||
-        box.minY < seedBBox.minY - tolerance ||
-        box.maxY > seedBBox.maxY + tolerance;
-    });
-  }
-
-  function buildLocalGraph(seedPoints, attachedEntities, tolerance) {
-    const nodes = [];
-    const adjacency = new Map();
-    const edgeKeys = new Set();
-    const ring = closePointRing(seedPoints);
-    const contourSegments = [];
-    for (let i = 0; i < ring.length - 1; i++) contourSegments.push([ring[i], ring[i + 1]]);
-    const attachedSegments = attachedEntities.flatMap(entity => buildEntitySegments(entity, tolerance));
-
-    const contourSplitPoints = contourSegments.map(([start, end]) => [start, end]);
-    contourSegments.forEach(([start, end], index) => {
-      attachedSegments.forEach(([a, b]) => {
-        const hits = [];
-        const startHit = pointOnSegment(start, a, b, tolerance * 8);
-        const endHit = pointOnSegment(end, a, b, tolerance * 8);
-        if (startHit) hits.push(start);
-        if (endHit) hits.push(end);
-        const intersection = segmentIntersectionPoint(start, end, a, b, tolerance * 8);
-        if (intersection) hits.push(intersection);
-        hits.forEach(point => {
-          if (!contourSplitPoints[index].some(existing => samePoint(existing, point, tolerance * 4))) {
-            contourSplitPoints[index].push(point);
-          }
-        });
-      });
-    });
-
-    contourSegments.forEach(([start, end], index) => {
-      const ordered = orderedPointsAlongSegment(start, end, contourSplitPoints[index], tolerance * 4);
-      for (let i = 0; i < ordered.length - 1; i++) addSegment(ordered[i], ordered[i + 1], nodes, adjacency, edgeKeys, tolerance * 4);
-    });
-
-    attachedSegments.forEach(([start, end]) => {
-      const splitPoints = [start, end];
-      contourSegments.forEach(([a, b]) => {
-        const intersection = segmentIntersectionPoint(start, end, a, b, tolerance * 8);
-        if (intersection && !splitPoints.some(existing => samePoint(existing, intersection, tolerance * 4))) splitPoints.push(intersection);
-      });
-      const ordered = orderedPointsAlongSegment(start, end, splitPoints, tolerance * 4);
-      for (let i = 0; i < ordered.length - 1; i++) addSegment(ordered[i], ordered[i + 1], nodes, adjacency, edgeKeys, tolerance * 4);
-    });
-
-    return { nodes, adjacency };
-  }
-
-  function buildGraphFromSegments(segments, tolerance) {
-    const nodes = [];
-    const adjacency = new Map();
-    const edgeKeys = new Set();
-
-    segments.forEach(([a, b]) => addSegment(a, b, nodes, adjacency, edgeKeys, tolerance));
-    return { nodes, adjacency };
-  }
-
-  function splitSegmentsAtIntersections(segments, tolerance) {
-    const splitPointsBySegment = segments.map(([start, end]) => [start, end]);
-
-    for (let i = 0; i < segments.length; i++) {
-      for (let j = i + 1; j < segments.length; j++) {
-        const [a1, a2] = segments[i];
-        const [b1, b2] = segments[j];
-        const intersection = segmentIntersectionPoint(a1, a2, b1, b2, tolerance * 8);
-        if (!intersection) continue;
-
-        if (!splitPointsBySegment[i].some(point => samePoint(point, intersection, tolerance * 4))) {
-          splitPointsBySegment[i].push(intersection);
-        }
-        if (!splitPointsBySegment[j].some(point => samePoint(point, intersection, tolerance * 4))) {
-          splitPointsBySegment[j].push(intersection);
-        }
-      }
-    }
-
-    const splitSegments = [];
-    segments.forEach(([start, end], index) => {
-      const ordered = orderedPointsAlongSegment(start, end, splitPointsBySegment[index], tolerance * 4);
-      for (let i = 0; i < ordered.length - 1; i++) {
-        if (dist(ordered[i], ordered[i + 1]) <= EPS) continue;
-        splitSegments.push([ordered[i], ordered[i + 1]]);
-      }
-    });
-    return splitSegments;
-  }
-
-  function extractOutermostSimpleLoop(points, tolerance) {
-    const ring = closePointRing(points || []);
-    if (ring.length < 4) return null;
-    const sourceBBox = ringBBox(ring);
-    const sourceBBoxArea = sourceBBox
-      ? Math.max(EPS, (sourceBBox.maxX - sourceBBox.minX) * (sourceBBox.maxY - sourceBBox.minY))
-      : 0;
-    const segments = [];
-    for (let i = 0; i < ring.length - 1; i++) {
-      if (dist(ring[i], ring[i + 1]) <= EPS) continue;
-      segments.push([ring[i], ring[i + 1]]);
-    }
-    if (!segments.length) return null;
-
-    const splitSegments = splitSegmentsAtIntersections(segments, tolerance);
-    const graph = buildGraphFromSegments(splitSegments, tolerance * 4);
-    const cycles = enumerateSimpleCycles(graph.nodes, graph.adjacency, graph.nodes.length > 60 ? 300 : 800);
-    if (!cycles.length) return closePointRing(normalizeWindingCCW(ring));
-
-    const ranked = cycles
-      .map(cycle => {
-        const closed = closePointRing(normalizeWindingCCW(cycle));
-        const area = Math.abs(polygonSignedArea(closed.slice(0, -1)));
-        const bbox = ringBBox(closed);
-        const bboxArea = bbox ? Math.max(EPS, (bbox.maxX - bbox.minX) * (bbox.maxY - bbox.minY)) : area;
-        const bboxCoverage = sourceBBoxArea > EPS ? (bboxArea / sourceBBoxArea) : 0;
-        return {
-          points: closed,
-          area,
-          bboxArea,
-          bboxCoverage,
-        };
-      })
-      .sort((a, b) => {
-        if (Math.abs((b.bboxCoverage || 0) - (a.bboxCoverage || 0)) > 1e-6) return (b.bboxCoverage || 0) - (a.bboxCoverage || 0);
-        if (Math.abs((b.area || 0) - (a.area || 0)) > 1e-6) return (b.area || 0) - (a.area || 0);
-        return (b.bboxArea || 0) - (a.bboxArea || 0);
-      });
-
-    return ranked[0]?.points || closePointRing(normalizeWindingCCW(ring));
-  }
-
   function buildExtendedOuterContourFromParent(shapeRecord, options = {}) {
     const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
     const parentContour = shapeRecord?.parentContour || (shapeRecord?.peerOuters?.length === 1 ? shapeRecord.peerOuters[0] : null);
@@ -684,7 +328,7 @@
       return { polygonPoints: null, source: null, coverage: null, builderMode: 'parent-builder', builderDebug: debug };
     }
 
-    const attachedEntities = findAttachedOpenEntities(shapeRecord, seedPoints, tolerance);
+    const attachedEntities = findAttachedOpenEntities(shapeRecord, seedPoints, tolerance, entityToPathPoints, isRenderableEntity);
     if (!attachedEntities.length) {
       const coverage = scorePolygonCoverage({ polygonPoints: seedPoints }, shapeRecord.entities || []);
       const debug = {
@@ -736,7 +380,7 @@
       };
     }
 
-    const graph = buildLocalGraph(seedPoints, attachedEntities, tolerance);
+    const graph = buildLocalGraph(seedPoints, attachedEntities, tolerance, entityToPathPoints);
     const graphEdgeCount = [...graph.adjacency.values()].reduce((sum, neighbors) => sum + neighbors.length, 0) / 2;
     const cycles = enumerateSimpleCycles(graph.nodes, graph.adjacency, graph.nodes.length > 40 ? 300 : 800);
     if (!cycles.length) {
@@ -752,38 +396,16 @@
       return { polygonPoints: null, source: null, coverage: null, builderMode: 'parent-builder', builderDebug: debug };
     }
 
-    const seedCenter = ringCenter(seedPoints);
-    const seedArea = Math.abs(polygonSignedArea(seedPoints.slice(0, -1)));
     const attachedIds = attachedEntities.map(entity => entity.handle || entity.id || entity.type);
-    const ranked = cycles
-      .map(points => {
-        const ring = closePointRing(normalizeWindingCCW(points));
-        const coverage = scorePolygonCoverage({ polygonPoints: ring }, shapeRecord.entities || []);
-        const enclosesSeed = seedCenter ? pointInsideRing(ring, seedCenter) : false;
-        const area = Math.abs(polygonSignedArea(ring.slice(0, -1)));
-        const areaGain = seedArea > EPS ? (area / seedArea) : 1;
-        return {
-          candidate: {
-            polygonPoints: ring,
-            source: 'parent-extended',
-            tolerance,
-            seedContourId: parentContour.id || null,
-            attachedEntityIds: attachedIds,
-            area,
-          },
-          score: coverage,
-          enclosesSeed,
-          areaGain,
-        };
-      })
-      .filter(entry => entry.score && entry.enclosesSeed && entry.areaGain >= 1)
-      .sort((a, b) => {
-        if ((a.score?.outerMissCount || 0) !== (b.score?.outerMissCount || 0)) return (a.score?.outerMissCount || 0) - (b.score?.outerMissCount || 0);
-        if (Math.abs((b.score?.outerCoverage || 0) - (a.score?.outerCoverage || 0)) > 1e-6) return (b.score?.outerCoverage || 0) - (a.score?.outerCoverage || 0);
-        if (Math.abs((b.areaGain || 0) - (a.areaGain || 0)) > 1e-6) return (b.areaGain || 0) - (a.areaGain || 0);
-        if (Math.abs((b.score?.pointCoverage || 0) - (a.score?.pointCoverage || 0)) > 1e-6) return (b.score?.pointCoverage || 0) - (a.score?.pointCoverage || 0);
-        return (b.score?.score || 0) - (a.score?.score || 0);
-      });
+    const ranked = rankParentBuilderCycles({
+      cycles,
+      shapeRecord,
+      seedPoints,
+      tolerance,
+      parentContourId: parentContour.id || null,
+      attachedIds,
+      scorePolygonCoverage,
+    });
 
     if (!ranked.length) {
       const debug = {
@@ -827,13 +449,102 @@
     };
   }
 
+  function buildOuterContourFromOpenEntities(shapeRecord, options = {}) {
+    const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
+    const graphData = buildOpenGraphFromShape(
+      shapeRecord,
+      tolerance,
+      entityToPathPoints,
+      isRenderableEntity,
+      splitSegmentsAtIntersections,
+      buildGraphFromSegments
+    );
+    const graph = graphData.graph || { nodes: [], adjacency: new Map() };
+    const graphEdgeCount = [...graph.adjacency.values()].reduce((sum, neighbors) => sum + neighbors.length, 0) / 2;
+    const debugBase = {
+      shapeId: shapeRecord?.id || null,
+      stage: 'missing-seed',
+      entityCount: graphData.entities?.length || 0,
+      rawSegmentCount: graphData.segments?.length || 0,
+      snappedSegmentCount: graphData.snappedSegments?.length || 0,
+      splitSegmentCount: graphData.splitSegments?.length || 0,
+      graphNodeCount: graph.nodes.length,
+      graphEdgeCount,
+    };
+
+    if (!graphData.segments?.length) {
+      const debug = { ...debugBase, stage: 'no-owned-segments' };
+      debugDXF('Outer contour builder', debug);
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug };
+    }
+
+    const cycles = enumerateSimpleCycles(graph.nodes, graph.adjacency, graph.nodes.length > 50 ? 400 : 900);
+    if (!cycles.length) {
+      const debug = { ...debugBase, stage: 'no-open-cycles' };
+      debugDXF('Outer contour builder', debug);
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug };
+    }
+
+    const ranked = rankOpenBuilderCycles({
+      cycles,
+      bbox: graphData.bbox,
+      shapeRecord,
+      tolerance,
+      scorePolygonCoverage,
+    });
+
+    if (!ranked.length) {
+      const debug = { ...debugBase, stage: 'no-ranked-open-cycles', rawCycleCount: cycles.length };
+      debugDXF('Outer contour builder', debug);
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug };
+    }
+
+    const usable = ranked.filter(entry => {
+      const coverage = entry.score || {};
+      return (coverage.entityCoverage ?? 0) >= 0.9 &&
+        (coverage.pointCoverage ?? 0) >= 0.8 &&
+        (coverage.outerCoverage ?? 0) >= 0.85 &&
+        (coverage.outerMissCount ?? Infinity) === 0 &&
+        (coverage.selfIntersectionCount ?? Infinity) === 0 &&
+        (coverage.repeatedVertexCount ?? Infinity) === 0;
+    });
+    const winner = usable[0] || null;
+    const debug = {
+      ...debugBase,
+      stage: winner ? 'success-open-builder' : 'rejected-open-cycles',
+      rawCycleCount: cycles.length,
+      rankedCycleCount: ranked.length,
+      chosenSource: winner?.candidate?.source || null,
+      candidates: ranked.slice(0, 10).map(entry => ({
+        source: entry.candidate?.source || null,
+        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
+        bboxCoverage: entry.bboxCoverage,
+        coverage: entry.score || null,
+      })),
+    };
+    debugDXF('Outer contour builder', debug);
+
+    if (!winner) {
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug, rankedCandidates: ranked };
+    }
+
+    return {
+      ...winner.candidate,
+      coverage: winner.score,
+      rankedCandidates: ranked,
+      builderMode: 'open-builder',
+      builderDebug: debug,
+    };
+  }
+
   function detectNestingPolygon(input, options = {}) {
     if (Array.isArray(input)) return { polygonPoints: null, source: null, coverage: null, builderMode: 'array-input-unsupported', builderDebug: null };
     const shapeRecord = input;
     if (!shapeRecord?.entities?.length) return { polygonPoints: null, source: null, coverage: null, builderMode: 'missing-shape-record', builderDebug: null };
 
     const built = buildExtendedOuterContourFromParent(shapeRecord, options);
-    return built;
+    if (built?.polygonPoints?.length || built?.builderDebug?.stage !== 'missing-seed') return built;
+    return buildOuterContourFromOpenEntities(shapeRecord, options);
   }
 
   global.NestDxfNestingPolygonService = {
@@ -842,6 +553,7 @@
     findBestPolygonizedCandidate: () => null,
     buildConcaveHullFallback: () => null,
     buildExtendedOuterContourFromParent,
+    buildOuterContourFromOpenEntities,
     detectNestingPolygon,
   };
 })(window);
