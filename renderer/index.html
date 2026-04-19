@@ -105,17 +105,6 @@
     </div>
     <div class="modal-body">
       <div class="settings-section">
-        <div class="settings-section-title">Sketch</div>
-        <div class="setting-row">
-          <label>Multi-Sketch Detection</label>
-          <label class="toggle">
-            <input type="checkbox" data-setting-key="multiSketchDetection" />
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-      </div>
-
-      <div class="settings-section">
         <div class="settings-section-title">Spacing &amp; Tolerances</div>
         <div class="setting-row">
           <label>Part Spacing (mm)</label>
@@ -195,8 +184,8 @@
         <div class="setting-row">
           <label>Engraving style</label>
           <select data-setting-key="engravingStyle">
-            <option value="simple">Simple - single line</option>
-            <option value="stroked" selected>Stroked - outlined</option>
+            <option value="simple" selected>Simple - single line</option>
+            <option value="stroked">Stroked - outlined</option>
           </select>
         </div>
       </div>
@@ -548,6 +537,7 @@
 <script src="services/dxf-export-metadata-service.js"></script>
 <script src="services/dxf-engraving-preview-service.js"></script>
 <script src="services/dxf-flatten-service.js"></script>
+<script src="services/dxf-nesting-polygon-service.js"></script>
 <script src="services/dxf-shape-detection-service.js"></script>
 <script src="services/dxf-shape-structure-service.js"></script>
 <script src="services/dxf-raster-envelope-service.js"></script>

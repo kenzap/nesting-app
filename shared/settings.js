@@ -2,7 +2,6 @@
 
 (function defineNestSettings(globalScope) {
   const SETTINGS_DEFAULTS = {
-    multiSketchDetection: true,
     partSpacing: 0,
     sheetMargin: 0,
     rotationStep: '90',
@@ -10,9 +9,9 @@
     earlyStopping: true,
     preferredAlignment: 'top',
     timeLimit: 60,
-    exportFormat: 'svg',
+    exportFormat: 'dxf',
     engravingLayer: '2',
-    engravingStyle: 'stroked',
+    engravingStyle: 'simple',
   };
 
   function coerceByDefault(value, fallback) {

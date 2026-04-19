@@ -18,6 +18,10 @@
   const { detectRasterShapes } = global.NestDxfRasterEnvelopeService || {
     detectRasterShapes: () => [],
   };
+  const { detectNestingPolygon, scorePolygonCoverage } = global.NestDxfNestingPolygonService || {
+    detectNestingPolygon: () => null,
+    scorePolygonCoverage: () => null,
+  };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
   const { normalizeSettings } = global.NestSettings;
@@ -55,6 +59,178 @@
       { x: bbox.maxX, y: bbox.maxY },
       { x: bbox.minX, y: bbox.maxY },
     ]);
+  }
+
+  function pointsToPathData(polygonPoints, minX, maxY) {
+    const pathPoints = polygonPoints.length > 1 && polygonPoints[polygonPoints.length - 1]?.x === polygonPoints[0]?.x &&
+      polygonPoints[polygonPoints.length - 1]?.y === polygonPoints[0]?.y
+      ? polygonPoints.slice(0, -1)
+      : polygonPoints;
+    return pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
+  }
+
+  function isTrustedSelectionCandidate(candidate, entityCount) {
+    const coverage = candidate?.coverage;
+    if (!coverage) return false;
+    const source = candidate?.source || '';
+    if ((coverage.selfIntersectionCount ?? 0) > 0 || (coverage.repeatedVertexCount ?? 0) > 0) return false;
+    const baseMaxUnsupported = Math.max(0, Math.floor((entityCount || 0) * 0.05));
+    const isOpenChain = source === 'exact-open-chain' || source === 'polygonized-tolerance';
+    const isTinyShape = (entityCount || 0) <= 3;
+
+    if (isOpenChain) {
+      return (coverage.entityCoverage ?? 0) >= 0.9 &&
+        (coverage.pointCoverage ?? 0) >= (isTinyShape ? 0.98 : 0.8) &&
+        (coverage.unsupportedEntityCount ?? Infinity) <= Math.max(2, baseMaxUnsupported) &&
+        (coverage.outerCoverage ?? 0) >= 0.9 &&
+        (coverage.outerMissCount ?? Infinity) === 0 &&
+        (coverage.selfIntersectionCount ?? Infinity) === 0 &&
+        (coverage.repeatedVertexCount ?? Infinity) === 0;
+    }
+
+    return (coverage.entityCoverage ?? 0) >= 0.9 &&
+      (coverage.pointCoverage ?? 0) >= 0.85 &&
+      (coverage.unsupportedEntityCount ?? Infinity) <= baseMaxUnsupported &&
+      (coverage.areaCoverage ?? 0) >= 0.1;
+  }
+
+  function isValidSelectionCandidate(candidate) {
+    const coverage = candidate?.coverage;
+    if (!coverage) return false;
+    return (coverage.selfIntersectionCount ?? 0) === 0 &&
+      (coverage.repeatedVertexCount ?? 0) === 0;
+  }
+
+  function isUsableSelectionCandidate(candidate) {
+    const coverage = candidate?.coverage;
+    if (!coverage) return false;
+    return (coverage.entityCoverage ?? 0) >= 0.6 &&
+      (coverage.pointCoverage ?? 0) >= 0.6 &&
+      (coverage.outerCoverage ?? 0) >= 0.5;
+  }
+
+  function candidateSortScore(candidate) {
+    const score = candidate?.coverage?.score ?? -Infinity;
+    const source = candidate?.source || '';
+    if (source === 'structure-envelope') return score - 0.02;
+    if (source === 'flatten-extracted') return score + 0.005;
+    if (source === 'structure-polygon') return score + 0.01;
+    return score + 0.015;
+  }
+
+  function chooseSelectionPolygon({ entities, flattenPolygonPoints, structurePolygonPoints, envelopePolygonPoints, nestingPolygon }) {
+    const candidates = [];
+
+    if (nestingPolygon?.polygonPoints?.length) {
+      candidates.push({
+        source: nestingPolygon.source,
+        polygonPoints: nestingPolygon.polygonPoints,
+        coverage: nestingPolygon.coverage || scorePolygonCoverage(nestingPolygon, entities),
+        priority: 3,
+      });
+    }
+
+    if (Array.isArray(flattenPolygonPoints) && flattenPolygonPoints.length >= 4) {
+      candidates.push({
+        source: 'flatten-extracted',
+        polygonPoints: flattenPolygonPoints,
+        coverage: scorePolygonCoverage({ polygonPoints: flattenPolygonPoints }, entities),
+        priority: 2,
+      });
+    }
+
+    if (Array.isArray(structurePolygonPoints) && structurePolygonPoints.length >= 4) {
+      candidates.push({
+        source: 'structure-polygon',
+        polygonPoints: structurePolygonPoints,
+        coverage: scorePolygonCoverage({ polygonPoints: structurePolygonPoints }, entities),
+        priority: 1,
+      });
+    }
+
+    if (Array.isArray(envelopePolygonPoints) && envelopePolygonPoints.length >= 4) {
+      candidates.push({
+        source: 'structure-envelope',
+        polygonPoints: envelopePolygonPoints,
+        coverage: scorePolygonCoverage({ polygonPoints: envelopePolygonPoints }, entities),
+        priority: 0,
+      });
+    }
+
+    const structureCandidate = candidates.find(candidate => candidate.source === 'structure-polygon');
+    const nestingCandidate = candidates.find(candidate =>
+      candidate.source === 'exact-open-chain' || candidate.source === 'polygonized-tolerance'
+    );
+
+    if (structureCandidate && nestingCandidate) {
+      const structureCoverage = structureCandidate.coverage || {};
+      const nestingCoverage = nestingCandidate.coverage || {};
+      const structureInvalid = (structureCoverage.selfIntersectionCount ?? 0) > 0 ||
+        (structureCoverage.repeatedVertexCount ?? 0) > 0;
+      const nestingClearlyBetter =
+        (nestingCoverage.entityCoverage ?? 0) >= Math.max(0.999, (structureCoverage.entityCoverage ?? 0)) &&
+        (nestingCoverage.pointCoverage ?? 0) >= Math.max(0.95, (structureCoverage.pointCoverage ?? 0) + 0.05) &&
+        (nestingCoverage.score ?? -Infinity) > (structureCoverage.score ?? -Infinity) + 0.05;
+
+      if (!structureInvalid && !nestingClearlyBetter) {
+        return {
+          ...structureCandidate,
+          candidateSummaries: candidates.map(candidate => ({
+            source: candidate.source,
+            priority: candidate.priority,
+            polygonPointCount: candidate.polygonPoints?.length || 0,
+            coverage: candidate.coverage || null,
+            trusted: candidate === structureCandidate || isTrustedSelectionCandidate(candidate, entities?.length || 0),
+          })),
+        };
+      }
+    }
+
+    const validCandidates = candidates.filter(isValidSelectionCandidate);
+    const usableValidCandidates = validCandidates.filter(isUsableSelectionCandidate);
+    const trusted = usableValidCandidates.filter(candidate => isTrustedSelectionCandidate(candidate, entities?.length || 0));
+    const pool = trusted.length ? trusted : usableValidCandidates;
+
+    if (!pool.length) {
+      return {
+        source: null,
+        polygonPoints: [],
+        coverage: null,
+        priority: -1,
+        candidateSummaries: candidates.map(candidate => ({
+          source: candidate.source,
+          priority: candidate.priority,
+          polygonPointCount: candidate.polygonPoints?.length || 0,
+          coverage: candidate.coverage || null,
+          trusted: false,
+        })),
+      };
+    }
+
+    const ranked = pool.slice().sort((a, b) => {
+      const aScore = candidateSortScore(a);
+      const bScore = candidateSortScore(b);
+      if (Math.abs(bScore - aScore) > 0.025) return bScore - aScore;
+      const aEntity = a.coverage?.entityCoverage ?? -Infinity;
+      const bEntity = b.coverage?.entityCoverage ?? -Infinity;
+      if (Math.abs(bEntity - aEntity) > 0.025) return bEntity - aEntity;
+      const aPoint = a.coverage?.pointCoverage ?? -Infinity;
+      const bPoint = b.coverage?.pointCoverage ?? -Infinity;
+      if (Math.abs(bPoint - aPoint) > 0.025) return bPoint - aPoint;
+      return b.priority - a.priority;
+    });
+
+    const fallback = ranked[0];
+    return {
+      ...fallback,
+      candidateSummaries: candidates.map(candidate => ({
+        source: candidate.source,
+        priority: candidate.priority,
+        polygonPointCount: candidate.polygonPoints?.length || 0,
+        coverage: candidate.coverage || null,
+        trusted: trusted.includes(candidate),
+      })),
+    };
   }
 
   function buildRawPreviewShape({ entities, index, layerOrder, layerColor, resolveEntityColor }) {
@@ -98,11 +274,7 @@
 
     const extractedPolygon = extractPolygonForEntities(entities);
     const polygonPoints = extractedPolygon?.polygonPoints || rectPolygonFromBBox(renderBBox);
-    const pathPoints = polygonPoints.length > 1 && polygonPoints[polygonPoints.length - 1]?.x === polygonPoints[0]?.x &&
-      polygonPoints[polygonPoints.length - 1]?.y === polygonPoints[0]?.y
-      ? polygonPoints.slice(0, -1)
-      : polygonPoints;
-    const polygonPath = pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
+    const polygonPath = pointsToPathData(polygonPoints, minX, maxY);
     const fallbackPath = rectPath(width, height);
     const selectionPath = polygonPath || fallbackPath;
     return {
@@ -114,6 +286,7 @@
       hasExtractedPolygon: !!extractedPolygon,
       mixedOuterLayers: usedLayers.length > 1,
       selectionFillAllowed: false,
+      selectionPolygonSource: extractedPolygon ? 'raw-extracted' : 'bbox-fallback',
       outerBoundaryItems,
       pathData: selectionPath,
       selectionPathData: selectionPath,
@@ -132,7 +305,7 @@
     };
   }
 
-  function buildStructuredPreviewShape({ shapeRecord, index, layerOrder, layerColor, resolveEntityColor }) {
+  function buildStructuredPreviewShape({ shapeRecord, index, layerOrder, layerColor, resolveEntityColor, nestingPolygon }) {
     const entities = Array.isArray(shapeRecord?.entities) ? shapeRecord.entities : [];
     if (!entities.length) return null;
 
@@ -172,16 +345,40 @@
       }
     });
 
+    const flattenExtractedPolygon = extractPolygonForEntities(entities);
+    const flattenPolygonPoints = Array.isArray(flattenExtractedPolygon?.polygonPoints) && flattenExtractedPolygon.polygonPoints.length
+      ? flattenExtractedPolygon.polygonPoints
+      : null;
+    const directParentPolygonPoints = Array.isArray(shapeRecord?.parentContour?.points) && shapeRecord.parentContour.points.length >= 4
+      ? closePointRing(shapeRecord.parentContour.points)
+      : null;
+    const directPeerPolygonPoints = Array.isArray(shapeRecord?.peerOuters) && shapeRecord.peerOuters.length === 1 &&
+      Array.isArray(shapeRecord.peerOuters[0]?.points) && shapeRecord.peerOuters[0].points.length >= 4
+      ? closePointRing(shapeRecord.peerOuters[0].points)
+      : null;
     const polygonPoints = Array.isArray(shapeRecord?.polygonPoints) && shapeRecord.polygonPoints.length
       ? shapeRecord.polygonPoints
       : rectPolygonFromBBox(renderBBox);
-    const pathPoints = polygonPoints.length > 1 && polygonPoints[polygonPoints.length - 1]?.x === polygonPoints[0]?.x &&
-      polygonPoints[polygonPoints.length - 1]?.y === polygonPoints[0]?.y
-      ? polygonPoints.slice(0, -1)
-      : polygonPoints;
-    const polygonPath = pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
+    const structureOwnsPolygon = !!shapeRecord?.parentContour || !!(shapeRecord?.peerOuters && shapeRecord.peerOuters.length);
+    const structurePolygonPoints = structureOwnsPolygon
+      ? (directParentPolygonPoints || directPeerPolygonPoints || polygonPoints)
+      : null;
+    const envelopePolygonPoints = Array.isArray(shapeRecord?.envelopePoints) && shapeRecord.envelopePoints.length
+      ? shapeRecord.envelopePoints
+      : rectPolygonFromBBox(renderBBox);
+    const displayPolygonPoints = structurePolygonPoints || polygonPoints;
+    const polygonPath = pointsToPathData(displayPolygonPoints, minX, maxY);
+    const selectionChoice = chooseSelectionPolygon({
+      entities,
+      flattenPolygonPoints,
+      structurePolygonPoints,
+      envelopePolygonPoints,
+      nestingPolygon,
+    });
+    const selectionPolygonPoints = selectionChoice.polygonPoints?.length ? selectionChoice.polygonPoints : null;
+    const selectionPolygonPath = selectionPolygonPoints ? pointsToPathData(selectionPolygonPoints, minX, maxY) : null;
     const fallbackPath = rectPath(width, height);
-    const selectionPath = polygonPath || fallbackPath;
+    const selectionPath = selectionPolygonPath || null;
 
     return {
       id: shapeRecord.id || `s_${index}`,
@@ -192,11 +389,26 @@
       hasExtractedPolygon: !!shapeRecord?.polygonPoints?.length,
       mixedOuterLayers: usedLayers.length > 1,
       selectionFillAllowed: false,
+      selectionPolygonSource: selectionChoice.source,
+      selectionPolygonCoverage: selectionChoice.coverage || null,
+      selectionPolygonCandidates: selectionChoice.candidateSummaries || [],
+      nestingPolygonFailure: nestingPolygon?.failedOpenChain || null,
+      nestingPolygonBuilderMode: nestingPolygon?.builderMode || null,
+      nestingPolygonBuilderDebug: nestingPolygon?.builderDebug || null,
+      nestingPolygonCandidates: (nestingPolygon?.rankedCandidates || []).map(entry => ({
+        source: entry.candidate?.source || null,
+        tolerance: entry.candidate?.tolerance || null,
+        alpha: entry.candidate?.alpha || null,
+        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
+        coverage: entry.score || null,
+      })),
+      nestingPolygon: nestingPolygon || null,
       outerBoundaryItems,
-      pathData: selectionPath,
+      pathData: polygonPath || fallbackPath,
       selectionPathData: selectionPath,
       fillRule: 'nonzero',
-      polygonPoints,
+      polygonPoints: displayPolygonPoints,
+      selectionPolygonPoints,
       bbox: { w: width, h: height },
       decorSVG: [],
       decorItems: [],
@@ -357,6 +569,7 @@
       singleSketch: settingsInput?.multiSketchDetection === false,
     });
     const rasterShapes = detectRasterShapes(renderableEntities);
+    const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape));
     const shapes = structuredShapes.length
       ? structuredShapes
           .map((shapeRecord, index) => buildStructuredPreviewShape({
@@ -365,6 +578,7 @@
             layerOrder,
             layerColor,
             resolveEntityColor,
+            nestingPolygon: nestingPolygons[index] || null,
           }))
           .filter(Boolean)
       : rawPreviewShapes;
@@ -408,6 +622,10 @@
         bbox: shape.bbox,
         hasExtractedPolygon: !!shape.hasExtractedPolygon,
         polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+        selectionPolygonPointCount: Array.isArray(shape.selectionPolygonPoints) ? shape.selectionPolygonPoints.length : 0,
+        selectionPolygonSource: shape.selectionPolygonSource || null,
+        nestingPolygonBuilderMode: shape.nestingPolygonBuilderMode || null,
+        nestingPolygonBuilderStage: shape.nestingPolygonBuilderDebug?.stage || null,
         entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
       })),
       structuredShapeCount: structuredShapes.length,
@@ -428,6 +646,17 @@
         entityCount: shape.entities?.length || 0,
         polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
         bbox: shape.bbox,
+      })),
+      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
+      nestingPolygons: nestingPolygons.map((polygon, index) => ({
+        shapeId: structuredShapes[index]?.id || `shape_${index}`,
+        source: polygon?.source || null,
+        builderMode: polygon?.builderMode || null,
+        builderStage: polygon?.builderDebug?.stage || null,
+        polygonPointCount: Array.isArray(polygon?.polygonPoints) ? polygon.polygonPoints.length : 0,
+        entityCoverage: polygon?.coverage?.entityCoverage ?? null,
+        pointCoverage: polygon?.coverage?.pointCoverage ?? null,
+        unsupportedEntityCount: polygon?.coverage?.unsupportedEntityCount ?? null,
       })),
     });
 
