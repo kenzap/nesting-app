@@ -435,12 +435,30 @@
     return outputGroups;
   }
 
+  function shouldRecoverEnvelopeParent(groupEntities, contourSelection) {
+    const parentContour = contourSelection?.parentContour || null;
+    const ranked = contourSelection?.ranked || [];
+    const peerOuters = contourSelection?.peerOuters || [];
+    const leaderScore = ranked[0]?.score || null;
+    if (!parentContour || !leaderScore) return false;
+
+    const entityCount = groupEntities?.length || 0;
+    const minTouchCount = Math.max(1, Math.min(entityCount - 1, 3));
+    const dominantCoverage = (leaderScore.bboxCoverage ?? 0) >= 0.6;
+    const strongAttachment = (leaderScore.touchCount ?? 0) >= minTouchCount;
+    const clearLeader = peerOuters.length <= 1;
+
+    return clearLeader && dominantCoverage && strongAttachment;
+  }
+
   function buildShapeRecord(groupRecord, index) {
     const groupEntities = groupRecord.entities || [];
     const hasEnvelopeParent = Array.isArray(groupRecord.envelopePoints) && groupRecord.envelopePoints.length >= 4;
-    const contourSelection = hasEnvelopeParent
+    const recoveredContourSelection = hasEnvelopeParent ? selectParentContour(groupEntities) : null;
+    const recoverEnvelopeParent = hasEnvelopeParent && shouldRecoverEnvelopeParent(groupEntities, recoveredContourSelection);
+    const contourSelection = hasEnvelopeParent && !recoverEnvelopeParent
       ? { parentContour: null, peerOuters: [], ranked: [] }
-      : selectParentContour(groupEntities);
+      : (recoveredContourSelection || selectParentContour(groupEntities));
     const parentContour = contourSelection.parentContour;
     const peerOuters = contourSelection.peerOuters || [];
     const usePeerOuters = !hasEnvelopeParent && peerOuters.length > 1;

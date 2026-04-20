@@ -21,6 +21,7 @@
     ellipseToPoints,
     splineToPoints,
     circleToPoints,
+    polygonSignedArea,
     entityBBox,
     safeSamplePoint,
     closePointRing,
@@ -245,16 +246,36 @@
     return closePointRing(points);
   }
 
-  function extractPolygonForEntities(entities) {
-    const polygons = entities
-      .map(entityToFlattenPolygon)
-      .filter(Boolean);
-    if (!polygons.length) return null;
+  function sampledClosedEntityPolygon(entity) {
+    if (!isEntityClosed(entity)) return null;
+    const polygonPoints = closePointRing(entityToPolylinePoints(entity));
+    if (polygonPoints.length < 4) return null;
+    const area = Math.abs(polygonSignedArea(polygonPoints.slice(0, -1)));
+    if (!Number.isFinite(area) || area <= EPS) return null;
+    return {
+      polygonPoints,
+      area,
+      faceCount: 1,
+    };
+  }
 
-    let merged = polygons[0];
-    for (let i = 1; i < polygons.length; i++) {
+  function extractPolygonForEntities(entities) {
+    const polygonEntries = entities
+      .map(entity => ({
+        entity,
+        polygon: entityToFlattenPolygon(entity),
+      }))
+      .filter(entry => entry.polygon);
+    if (!polygonEntries.length) return null;
+
+    const sampledFallback = polygonEntries.length === 1
+      ? sampledClosedEntityPolygon(polygonEntries[0].entity)
+      : null;
+
+    let merged = polygonEntries[0].polygon;
+    for (let i = 1; i < polygonEntries.length; i++) {
       try {
-        merged = Flatten.BooleanOperations.unify(merged, polygons[i]);
+        merged = Flatten.BooleanOperations.unify(merged, polygonEntries[i].polygon);
       } catch (_) {
         // Keep the polygons we can merge; disconnected faces are still preserved
         // by unify when it succeeds, so failure here just means we skip this one.
@@ -262,21 +283,39 @@
     }
 
     const faces = [...merged.faces];
-    if (!faces.length) return null;
+    if (!faces.length) return sampledFallback;
 
-    const outerFaces = faces.filter(face => face.orientation() === -1);
-    const rankedFaces = (outerFaces.length ? outerFaces : faces)
+    const rankedFaces = faces
       .slice()
-      .sort((a, b) => Math.abs(b.area()) - Math.abs(a.area()));
+      .sort((a, b) => {
+        const areaDelta = Math.abs(b.area()) - Math.abs(a.area());
+        if (Math.abs(areaDelta) > EPS) return areaDelta;
+        return Math.abs(b.orientation()) - Math.abs(a.orientation());
+      });
     const primary = rankedFaces[0];
-    if (!primary) return null;
+    if (!primary) return sampledFallback;
 
     const polygonPoints = faceToPoints(primary);
-    if (polygonPoints.length < 4) return null;
+    if (polygonPoints.length < 4) return sampledFallback;
+
+    const primaryArea = Math.abs(primary.area());
+    if (sampledFallback) {
+      const sampledArea = sampledFallback.area;
+      const sampledRatioMin = sampledArea * 0.25;
+      const sampledRatioMax = sampledArea * 4;
+      const polygonArea = Math.abs(polygonSignedArea(polygonPoints.slice(0, -1)));
+      const referenceArea = Number.isFinite(polygonArea) && polygonArea > EPS ? polygonArea : primaryArea;
+      const suspiciousMismatch = !Number.isFinite(referenceArea) ||
+        referenceArea <= EPS ||
+        referenceArea < sampledRatioMin ||
+        referenceArea > sampledRatioMax;
+
+      if (suspiciousMismatch) return sampledFallback;
+    }
 
     return {
       polygonPoints,
-      area: Math.abs(primary.area()),
+      area: primaryArea,
       faceCount: faces.length,
     };
   }

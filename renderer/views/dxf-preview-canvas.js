@@ -7,6 +7,22 @@
   const DEFAULT_CANVAS_W = 560;
   const PAD = 18;
 
+  // Target longest-dimension size in canvas pixels for a shape rendered at its
+  // natural display scale.  Shapes smaller or larger than this are scaled so
+  // every shape appears at a legible, consistent size regardless of its real-
+  // world mm dimensions.
+  const TARGET_DISPLAY_PX = 700;
+  const MIN_DISPLAY_SCALE = 0.15;   // don't crush very large shapes below 15 %
+  const MAX_DISPLAY_SCALE = 40;     // don't blow up very tiny shapes above 40×
+
+  // Returns the scale factor to apply to a shape's SVG so its longest side is
+  // approximately TARGET_DISPLAY_PX pixels, clamped to a sensible range.
+  function shapeDisplayScale(shape) {
+    const longest = Math.max(shape.bbox.w || 0, shape.bbox.h || 0);
+    if (!longest) return 1;
+    return Math.max(MIN_DISPLAY_SCALE, Math.min(MAX_DISPLAY_SCALE, TARGET_DISPLAY_PX / longest));
+  }
+
   function createDxfPreviewCanvasView({ pv, getCanvasWrap, getLayerConfig }) {
     // Reads the live rendered width of the canvas column so the SVG fills the
     // actual available space instead of falling back to the hardcoded default.
@@ -29,14 +45,17 @@
       let y = PAD;
       let rowH = 0;
       return shapes.map(shape => {
-        if (x + shape.bbox.w + PAD > canvasWidth && x > PAD) {
+        const scale = shapeDisplayScale(shape);
+        const displayW = shape.bbox.w * scale;
+        const displayH = shape.bbox.h * scale;
+        if (x + displayW + PAD > canvasWidth && x > PAD) {
           x = PAD;
           y += rowH + PAD;
           rowH = 0;
         }
         const pos = { x, y };
-        x += shape.bbox.w + PAD;
-        rowH = Math.max(rowH, shape.bbox.h);
+        x += displayW + PAD;
+        rowH = Math.max(rowH, displayH);
         return pos;
       });
     }
@@ -45,8 +64,8 @@
     // grid, and one <g> per shape with selection glow, decor layers, boundary
     // items, engraving label, and a name caption underneath.
     function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth) {
-      const maxX = positions.reduce((max, pos, index) => Math.max(max, pos.x + shapes[index].bbox.w + PAD), 0);
-      const maxY = positions.reduce((max, pos, index) => Math.max(max, pos.y + shapes[index].bbox.h + 14), 0) + PAD;
+      const maxX = positions.reduce((max, pos, index) => Math.max(max, pos.x + shapes[index].bbox.w * shapeDisplayScale(shapes[index]) + PAD), 0);
+      const maxY = positions.reduce((max, pos, index) => Math.max(max, pos.y + shapes[index].bbox.h * shapeDisplayScale(shapes[index]) + 14), 0) + PAD;
       const width = Math.max(canvasWidth, maxX, DEFAULT_CANVAS_W);
       const height = Math.max(maxY, 220);
 
@@ -81,19 +100,35 @@
           ? buildPreviewLabelSvg(String(shape.partLabel || ''), shape.bbox, previewLabel.color, previewLabel.style)
           : '';
 
+        const displayScale = shapeDisplayScale(shape);
+        const displayW = shape.bbox.w * displayScale;
+        const displayH = shape.bbox.h * displayScale;
+        // All stroke widths in the pre-built SVG strings are in mm units.
+        // Dividing by displayScale keeps them visually consistent after the
+        // scale() transform is applied to the group.
+        const normaliseStrokes = svgStr => svgStr.replace(
+          /stroke-width="([^"]+)"/g,
+          (_, v) => `stroke-width="${f(+v / displayScale)}"`
+        );
+        const strokeW = f(baseStrokeWidth / displayScale);
+        const selStrokeW = f(2.8 / displayScale);
+        const normBoundaryItems = visibleBoundaryItems.map(item => normaliseStrokes(item.svg));
+        const normDecorItems    = visibleDecorItems.map(item => normaliseStrokes(item.svg));
         return `
 <g class="pvw-shape" data-id="${shape.id}"
    transform="translate(${f(pos.x)},${f(pos.y)})"
    opacity="${isDimmed ? 0.12 : 1}" style="cursor:pointer">
-  ${showOuter && isSelected && allowSelectionFill && selectionPath ? `<path d="${selectionPath}" fill="white" fill-opacity="0.06" fill-rule="${shape.fillRule}" stroke="none"/>` : ''}
-  ${showOuter && isSelected && selectionPath ? `<path d="${selectionPath}" fill="none" stroke="${shape.layerColor}" stroke-width="2.8" stroke-opacity="0.75" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
-  ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers && !isSelected ? `<path d="${shape.pathData}" fill="${shape.layerColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${shape.layerColor}" stroke-opacity="${baseStrokeOpacity}" stroke-width="${baseStrokeWidth}" stroke-linejoin="round"/>` : ''}
-  <g opacity="${selectedGeometryOpacity}">
-    ${visibleBoundaryItems.map(item => item.svg).join('\n')}
-    ${visibleDecorItems.map(item => item.svg).join('\n')}
+  <g transform="scale(${f(displayScale)})">
+    ${showOuter && isSelected && allowSelectionFill && selectionPath ? `<path d="${selectionPath}" fill="white" fill-opacity="0.06" fill-rule="${shape.fillRule}" stroke="none"/>` : ''}
+    ${showOuter && isSelected && selectionPath ? `<path d="${selectionPath}" fill="none" stroke="${shape.layerColor}" stroke-width="${selStrokeW}" stroke-opacity="0.75" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
+    ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers && !isSelected ? `<path d="${shape.pathData}" fill="${shape.layerColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${shape.layerColor}" stroke-opacity="${baseStrokeOpacity}" stroke-width="${strokeW}" stroke-linejoin="round"/>` : ''}
+    <g opacity="${selectedGeometryOpacity}">
+      ${normBoundaryItems.join('\n')}
+      ${normDecorItems.join('\n')}
+    </g>
+    ${previewLabelSvg}
   </g>
-  ${previewLabelSvg}
-  <text x="${f(shape.bbox.w / 2)}" y="${f(shape.bbox.h + 11)}" text-anchor="middle" font-size="8" fill="${shape.layerColor}" opacity="0.6" font-family="monospace">${shape.name}</text>
+  <text x="${f(displayW / 2)}" y="${f(displayH + 11)}" text-anchor="middle" font-size="8" fill="${shape.layerColor}" opacity="0.6" font-family="monospace">${shape.name}</text>
   <title>${shape.name} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestDxfSvg.f1(shape.bbox.w)}×${global.NestDxfSvg.f1(shape.bbox.h)} mm</title>
 </g>`;
       }).join('');

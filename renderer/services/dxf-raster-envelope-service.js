@@ -351,6 +351,37 @@
     }));
   }
 
+  function simplifyRegionBoundary(points, tolerance) {
+    const ring = closePointRing(points || []);
+    if (ring.length < 4) return ring;
+    const core = ring.slice(0, -1);
+    const simplified = [];
+
+    core.forEach(point => {
+      if (!simplified.length || !samePoint(simplified[simplified.length - 1], point, tolerance * 0.25)) {
+        simplified.push(point);
+      }
+    });
+
+    let changed = true;
+    while (changed && simplified.length >= 3) {
+      changed = false;
+      for (let i = 0; i < simplified.length; i++) {
+        const prev = simplified[(i - 1 + simplified.length) % simplified.length];
+        const curr = simplified[i];
+        const next = simplified[(i + 1) % simplified.length];
+        const area2 = Math.abs((curr.x - prev.x) * (next.y - prev.y) - (curr.y - prev.y) * (next.x - prev.x));
+        if (area2 <= tolerance * tolerance * 0.5) {
+          simplified.splice(i, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    return closePointRing(simplified);
+  }
+
   function assignEntitiesToRegions(grid, labels, regions, entities) {
     const regionMap = new Map(regions.map(region => [region.label, { ...region, entities: [] }]));
     entities.forEach(entity => {
@@ -403,7 +434,12 @@
     const { labels, regions } = labelRegions(grid);
     const assignedRegions = assignEntitiesToRegions(grid, labels, regions, renderableEntities)
       .map((region, index) => {
-        const polygonPoints = convexHull(regionCellCenters(grid, region));
+        const tracedBoundary = traceRegionPolygon(grid, region);
+        const polygonPoints = options.boundaryMode === 'trace'
+          ? (tracedBoundary.length >= 4
+              ? simplifyRegionBoundary(tracedBoundary, grid.cellSize)
+              : convexHull(regionCellCenters(grid, region)))
+          : convexHull(regionCellCenters(grid, region));
         let bbox = null;
         region.entities.forEach(entity => { bbox = unionBBox(bbox, entityBBox(entity)); });
         return {

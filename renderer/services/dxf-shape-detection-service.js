@@ -191,6 +191,12 @@
           y: entity.center.y + entity.radius * Math.sin(angle),
         };
       }
+      if (entity.type === 'SPLINE') {
+        const pts = geometry.splineToPoints(entity);
+        if (!pts.length) return null;
+        const pt = reversed ? pts[pts.length - 1] : pts[0];
+        return { x: pt.x, y: pt.y };
+      }
       return null;
     }
 
@@ -207,6 +213,14 @@
         d += ` L${f(end.x - ox)},${f(originMaxY - end.y)}`;
       } else if (entity.type === 'ARC') {
         d += ` ${arcChainSegment(entity, ox, originMaxY, reversed)}`;
+      } else if (entity.type === 'SPLINE') {
+        // Tessellate the spline into polyline segments. Skip the first point
+        // since the previous edge already lands on it.
+        const pts = geometry.splineToPoints(entity);
+        const segPts = reversed ? [...pts].reverse() : pts;
+        segPts.slice(1).forEach(pt => {
+          d += ` L${f(pt.x - ox)},${f(originMaxY - pt.y)}`;
+        });
       }
     });
 
@@ -224,13 +238,24 @@
     return pathFromPoints(points, ox, originMaxY, true);
   }
 
-  // Returns the {start, end} endpoints of an open LINE or ARC entity, or null
-  // for any other type. Used by buildClosedContoursFromLines to build the graph
-  // of connectable edges.
+  // Returns the {start, end} endpoints of an open LINE, ARC, or SPLINE entity,
+  // or null for any other type. Used by buildClosedContoursFromLines to build
+  // the graph of connectable edges.
   function getOpenEdgeEndpoints(ent) {
     if (isEffectivelyClosedArc(ent)) return null;
     if (ent?.type === 'LINE') return getLineEndpoints(ent);
     if (ent?.type === 'ARC') return getArcEndpoints(ent);
+    if (ent?.type === 'SPLINE' && !ent.closed) {
+      // Prefer fitPoints (on-curve) over control points (off-curve) for endpoints.
+      const pts = (ent.fitPoints?.length > 1 ? ent.fitPoints : null)
+               || (ent.controlPoints?.length > 1 ? ent.controlPoints : null);
+      if (!pts) return null;
+      const first = pts[0];
+      const last  = pts[pts.length - 1];
+      if (!Number.isFinite(first?.x) || !Number.isFinite(last?.x)) return null;
+      if (samePoint(first, last, LOOP_TOLERANCE)) return null;
+      return { start: { x: first.x, y: first.y }, end: { x: last.x, y: last.y } };
+    }
     return null;
   }
 
@@ -265,7 +290,7 @@
   // endpoints.
   function buildPlanarOpenEdges(entities) {
     const rawEdges = entities
-      .filter(ent => (ent?.type === 'LINE' || ent?.type === 'ARC'))
+      .filter(ent => (ent?.type === 'LINE' || ent?.type === 'ARC' || (ent?.type === 'SPLINE' && !ent.closed)))
       .map((entity, index) => {
         const endpoints = getOpenEdgeEndpoints(entity);
         if (!endpoints || samePoint(endpoints.start, endpoints.end, LOOP_TOLERANCE)) return null;
@@ -331,6 +356,7 @@
       planarEdges,
       rawLineCount: rawEdges.filter(edge => edge.entity?.type === 'LINE').length,
       rawArcCount: rawEdges.filter(edge => edge.entity?.type === 'ARC').length,
+      rawSplineCount: rawEdges.filter(edge => edge.entity?.type === 'SPLINE').length,
     };
   }
 
@@ -343,6 +369,7 @@
       planarEdges: openEdges,
       rawLineCount,
       rawArcCount,
+      rawSplineCount,
     } = buildPlanarOpenEdges(entities);
 
     if (!openEdges.length) return [];
@@ -645,6 +672,7 @@
     debugDXF('Line loop result', {
       lineCount: rawLineCount,
       arcCount: rawArcCount,
+      splineCount: rawSplineCount,
       planarEdgeCount: openEdges.length,
       nodeCount: nodes.size,
       componentCount: componentSeq,
@@ -1191,7 +1219,9 @@
         (entity.points || []).forEach(p => add(p.x, p.y));
         break;
       case 'SPLINE':
-        [...(entity.controlPoints || []), ...(entity.fitPoints || [])].forEach(p => add(p?.x, p?.y));
+        // Use splineToPoints which prefers on-curve fitPoints over off-curve
+        // control points, giving a more accurate alpha-shape point cloud.
+        geometry.splineToPoints(entity).forEach(p => add(p.x, p.y));
         break;
       case 'ELLIPSE':
         // Sample center and axis tips so ellipses contribute to the alpha-shape
