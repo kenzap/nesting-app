@@ -9,7 +9,13 @@
     buildSketchGroups: () => [],
     extractPolygonForEntities: () => null,
   };
-  const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  const {
+    debugDXF,
+    buildClosedContoursFromLines,
+  } = global.NestDxfShapeDetectionService || {
+    debugDXF: () => {},
+    buildClosedContoursFromLines: () => [],
+  };
 
   if (!geometry) {
     global.NestDxfShapeStructureService = {
@@ -300,6 +306,22 @@
     return pointInPoly(point.x, point.y, points);
   }
 
+  function polygonArea(points) {
+    if (!Array.isArray(points) || points.length < 4) return 0;
+    return Math.abs(geometry.polygonSignedArea(points.slice(0, -1)));
+  }
+
+  function bboxArea(bbox) {
+    if (!bbox) return 0;
+    return Math.max(0, bbox.maxX - bbox.minX) * Math.max(0, bbox.maxY - bbox.minY);
+  }
+
+  function groupBBox(group) {
+    let bbox = null;
+    (group?.entities || []).forEach(entity => { bbox = unionBBox(bbox, entityBBox(entity)); });
+    return bbox;
+  }
+
   function splitGroupsByClosedness(groups) {
     return groups.map(entities => {
       const closedContours = collectContourCandidates(entities);
@@ -320,20 +342,38 @@
     };
 
     return groupMeta
-      .filter(group => group.openCount > 0 && !isAbsorbableChildGroup(group))
       .map(group => {
-        const envelopes = buildRasterEnvelopes(group.entities, {
-          strokeRadius: undefined,
-          sampleStep: undefined,
-          paddingCells: 3,
-        });
-        const envelope = envelopes
-          .slice()
-          .sort((a, b) => (b.entities?.length || 0) - (a.entities?.length || 0))[0];
+        const extracted = extractPolygonForEntities(group.entities);
+        const polygonPoints = extracted?.polygonPoints?.length
+          ? extracted.polygonPoints
+          : null;
+        const inferredLoop = !polygonPoints
+          ? buildClosedContoursFromLines(group.entities)
+              .slice()
+              .sort((a, b) => polygonArea(b?.points || []) - polygonArea(a?.points || []))[0]
+          : null;
+        const inferredPoints = Array.isArray(inferredLoop?.points) && inferredLoop.points.length >= 4
+          ? closePointRing(inferredLoop.points)
+          : null;
+        let envelope = null;
+        if (!polygonPoints && !inferredPoints && group.openCount > 0) {
+          const envelopes = buildRasterEnvelopes(group.entities, {
+            strokeRadius: undefined,
+            sampleStep: undefined,
+            paddingCells: 3,
+          });
+          envelope = envelopes
+            .slice()
+            .sort((a, b) => (b.entities?.length || 0) - (a.entities?.length || 0))[0];
+        }
+        const ownerPoints = polygonPoints ||
+          inferredPoints ||
+          (envelope?.polygonPoints?.length ? envelope.polygonPoints : null);
         return {
           group,
-          envelopePoints: envelope?.polygonPoints?.length ? envelope.polygonPoints : null,
-          envelopeBBox: envelope?.polygonPoints?.length ? pointsBBox(envelope.polygonPoints) : null,
+          envelopePoints: ownerPoints,
+          envelopeBBox: ownerPoints ? pointsBBox(ownerPoints) : null,
+          envelopeArea: ownerPoints ? polygonArea(ownerPoints) : 0,
         };
       })
       .filter(owner => Array.isArray(owner.envelopePoints) && owner.envelopePoints.length >= 4);
@@ -358,6 +398,28 @@
     return [...contourPoints, ...openPoints];
   }
 
+  function estimateGroupArea(group, ownerByGroup) {
+    const owner = ownerByGroup?.get(group);
+    if (owner?.envelopeArea > EPS) return owner.envelopeArea;
+
+    const closedArea = (group?.closedContours || []).reduce((maxArea, contour) => {
+      const area = Math.abs(contour?.area || 0);
+      return area > maxArea ? area : maxArea;
+    }, 0);
+    if (closedArea > EPS) return closedArea;
+
+    return bboxArea(groupBBox(group));
+  }
+
+  function ownerContainsGroup(owner, probes) {
+    if (!owner?.envelopeBBox || !Array.isArray(owner.envelopePoints) || owner.envelopePoints.length < 4) return false;
+    if (!Array.isArray(probes) || !probes.length) return false;
+    return probes.every(point =>
+      bboxContainsPoint(owner.envelopeBBox, point, LOOP_TOLERANCE * 12) &&
+      containsPointInRing(owner.envelopePoints, point)
+    );
+  }
+
   function mergeClosedGroupsIntoOpenOwners(groupMeta) {
     if (!groupMeta.length) return groupMeta.map(group => ({
       entities: group.entities,
@@ -371,36 +433,55 @@
       }));
     }
 
-    const mergedEntitiesByGroup = new Map(openOwners.map(owner => [owner.group, [...owner.group.entities]]));
+    const ownerByGroup = new Map(openOwners.map(owner => [owner.group, owner]));
+    const absorbedByGroup = new Map();
     const absorbedIdsByOwner = new Map(openOwners.map(owner => [owner.group, []]));
-    const absorbedClosedGroups = new Set();
+    const absorbedGroups = new Set();
 
-    const absorbableGroups = groupMeta.filter(group => group.openCount >= 0 && isAbsorbableChildGroup(group));
-    absorbableGroups.forEach(group => {
-      if (mergedEntitiesByGroup.has(group)) return;
-      const probes = groupProbePoints(group);
-      if (!probes.length) return;
+    // Merge any child group whose representative points all sit inside a
+    // larger open-owner envelope. This covers open-inside-open sketches, not
+    // just the original closed-inside-open fallback.
+    const rankedGroups = groupMeta
+      .map(group => ({
+        group,
+        probes: groupProbePoints(group),
+        area: estimateGroupArea(group, ownerByGroup),
+      }))
+      .filter(entry => entry.probes.length)
+      .sort((a, b) => a.area - b.area);
 
-      const candidateOwners = openOwners.filter(owner =>
-        probes.every(point =>
-          owner.envelopeBBox &&
-          bboxContainsPoint(owner.envelopeBBox, point, LOOP_TOLERANCE * 12) &&
-          containsPointInRing(owner.envelopePoints, point)
-        )
-      );
+    rankedGroups.forEach(({ group, probes, area }) => {
+      const candidateOwners = openOwners
+        .filter(owner => owner.group !== group)
+        .filter(owner => owner.envelopeArea > Math.max(area + EPS, area * 1.02))
+        .filter(owner => ownerContainsGroup(owner, probes));
 
       if (!candidateOwners.length) return;
 
-      candidateOwners.sort((a, b) => {
-        const aArea = Math.abs(geometry.polygonSignedArea((a.envelopePoints || []).slice(0, -1)));
-        const bArea = Math.abs(geometry.polygonSignedArea((b.envelopePoints || []).slice(0, -1)));
-        return aArea - bArea;
-      });
-
+      candidateOwners.sort((a, b) => a.envelopeArea - b.envelopeArea);
       const owner = candidateOwners[0];
-      mergedEntitiesByGroup.get(owner.group).push(...group.entities);
+      absorbedByGroup.set(group, owner.group);
+      absorbedGroups.add(group);
       absorbedIdsByOwner.get(owner.group).push(...group.closedContours.map(contour => contour.id));
-      absorbedClosedGroups.add(group);
+    });
+
+    const resolveRootGroup = group => {
+      let current = group;
+      const seen = new Set([current]);
+      while (absorbedByGroup.has(current)) {
+        current = absorbedByGroup.get(current);
+        if (!current || seen.has(current)) break;
+        seen.add(current);
+      }
+      return current;
+    };
+
+    const mergedEntitiesByRoot = new Map();
+    groupMeta.forEach(group => {
+      const root = resolveRootGroup(group);
+      const current = mergedEntitiesByRoot.get(root) || [];
+      current.push(...group.entities);
+      mergedEntitiesByRoot.set(root, current);
     });
 
     debugDXF('Dominant open merge', {
@@ -409,26 +490,29 @@
       owners: openOwners.map(owner => ({
         entityCount: owner.group.entities.length,
         envelopePointCount: owner.envelopePoints.length,
+        envelopeArea: +(owner.envelopeArea || 0).toFixed(3),
         absorbedContourIds: absorbedIdsByOwner.get(owner.group) || [],
       })),
-      absorbedGroupCount: absorbedClosedGroups.size,
-      finalGroupCount: groupMeta.length - absorbedClosedGroups.size,
+      absorbedGroupCount: absorbedGroups.size,
+      absorbedGroups: rankedGroups
+        .filter(entry => absorbedByGroup.has(entry.group))
+        .map(entry => ({
+          entityCount: entry.group.entities.length,
+          closedCount: entry.group.closedCount,
+          openCount: entry.group.openCount,
+          area: +(entry.area || 0).toFixed(3),
+          ownerEntityCount: absorbedByGroup.get(entry.group)?.entities?.length || 0,
+        })),
+      finalGroupCount: mergedEntitiesByRoot.size,
     });
 
     const outputGroups = [];
     groupMeta.forEach(group => {
-      if (absorbedClosedGroups.has(group)) return;
-      if (mergedEntitiesByGroup.has(group)) {
-        const owner = openOwners.find(entry => entry.group === group);
-        outputGroups.push({
-          entities: mergedEntitiesByGroup.get(group),
-          envelopePoints: owner?.envelopePoints || null,
-        });
-        return;
-      }
+      if (absorbedGroups.has(group)) return;
+      const owner = ownerByGroup.get(group);
       outputGroups.push({
-        entities: group.entities,
-        envelopePoints: null,
+        entities: mergedEntitiesByRoot.get(group) || group.entities,
+        envelopePoints: owner?.envelopePoints || null,
       });
     });
 
