@@ -63,14 +63,6 @@
     return Math.abs(((adx * bdx) + (ady * bdy)) / (alen * blen));
   }
 
-  function computeShapeBBox(entities) {
-    let bbox = null;
-    (entities || []).forEach(entity => {
-      bbox = unionBBox(bbox, entityBBox(entity));
-    });
-    return bbox;
-  }
-
   function clusterSnapPoints(points, tolerance) {
     const clusters = [];
     (points || []).forEach(point => {
@@ -251,17 +243,6 @@
     });
     if (deduped.length >= 2 && samePointFn(deduped[0], deduped[deduped.length - 1], tolerance)) deduped.pop();
     return closePointRingFn(deduped);
-  }
-
-  function ringToSegments(points) {
-    const ring = closePointRing(normalizeWindingCCW(points || []));
-    if (ring.length < 4) return [];
-    const segments = [];
-    for (let i = 0; i < ring.length - 1; i++) {
-      if (dist(ring[i], ring[i + 1]) <= EPS) continue;
-      segments.push([ring[i], ring[i + 1]]);
-    }
-    return segments;
   }
 
   function computeSegmentsBBox(segments) {
@@ -1414,69 +1395,6 @@
     };
   }
 
-  function selectBoundaryChildClosedContours(shapeRecord, openBBox, tolerance) {
-    if (!openBBox) return [];
-    const protrusionTolerance = tolerance * 4;
-    const proximityTolerance = tolerance * 40;
-    return (shapeRecord?.childClosedContours || [])
-      .map(contour => {
-        const ring = closePointRing(normalizeWindingCCW(contour?.polygonPoints || contour?.points || []));
-        const bbox = contour?.bbox || ringBBox(ring);
-        return {
-          ...contour,
-          ring,
-          bbox,
-        };
-      })
-      .filter(contour => contour.ring?.length >= 4 && contour.bbox)
-      .filter(contour => {
-        const box = contour.bbox;
-        const protrudes =
-          box.minX < openBBox.minX - protrusionTolerance ||
-          box.maxX > openBBox.maxX + protrusionTolerance ||
-          box.minY < openBBox.minY - protrusionTolerance ||
-          box.maxY > openBBox.maxY + protrusionTolerance;
-        if (!protrudes) return false;
-        return bboxGap(box, openBBox) <= proximityTolerance;
-      });
-  }
-
-  function buildExtendedOpenGraphFromShape(shapeRecord, openGraphData, tolerance, splitSegmentsAtIntersections, buildGraphFromSegments) {
-    const boundaryChildContours = selectBoundaryChildClosedContours(shapeRecord, openGraphData?.bbox || null, tolerance);
-    const childContourSegments = boundaryChildContours.flatMap(contour => ringToSegments(contour.ring));
-    if (!childContourSegments.length) {
-      return {
-        ...openGraphData,
-        boundaryChildContours,
-        childContourSegments: [],
-        extendedSplitSegments: openGraphData?.splitSegments || [],
-        extendedGraph: openGraphData?.graph || { nodes: [], adjacency: new Map() },
-        extendedBBox: openGraphData?.bbox || null,
-      };
-    }
-
-    const baseSegments = [
-      ...(openGraphData?.repairedSegments || []),
-      ...(openGraphData?.bridgeSegments || []),
-      ...childContourSegments,
-    ];
-    const extendedSplitSegments = splitSegmentsAtIntersections(baseSegments, tolerance);
-    const extendedGraph = buildGraphFromSegments(extendedSplitSegments, tolerance * 4);
-    let extendedBBox = openGraphData?.bbox || null;
-    boundaryChildContours.forEach(contour => {
-      extendedBBox = unionBBox(extendedBBox, contour.bbox);
-    });
-
-    return {
-      ...openGraphData,
-      boundaryChildContours,
-      childContourSegments,
-      extendedSplitSegments,
-      extendedGraph,
-      extendedBBox,
-    };
-  }
-
   function ringCenter(points) {
     const ring = closePointRing(points || []);
     if (ring.length < 4) return null;
@@ -1706,90 +1624,6 @@
       });
   }
 
-  function buildOwnedOpenSegments(shapeRecord, tolerance, entityToPathPoints, isRenderableEntity) {
-    const entities = (shapeRecord?.openEntities?.length ? shapeRecord.openEntities : shapeRecord?.entities || [])
-      .filter(isRenderableEntity);
-    const rawSegments = entities.flatMap(entity => buildEntitySegments(entity, tolerance, entityToPathPoints));
-    return {
-      entities,
-      segments: rawSegments,
-      bbox: computeShapeBBox(entities),
-    };
-  }
-
-  function buildOpenGraphFromEntities(entitiesInput, tolerance, entityToPathPoints, isRenderableEntity, splitSegmentsAtIntersections, buildGraphFromSegments) {
-    const entities = (entitiesInput || []).filter(isRenderableEntity);
-    const rawSegments = entities.flatMap(entity => buildEntitySegments(entity, tolerance, entityToPathPoints));
-    const bbox = computeShapeBBox(entities);
-    const snappedSegments = snapSegments(rawSegments, tolerance);
-    const repaired = repairEndpointToSegment(snappedSegments, tolerance * 1.5);
-    const bridges = buildEndpointBridges(repaired.segments, bbox, tolerance);
-    const bridgedSegments = [...repaired.segments, ...bridges.bridges];
-    const splitSegments = splitSegmentsAtIntersections(bridgedSegments, tolerance);
-    const graph = buildGraphFromSegments(splitSegments, tolerance * 4);
-    return {
-      entities,
-      segments: rawSegments,
-      bbox,
-      snappedSegments,
-      repairedSegments: repaired.segments,
-      endpointSegmentRepairCount: repaired.repairCount,
-      bridgeSegments: bridges.bridges,
-      endpointBridgeCount: bridges.bridgeCount,
-      splitSegments,
-      graph,
-    };
-  }
-
-  function buildOpenGraphFromShape(shapeRecord, tolerance, entityToPathPoints, isRenderableEntity, splitSegmentsAtIntersections, buildGraphFromSegments) {
-    const owned = buildOwnedOpenSegments(shapeRecord, tolerance, entityToPathPoints, isRenderableEntity);
-    return buildOpenGraphFromEntities(
-      owned.entities,
-      tolerance,
-      entityToPathPoints,
-      isRenderableEntity,
-      splitSegmentsAtIntersections,
-      buildGraphFromSegments
-    );
-  }
-
-  function rankOpenBuilderCycles({ cycles, bbox, shapeRecord, tolerance, scorePolygonCoverage }) {
-    const bboxArea = bbox
-      ? Math.max(EPS, (bbox.maxX - bbox.minX) * (bbox.maxY - bbox.minY))
-      : 0;
-    return (cycles || [])
-      .map(points => {
-        const ring = closePointRing(normalizeWindingCCW(points));
-        const coverage = scorePolygonCoverage({ polygonPoints: ring }, shapeRecord.entities || []);
-        const ringBox = ringBBox(ring);
-        const ringBoxArea = ringBox
-          ? Math.max(EPS, (ringBox.maxX - ringBox.minX) * (ringBox.maxY - ringBox.minY))
-          : 0;
-        const bboxCoverage = bboxArea > EPS ? (ringBoxArea / bboxArea) : 0;
-        const area = Math.abs(polygonSignedArea(ring.slice(0, -1)));
-        return {
-          candidate: {
-            polygonPoints: ring,
-            source: 'open-builder',
-            tolerance,
-            area,
-          },
-          score: coverage,
-          bboxCoverage,
-          area,
-        };
-      })
-      .filter(entry => entry.score)
-      .sort((a, b) => {
-        if ((a.score?.outerMissCount || 0) !== (b.score?.outerMissCount || 0)) return (a.score?.outerMissCount || 0) - (b.score?.outerMissCount || 0);
-        if (Math.abs((b.bboxCoverage || 0) - (a.bboxCoverage || 0)) > 1e-6) return (b.bboxCoverage || 0) - (a.bboxCoverage || 0);
-        if (Math.abs((b.area || 0) - (a.area || 0)) > 1e-6) return (b.area || 0) - (a.area || 0);
-        if (Math.abs((b.score?.outerCoverage || 0) - (a.score?.outerCoverage || 0)) > 1e-6) return (b.score?.outerCoverage || 0) - (a.score?.outerCoverage || 0);
-        if (Math.abs((b.score?.pointCoverage || 0) - (a.score?.pointCoverage || 0)) > 1e-6) return (b.score?.pointCoverage || 0) - (a.score?.pointCoverage || 0);
-        return (b.score?.score || 0) - (a.score?.score || 0);
-      });
-  }
-
   global.NestDxfOpenBuilderHelpers = {
     buildEntitySegments,
     ringCenter,
@@ -1797,13 +1631,8 @@
     snapSegments,
     repairEndpointToSegment,
     buildEndpointBridges,
-    buildOwnedOpenSegments,
-    buildOpenGraphFromEntities,
-    buildOpenGraphFromShape,
-    buildExtendedOpenGraphFromShape,
     findAttachedOpenEntities,
     buildLocalGraph,
     rankParentBuilderCycles,
-    rankOpenBuilderCycles,
   };
 })(window);

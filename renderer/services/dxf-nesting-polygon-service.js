@@ -45,7 +45,6 @@
     segmentsIntersect,
     enumerateSimpleCycles,
     splitSegmentsAtIntersections,
-    buildGraphFromSegments,
     polygonizeSegments,
   } = graphUtils;
 
@@ -58,19 +57,12 @@
     findAttachedOpenEntities,
     buildLocalGraph,
     rankParentBuilderCycles,
-    buildOpenGraphFromEntities,
-    buildOpenGraphFromShape,
-    buildExtendedOpenGraphFromShape,
-    rankOpenBuilderCycles,
   } = openBuilderHelpers;
 
   const FORCED_CONTOUR_SOURCES = new Set([
     'parent-seed',
     'parent-extended',
-    'open-builder',
-    'open-builder-extended',
     'shapely-polygonize',
-    'jsts-polygonize',
   ]);
 
   function normalizeRequestedContourSource(source) {
@@ -2235,161 +2227,6 @@
     };
   }
 
-  function buildJstsPolygonizedContourFromEntities(shapeRecord, options = {}) {
-    const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
-    const sourceEntities = (shapeRecord?.entities || []).filter(isRenderableEntity);
-    const rawSegments = sourceEntities.flatMap(entity => buildEntitySegments(entity, tolerance, entityToPathPoints));
-    const jsts = global.jsts || null;
-    const debugBase = {
-      shapeId: shapeRecord?.id || null,
-      stage: 'missing-segments',
-      entityCount: sourceEntities.length,
-      rawSegmentCount: rawSegments.length,
-    };
-
-    if (!jsts?.geom?.GeometryFactory || !jsts?.operation?.polygonize?.Polygonizer) {
-      const debug = {
-        ...debugBase,
-        stage: 'jsts-unavailable',
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'jsts-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    if (!rawSegments.length) {
-      const debug = {
-        ...debugBase,
-        stage: 'no-segments',
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'jsts-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    const nodedSegments = splitSegmentsAtIntersections(rawSegments, tolerance);
-    if (!nodedSegments.length) {
-      const debug = {
-        ...debugBase,
-        stage: 'no-noded-segments',
-        nodedSegmentCount: 0,
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'jsts-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    const geometryFactory = new jsts.geom.GeometryFactory();
-    const polygonizer = new jsts.operation.polygonize.Polygonizer();
-    const Coordinate = jsts.geom.Coordinate;
-
-    nodedSegments.forEach(([start, end]) => {
-      if (!start || !end) return;
-      if (dist(start, end) <= EPS) return;
-      const lineString = geometryFactory.createLineString([
-        new Coordinate(start.x, start.y),
-        new Coordinate(end.x, end.y),
-      ]);
-      polygonizer.add(lineString);
-    });
-
-    const polygonCollection = polygonizer.getPolygons();
-    const polygons = typeof polygonCollection?.toArray === 'function'
-      ? polygonCollection.toArray()
-      : Array.from(polygonCollection || []);
-    if (!polygons.length) {
-      const debug = {
-        ...debugBase,
-        stage: 'no-jsts-polygons',
-        nodedSegmentCount: nodedSegments.length,
-        polygonizedFaceCount: 0,
-        polygonizedRootCount: 0,
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'jsts-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    const entries = polygons.map((polygon, index) => {
-      const exterior = polygon?.getExteriorRing?.();
-      const coords = exterior?.getCoordinates?.();
-      if (!coords?.length) return null;
-      const ring = closePointRing(normalizeWindingCCW(coords
-        .map(coord => ({ x: coord.x, y: coord.y }))
-        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))));
-      if (ring.length < 4) return null;
-      const coverage = scorePolygonCoverage({ polygonPoints: ring }, shapeRecord.entities || []);
-      if (!coverage) return null;
-      const area = typeof polygon?.getArea === 'function'
-        ? Math.abs(polygon.getArea())
-        : Math.abs(polygonSignedArea(ring.slice(0, -1)));
-      const samplePoint = interiorPoint(ring) || ring[0] || null;
-      return {
-        candidate: {
-          polygonPoints: ring,
-          source: 'jsts-polygonize',
-          tolerance,
-          area,
-          faceIndex: index,
-        },
-        score: coverage,
-        area,
-        samplePoint,
-        rootDepth: 0,
-      };
-    }).filter(Boolean);
-
-    entries.forEach((entry, index) => {
-      if (!entry.samplePoint) return;
-      let depth = 0;
-      entries.forEach((other, otherIndex) => {
-        if (otherIndex === index) return;
-        if ((other.area || 0) <= (entry.area || 0) + EPS) return;
-        if (containsPointInRing(other.candidate?.polygonPoints || [], entry.samplePoint)) depth += 1;
-      });
-      entry.rootDepth = depth;
-    });
-
-    const ranked = entries.sort(polygonizedFaceRank);
-    const rootCandidates = ranked.filter(entry => (entry.rootDepth || 0) === 0);
-    const usableRoots = rootCandidates.length ? rootCandidates : ranked;
-    const winner = usableRoots[0] || null;
-
-    const debug = {
-      ...debugBase,
-      stage: winner ? 'success-jsts-polygonize' : 'rejected-jsts-polygonize',
-      chosenSource: winner?.candidate?.source || null,
-      chosenFaceIndex: winner?.candidate?.faceIndex ?? null,
-      nodedSegmentCount: nodedSegments.length,
-      polygonizedFaceCount: ranked.length,
-      polygonizedRootCount: rootCandidates.length,
-      candidates: ranked.slice(0, 10).map(entry => ({
-        source: entry.candidate?.source || null,
-        faceIndex: entry.candidate?.faceIndex ?? null,
-        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
-        rootDepth: entry.rootDepth ?? 0,
-        area: entry.area ?? null,
-        coverage: summarizeCoverageMetrics(entry.score),
-      })),
-    };
-    debugDXF('Outer contour builder', debug);
-
-    if (!winner) {
-      return {
-        polygonPoints: null,
-        source: null,
-        coverage: null,
-        rankedCandidates: ranked,
-        builderMode: 'jsts-polygonize',
-        builderDebug: debug,
-      };
-    }
-
-    return {
-      ...winner.candidate,
-      coverage: winner.score,
-      rankedCandidates: ranked,
-      builderMode: 'jsts-polygonize',
-      builderDebug: debug,
-    };
-  }
-
   function isRenderableEntity(entity) {
     return !!entity?.type && !['HATCH', 'TEXT', 'MTEXT', 'DIMENSION', 'INSERT', 'POINT'].includes(entity.type);
   }
@@ -2590,289 +2427,6 @@
     };
   }
 
-  function buildOuterContourFromOpenEntities(shapeRecord, options = {}) {
-    const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
-    const detectRasterShapes = global.NestDxfRasterEnvelopeService?.detectRasterShapes || (() => []);
-    const openEntities = (shapeRecord?.openEntities || []).filter(isRenderableEntity);
-    const openEntitySet = new Set(openEntities);
-    const graphData = buildOpenGraphFromShape(
-      shapeRecord,
-      tolerance,
-      entityToPathPoints,
-      isRenderableEntity,
-      splitSegmentsAtIntersections,
-      buildGraphFromSegments
-    );
-    const graph = graphData.graph || { nodes: [], adjacency: new Map() };
-    const graphEdgeCount = [...graph.adjacency.values()].reduce((sum, neighbors) => sum + neighbors.length, 0) / 2;
-    const debugBase = {
-      shapeId: shapeRecord?.id || null,
-      stage: 'missing-seed',
-      entityCount: graphData.entities?.length || 0,
-      rawSegmentCount: graphData.segments?.length || 0,
-      snappedSegmentCount: graphData.snappedSegments?.length || 0,
-      repairedSegmentCount: graphData.repairedSegments?.length || 0,
-      endpointSegmentRepairCount: graphData.endpointSegmentRepairCount || 0,
-      bridgeSegmentCount: graphData.bridgeSegments?.length || 0,
-      endpointBridgeCount: graphData.endpointBridgeCount || 0,
-      splitSegmentCount: graphData.splitSegments?.length || 0,
-      graphNodeCount: graph.nodes.length,
-      graphEdgeCount,
-    };
-
-    if (!graphData.segments?.length) {
-      const debug = { ...debugBase, stage: 'no-owned-segments' };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug };
-    }
-
-    const cycles = enumerateSimpleCycles(graph.nodes, graph.adjacency, graph.nodes.length > 50 ? 400 : 900);
-    const ranked = rankOpenBuilderCycles({
-      cycles,
-      bbox: graphData.bbox,
-      shapeRecord,
-      tolerance,
-      scorePolygonCoverage,
-    });
-    const tracedRasterShapes = detectRasterShapes(shapeRecord.entities || [], {
-      sampleStep: Math.max(0.5, tolerance * 18),
-      boundaryMode: 'trace',
-    });
-
-    const subgroupGraphs = ((!cycles.length || !ranked.length) && openEntities.length > 1)
-      ? (() => {
-        const seenGroups = new Set();
-          const subgroupSeeds = [
-            ...detectRasterShapes(openEntities, {
-              sampleStep: Math.max(0.5, tolerance * 18),
-              boundaryMode: 'trace',
-            }).map(candidate => ({
-              source: 'open-raster',
-              entities: candidate.entities || [],
-            })),
-            ...tracedRasterShapes.map(candidate => ({
-              source: 'shape-raster',
-              entities: (candidate.entities || []).filter(entity => openEntitySet.has(entity)),
-            })),
-          ];
-
-          return subgroupSeeds
-            .filter(candidate => Array.isArray(candidate.entities) && candidate.entities.length > 1)
-            .filter(candidate => candidate.entities.length < openEntities.length)
-            .map((candidate, subgroupIndex) => {
-              const entityKey = candidate.entities
-                .map(entity => entity?.handle || entity?.id || `${entity?.type || 'entity'}:${openEntities.indexOf(entity)}`)
-                .sort()
-                .join('|');
-              if (!entityKey || seenGroups.has(entityKey)) return null;
-              seenGroups.add(entityKey);
-
-              const subgroupGraphData = buildOpenGraphFromEntities(
-                candidate.entities,
-                tolerance,
-                entityToPathPoints,
-                isRenderableEntity,
-                splitSegmentsAtIntersections,
-                buildGraphFromSegments
-              );
-              const subgroupGraph = subgroupGraphData.graph || { nodes: [], adjacency: new Map() };
-              const subgroupCycles = enumerateSimpleCycles(
-                subgroupGraph.nodes,
-                subgroupGraph.adjacency,
-                subgroupGraph.nodes.length > 50 ? 400 : 900
-              );
-              const subgroupRanked = rankOpenBuilderCycles({
-                cycles: subgroupCycles,
-                bbox: subgroupGraphData.bbox,
-                shapeRecord,
-                tolerance,
-                scorePolygonCoverage,
-              }).map(entry => ({
-                ...entry,
-                candidate: {
-                  ...entry.candidate,
-                  subgroupIndex,
-                  subgroupEntityCount: subgroupGraphData.entities?.length || 0,
-                  subgroupSource: candidate.source,
-                },
-              }));
-
-              return {
-                subgroupIndex,
-                source: candidate.source,
-                graphData: subgroupGraphData,
-                cycles: subgroupCycles,
-                ranked: subgroupRanked,
-              };
-            })
-            .filter(Boolean);
-        })()
-      : [];
-    const subgroupRanked = subgroupGraphs.flatMap(entry => entry.ranked);
-
-    const extendedGraphData = buildExtendedOpenGraphFromShape(
-      shapeRecord,
-      graphData,
-      tolerance,
-      splitSegmentsAtIntersections,
-      buildGraphFromSegments
-    );
-    const extendedGraph = extendedGraphData.extendedGraph || { nodes: [], adjacency: new Map() };
-    const extendedGraphEdgeCount = [...extendedGraph.adjacency.values()].reduce((sum, neighbors) => sum + neighbors.length, 0) / 2;
-    const extendedCycles = extendedGraphData.childContourSegments?.length
-      ? enumerateSimpleCycles(extendedGraph.nodes, extendedGraph.adjacency, extendedGraph.nodes.length > 60 ? 500 : 1000)
-      : [];
-    const extendedRanked = rankOpenBuilderCycles({
-      cycles: extendedCycles,
-      bbox: extendedGraphData.extendedBBox || graphData.bbox,
-      shapeRecord,
-      tolerance,
-      scorePolygonCoverage,
-    }).map(entry => ({
-      ...entry,
-      candidate: {
-        ...entry.candidate,
-        source: 'open-builder-extended',
-        childContourIds: (extendedGraphData.boundaryChildContours || []).map(contour => contour.id),
-      },
-    }));
-
-    const allRanked = [...ranked, ...subgroupRanked, ...extendedRanked].sort((a, b) => {
-      if ((a.score?.outerMissCount || 0) !== (b.score?.outerMissCount || 0)) return (a.score?.outerMissCount || 0) - (b.score?.outerMissCount || 0);
-      if (Math.abs((b.bboxCoverage || 0) - (a.bboxCoverage || 0)) > 1e-6) return (b.bboxCoverage || 0) - (a.bboxCoverage || 0);
-      if (Math.abs((b.area || 0) - (a.area || 0)) > 1e-6) return (b.area || 0) - (a.area || 0);
-      if (Math.abs((b.score?.outerCoverage || 0) - (a.score?.outerCoverage || 0)) > 1e-6) return (b.score?.outerCoverage || 0) - (a.score?.outerCoverage || 0);
-      if (Math.abs((b.score?.pointCoverage || 0) - (a.score?.pointCoverage || 0)) > 1e-6) return (b.score?.pointCoverage || 0) - (a.score?.pointCoverage || 0);
-      return (b.score?.score || 0) - (a.score?.score || 0);
-    });
-
-    if (!allRanked.length) {
-      const debug = {
-        ...debugBase,
-        stage: cycles.length ? 'no-ranked-open-cycles' : 'no-open-cycles',
-        rawCycleCount: cycles.length,
-        boundaryChildContourCount: extendedGraphData.boundaryChildContours?.length || 0,
-        childContourSegmentCount: extendedGraphData.childContourSegments?.length || 0,
-        extendedGraphNodeCount: extendedGraph.nodes.length,
-        extendedGraphEdgeCount,
-        extendedRawCycleCount: extendedCycles.length,
-        subgroupGraphCount: subgroupGraphs.length,
-        subgroupRawCycleCount: subgroupGraphs.reduce((sum, entry) => sum + (entry.cycles?.length || 0), 0),
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug };
-    }
-
-    const usable = allRanked.filter(entry => {
-      const coverage = entry.score || {};
-      return (coverage.entityCoverage ?? 0) >= 0.9 &&
-        (coverage.pointCoverage ?? 0) >= 0.8 &&
-        (coverage.outerCoverage ?? 0) >= 0.85 &&
-        (coverage.outerMissCount ?? Infinity) === 0 &&
-        (coverage.selfIntersectionCount ?? Infinity) === 0 &&
-        (coverage.repeatedVertexCount ?? Infinity) === 0;
-    });
-    const winner = usable[0] || null;
-    const debug = {
-      ...debugBase,
-      stage: winner?.candidate?.source === 'open-builder-extended'
-        ? 'success-open-builder-extended'
-        : winner?.candidate?.subgroupIndex != null
-          ? 'success-open-builder-subgroup'
-        : winner
-          ? 'success-open-builder'
-          : 'rejected-open-cycles',
-      rawCycleCount: cycles.length,
-      rankedCycleCount: allRanked.length,
-      boundaryChildContourCount: extendedGraphData.boundaryChildContours?.length || 0,
-      childContourSegmentCount: extendedGraphData.childContourSegments?.length || 0,
-      extendedGraphNodeCount: extendedGraph.nodes.length,
-      extendedGraphEdgeCount,
-      extendedRawCycleCount: extendedCycles.length,
-      chosenSource: winner?.candidate?.source || null,
-      subgroupGraphCount: subgroupGraphs.length,
-      subgroupRawCycleCount: subgroupGraphs.reduce((sum, entry) => sum + (entry.cycles?.length || 0), 0),
-      chosenSubgroupIndex: winner?.candidate?.subgroupIndex ?? null,
-      chosenSubgroupEntityCount: winner?.candidate?.subgroupEntityCount ?? null,
-      chosenSubgroupSource: winner?.candidate?.subgroupSource ?? null,
-      candidates: allRanked.slice(0, 10).map(entry => ({
-        source: entry.candidate?.source || null,
-        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
-        subgroupIndex: entry.candidate?.subgroupIndex ?? null,
-        subgroupEntityCount: entry.candidate?.subgroupEntityCount ?? null,
-        subgroupSource: entry.candidate?.subgroupSource ?? null,
-        bboxCoverage: entry.bboxCoverage,
-        coverage: summarizeCoverageMetrics(entry.score),
-      })),
-    };
-    debugDXF('Open builder ranking', {
-      shapeId: shapeRecord?.id || null,
-      stage: debug.stage,
-      rawCycleCount: cycles.length,
-      extendedRawCycleCount: extendedCycles.length,
-      subgroupRawCycleCount: subgroupGraphs.reduce((sum, entry) => sum + (entry.cycles?.length || 0), 0),
-      rankedCycleCount: allRanked.length,
-      chosenSource: winner?.candidate?.source || null,
-      chosenPolygonPointCount: winner?.candidate?.polygonPoints?.length || 0,
-      chosenSubgroupIndex: winner?.candidate?.subgroupIndex ?? null,
-      chosenSubgroupEntityCount: winner?.candidate?.subgroupEntityCount ?? null,
-      chosenSubgroupSource: winner?.candidate?.subgroupSource ?? null,
-      candidates: allRanked.slice(0, 8).map((entry, index) => ({
-        rank: index + 1,
-        source: entry.candidate?.source || null,
-        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
-        subgroupIndex: entry.candidate?.subgroupIndex ?? null,
-        subgroupEntityCount: entry.candidate?.subgroupEntityCount ?? null,
-        subgroupSource: entry.candidate?.subgroupSource ?? null,
-        bboxCoverage: entry.bboxCoverage ?? null,
-        area: entry.area ?? null,
-        pointCoverage: entry.score?.pointCoverage ?? null,
-        entityCoverage: entry.score?.entityCoverage ?? null,
-        areaCoverage: entry.score?.areaCoverage ?? null,
-        outerCoverage: entry.score?.outerCoverage ?? null,
-        outerMissCount: entry.score?.outerMissCount ?? null,
-        perimeter: entry.score?.perimeter ?? null,
-        compactness: entry.score?.compactness ?? null,
-        score: entry.score?.score ?? null,
-      })),
-    });
-    debugDXF('Outer contour builder', debug);
-
-    if (!winner) {
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'open-builder', builderDebug: debug, rankedCandidates: allRanked };
-    }
-
-    return {
-      ...winner.candidate,
-      coverage: winner.score,
-      rankedCandidates: allRanked,
-      builderMode: 'open-builder',
-      builderDebug: debug,
-    };
-  }
-
-  function shouldTryOpenBuilderAfterParent(parentBuilt, entityCount) {
-    if (!parentBuilt) return true;
-
-    const stage = parentBuilt.builderDebug?.stage || null;
-    if (stage === 'missing-seed') return true;
-
-    const polygonPoints = Array.isArray(parentBuilt.polygonPoints) ? parentBuilt.polygonPoints : [];
-    const coverage = parentBuilt.coverage || null;
-    if (polygonPoints.length < 4 || !coverage) return true;
-
-    if ((coverage.selfIntersectionCount ?? 0) > 0 || (coverage.repeatedVertexCount ?? 0) > 0) return true;
-
-    const maxUnsupported = Math.max(2, Math.floor((entityCount || 0) * 0.15));
-    return (coverage.entityCoverage ?? 0) < 0.85 ||
-      (coverage.pointCoverage ?? 0) < 0.75 ||
-      (coverage.outerCoverage ?? 0) < 0.7 ||
-      (coverage.outerMissCount ?? 0) > maxUnsupported ||
-      (coverage.unsupportedEntityCount ?? 0) > maxUnsupported ||
-      (coverage.supportedAreaRatio ?? 0) < 0.45 ||
-      (coverage.score ?? -Infinity) < 0.45;
-  }
-
   function hasMeaningfulBuilderOutput(result) {
     if (!result) return false;
     if (Array.isArray(result.polygonPoints) && result.polygonPoints.length >= 4) return true;
@@ -2926,18 +2480,6 @@
       }, forcedSource, false);
     }
 
-    if (forcedSource === 'open-builder' || forcedSource === 'open-builder-extended') {
-      const openBuilt = buildOuterContourFromOpenEntities(shapeRecord, options);
-      const forcedOpen = selectForcedResultBySource(openBuilt, forcedSource);
-      if (forcedOpen) return withForcedBuilderMetadata(forcedOpen, forcedSource, true);
-      return withForcedBuilderMetadata({
-        ...openBuilt,
-        polygonPoints: null,
-        source: null,
-        coverage: null,
-      }, forcedSource, false);
-    }
-
     if (forcedSource === 'shapely-polygonize') {
       const polygonized = buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options);
       const forcedPolygonized = selectForcedResultBySource(polygonized, forcedSource);
@@ -2950,23 +2492,11 @@
       }, forcedSource, false);
     }
 
-    if (forcedSource === 'jsts-polygonize') {
-      const polygonized = buildJstsPolygonizedContourFromEntities(shapeRecord, options);
-      const forcedPolygonized = selectForcedResultBySource(polygonized, forcedSource);
-      if (forcedPolygonized) return withForcedBuilderMetadata(forcedPolygonized, forcedSource, true);
-      return withForcedBuilderMetadata({
-        ...polygonized,
-        polygonPoints: null,
-        source: null,
-        coverage: null,
-      }, forcedSource, false);
-    }
-
     const parentBuilt = buildExtendedOuterContourFromParent(shapeRecord, options);
-    if (!shouldTryOpenBuilderAfterParent(parentBuilt, shapeRecord.entities.length || 0)) return parentBuilt;
+    if (hasMeaningfulBuilderOutput(parentBuilt)) return parentBuilt;
 
-    const openBuilt = buildOuterContourFromOpenEntities(shapeRecord, options);
-    if (hasMeaningfulBuilderOutput(openBuilt)) return openBuilt;
+    const polygonized = buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options);
+    if (hasMeaningfulBuilderOutput(polygonized)) return polygonized;
     return parentBuilt;
   }
 
@@ -2976,10 +2506,8 @@
     findBestPolygonizedCandidate: () => null,
     buildConcaveHullFallback: () => null,
     buildExtendedOuterContourFromParent,
-    buildOuterContourFromOpenEntities,
     buildPolygonizedContourFromEntities,
     buildPolygonizedContourFromEntitiesWithCurveRepair,
-    buildJstsPolygonizedContourFromEntities,
     detectNestingPolygon,
   };
 })(window);

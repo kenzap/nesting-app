@@ -5,10 +5,7 @@
     'auto',
     'parent-seed',
     'parent-extended',
-    'open-builder',
-    'open-builder-extended',
     'shapely-polygonize',
-    'jsts-polygonize',
   ];
 
   const SETTINGS_DEFAULTS = {
