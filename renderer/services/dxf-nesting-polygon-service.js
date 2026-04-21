@@ -4,16 +4,12 @@
   const geometry = global.NestDxfGeometry;
   const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
   const graphUtils = global.NestDxfNestingGraphUtils || {};
-  const cycleRanking = global.NestDxfNestingCycleRanking || {};
-  const openBuilderHelpers = global.NestDxfOpenBuilderHelpers || {};
   const makerJsHelpers = global.NestDxfMakerJsHelpers || {};
 
   if (!geometry) {
     global.NestDxfNestingPolygonService = {
-      tryPolygonizeWithTolerance() { return null; },
       scorePolygonCoverage() { return null; },
-      findBestPolygonizedCandidate() { return null; },
-      buildConcaveHullFallback() { return null; },
+      buildPolygonizedContour() { return null; },
       detectNestingPolygon() { return null; },
     };
     return;
@@ -50,31 +46,20 @@
   } = graphUtils;
 
   const {
-    extractOutermostSimpleLoop,
-  } = cycleRanking;
-
-  const {
-    buildEntitySegments,
-    findAttachedOpenEntities,
-    buildLocalGraph,
-    rankParentBuilderCycles,
-  } = openBuilderHelpers;
-
-  const {
     buildMakerJsChains,
     getOuterNestingContour,
   } = makerJsHelpers;
 
   const FORCED_CONTOUR_SOURCES = new Set([
-    'parent-seed',
-    'parent-extended',
     'makerjs-chains',
-    'shapely-polygonize',
+    'polygonize',
   ]);
 
   function normalizeRequestedContourSource(source) {
     const normalizedRaw = source == null ? 'auto' : String(source);
-    const normalized = normalizedRaw === 'makerjs-outline' ? 'makerjs-chains' : normalizedRaw;
+    const normalized = normalizedRaw === 'makerjs-outline'
+      ? 'makerjs-chains'
+      : (normalizedRaw === 'shapely-polygonize' ? 'polygonize' : normalizedRaw);
     return normalized === 'auto' || FORCED_CONTOUR_SOURCES.has(normalized)
       ? normalized
       : 'auto';
@@ -318,45 +303,6 @@
     };
   }
 
-  function buildParentSeedCandidate(shapeRecord, options = {}) {
-    const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
-    const parentContour = shapeRecord?.parentContour || (shapeRecord?.peerOuters?.length === 1 ? shapeRecord.peerOuters[0] : null);
-    const seedPoints = Array.isArray(parentContour?.points) && parentContour.points.length >= 4
-      ? extractOutermostSimpleLoop(parentContour.points, tolerance) || closePointRing(normalizeWindingCCW(parentContour.points))
-      : null;
-    if (!seedPoints || seedPoints.length < 4) {
-      return {
-        tolerance,
-        parentContour,
-        seedPoints: null,
-        coverage: null,
-        rankedEntry: null,
-      };
-    }
-
-    const coverage = scorePolygonCoverage({ polygonPoints: seedPoints }, shapeRecord?.entities || []);
-    const area = Math.abs(polygonSignedArea(seedPoints.slice(0, -1)));
-    return {
-      tolerance,
-      parentContour,
-      seedPoints,
-      coverage,
-      rankedEntry: {
-        candidate: {
-          polygonPoints: seedPoints,
-          source: 'parent-seed',
-          tolerance,
-          seedContourId: parentContour?.id || null,
-          attachedEntityIds: [],
-          area,
-        },
-        score: coverage,
-        enclosesSeed: true,
-        areaGain: 1,
-      },
-    };
-  }
-
   function selectForcedResultBySource(result, source) {
     if (!result || !source || source === 'auto') return null;
     if (result.source === source && Array.isArray(result.polygonPoints) && result.polygonPoints.length >= 4) {
@@ -428,6 +374,17 @@
 
   function entityDebugId(entity, index) {
     return entity?.handle || `${entity?.type || 'entity'}_${index}`;
+  }
+
+  function buildEntitySegments(entity, tolerance, entityToPathPointsFn) {
+    const points = entityToPathPointsFn(entity, true);
+    if (points.length < 2) return [];
+    const segments = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      if (dist(points[i], points[i + 1]) <= EPS) continue;
+      segments.push([points[i], points[i + 1]]);
+    }
+    return segments;
   }
 
   function segmentAlignment(a1, a2, b1, b2) {
@@ -1455,7 +1412,7 @@
       buildPolygonizedEntryFromFace(
         face,
         index,
-        'shapely-polygonize',
+        'polygonize',
         tolerance,
         shapeRecord?.entities || [],
         {
@@ -1535,7 +1492,7 @@
         buildPolygonizedEntryFromJstsPolygon(
           polygon,
           index,
-          'shapely-polygonize',
+          'polygonize',
           tolerance,
           shapeRecord?.entities || [],
           {
@@ -1623,7 +1580,7 @@
         return buildPolygonizedEntryFromFace(
           face,
           index,
-          'shapely-polygonize',
+          'polygonize',
           tolerance,
           shapeRecord?.entities || [],
           {
@@ -1699,14 +1656,17 @@
     }
   }
 
-  function resolveShapelyPolygonizeTolerance(options = {}) {
+  function resolvePolygonizeTolerance(options = {}) {
     const requestedTolerance = Number(options.tolerance);
     const baseTolerance = Number.isFinite(requestedTolerance) && requestedTolerance > 0
       ? requestedTolerance
       : LOOP_TOLERANCE * 8;
     const multiplier = Math.min(
       10,
-      Math.max(0.1, Number(options.shapelyPolygonizeToleranceMultiplier) || 1)
+      Math.max(
+        0.1,
+        Number(options.polygonizeToleranceMultiplier ?? options.shapelyPolygonizeToleranceMultiplier) || 1
+      )
     );
     return {
       multiplier,
@@ -1714,7 +1674,7 @@
     };
   }
 
-  function runShapelyPolygonizePass({
+  function runPolygonizePass({
     shapeRecord,
     sourceEntities,
     rawSegments,
@@ -1780,7 +1740,7 @@
     }
 
     const faceEntries = assignPolygonizedRootDepth(polygons.map((polygon, index) =>
-      buildPolygonizedEntryFromJstsPolygon(polygon, index, 'shapely-polygonize', tolerance, shapeRecord?.entities || [])
+      buildPolygonizedEntryFromJstsPolygon(polygon, index, 'polygonize', tolerance, shapeRecord?.entities || [])
     ).filter(Boolean));
     const unionGeometry = buildUnionGeometryEntriesFromJstsPolygons(polygons, shapeRecord, tolerance);
     const unionBoundary = {
@@ -1847,7 +1807,7 @@
     const debug = {
       ...debugBase,
       ...extraDebug,
-      stage: winner ? 'success-shapely-polygonize' : 'rejected-shapely-polygonize',
+      stage: winner ? 'success-polygonize' : 'rejected-polygonize',
       chosenSource: winner?.candidate?.source || null,
       chosenFaceIndex: winner?.candidate?.faceIndex ?? null,
       chosenUnionGeometry: !!winner?.candidate?.unionGeometry,
@@ -1899,140 +1859,8 @@
     };
   }
 
-  function buildPolygonizedContourFromEntities(shapeRecord, options = {}) {
-    const { tolerance, multiplier } = resolveShapelyPolygonizeTolerance(options);
-    const sourceEntities = (shapeRecord?.entities || []).filter(isRenderableEntity);
-    const entitySegmentDescriptors = buildEntitySegmentDescriptors(sourceEntities, tolerance);
-    const rawSegments = sourceEntities.flatMap(entity => buildEntitySegments(entity, tolerance, entityToPathPoints));
-    const jsts = global.jsts || null;
-    const debugBase = {
-      shapeId: shapeRecord?.id || null,
-      stage: 'missing-segments',
-      entityCount: sourceEntities.length,
-      rawSegmentCount: rawSegments.length,
-      tolerance,
-      toleranceMultiplier: multiplier,
-    };
-
-    if (!rawSegments.length || !jsts?.geom?.GeometryFactory || !jsts?.operation?.polygonize?.Polygonizer) {
-      const debug = {
-        ...debugBase,
-        stage: !rawSegments.length ? 'no-segments' : 'jsts-unavailable',
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'shapely-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    const polygonizer = new jsts.operation.polygonize.Polygonizer();
-    const lineUnion = unionJstsLinework(rawSegments, tolerance, jsts);
-    const unionedLinework = lineUnion.unionedLinework;
-    if (!unionedLinework || unionedLinework.isEmpty?.()) {
-      const debug = {
-        ...debugBase,
-        stage: 'no-line-union',
-        lineUnionStrategy: lineUnion.lineUnionStrategy || null,
-        lineUnionFallbackUsed: !!lineUnion.lineUnionFallbackUsed,
-        lineUnionError: lineUnion.lineUnionError || null,
-        nodedSegmentCount: lineUnion.nodedSegmentCount ?? null,
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'shapely-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    polygonizer.add(unionedLinework);
-    const polygonCollection = polygonizer.getPolygons();
-    const polygons = typeof polygonCollection?.toArray === 'function'
-      ? polygonCollection.toArray()
-      : Array.from(polygonCollection || []);
-    if (!polygons.length) {
-      const debug = {
-        ...debugBase,
-        stage: 'no-polygonized-faces',
-        lineUnionStrategy: lineUnion.lineUnionStrategy || null,
-        lineUnionFallbackUsed: !!lineUnion.lineUnionFallbackUsed,
-        lineUnionError: lineUnion.lineUnionError || null,
-        lineUnionType: typeof unionedLinework?.getGeometryType === 'function' ? unionedLinework.getGeometryType() : null,
-        lineUnionComponentCount: typeof unionedLinework?.getNumGeometries === 'function' ? unionedLinework.getNumGeometries() : 0,
-        nodedSegmentCount: lineUnion.nodedSegmentCount ?? null,
-        polygonizedFaceCount: 0,
-        polygonizedRootCount: 0,
-      };
-      // ('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'shapely-polygonize', builderDebug: debug, rankedCandidates: [] };
-    }
-
-    const faceEntries = assignPolygonizedRootDepth(polygons.map((polygon, index) =>
-      buildPolygonizedEntryFromJstsPolygon(polygon, index, 'shapely-polygonize', tolerance, shapeRecord?.entities || [])
-    ).filter(Boolean));
-    const unionGeometry = buildUnionGeometryEntriesFromJstsPolygons(polygons, shapeRecord, tolerance);
-    const unionBoundary = {
-      entries: [],
-      boundarySegments: [],
-      polygonizedFaces: [],
-      rootEntries: faceEntries.filter(entry => (entry?.rootDepth || 0) === 0),
-    };
-    const seenEntryKeys = new Set();
-    const entries = [];
-    [...(unionGeometry.entries || []), ...faceEntries].forEach(entry => {
-      const ring = entry?.candidate?.polygonPoints || [];
-      const key = `${entry?.candidate?.unionGeometry ? 'u' : 'f'}|${ring.length}|${Math.round((entry?.area || 0) * 1000)}`;
-      if (seenEntryKeys.has(key)) return;
-      seenEntryKeys.add(key);
-      entries.push(entry);
-    });
-    const ranked = entries.sort(polygonizedFaceRank);
-    const rootCandidates = ranked.filter(entry => (entry.rootDepth || 0) === 0);
-    const usableRoots = rootCandidates.length ? rootCandidates : ranked;
-    const winner = usableRoots[0] || null;
-    const provenance = summarizePolygonizedEntityProvenance({
-      winner,
-      polygonized: null,
-      unionBoundary,
-      entitySegmentDescriptors,
-      tolerance: tolerance * 8,
-    });
-    const entityBoundaryStages = buildEntityBoundaryStageReport({
-      entitySegmentDescriptors,
-      rawSegments,
-      unionedLinework,
-      polygons,
-      unionGeometry,
-      winner,
-      tolerance: tolerance * 8,
-    });
-    const polygonFaceMembership = buildPolygonFaceMembershipReport(polygons, faceEntries, entitySegmentDescriptors, tolerance * 8);
-    const boundaryDropReasons = classifyEntityBoundaryDrops(entityBoundaryStages);
-    const missingFaceConnectivity = buildMissingFaceConnectivityReport({
-      sourceEntities,
-      entitySegmentDescriptors,
-      unionedLinework,
-      polygons,
-      boundaryDropReasons,
-      tolerance: tolerance * 8,
-    });
-
-    if (!winner) {
-      return {
-        polygonPoints: null,
-        source: null,
-        coverage: null,
-        rankedCandidates: ranked,
-        builderMode: 'shapely-polygonize',
-        builderDebug: debug,
-      };
-    }
-
-    return {
-      ...winner.candidate,
-      coverage: winner.score,
-      rankedCandidates: ranked,
-      builderMode: 'shapely-polygonize',
-      builderDebug: debug,
-    };
-  }
-
-  function buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options = {}) {
-    const { tolerance, multiplier } = resolveShapelyPolygonizeTolerance(options);
+  function buildPolygonizedContour(shapeRecord, options = {}) {
+    const { tolerance, multiplier } = resolvePolygonizeTolerance(options);
     const sourceEntities = (shapeRecord?.entities || []).filter(isRenderableEntity);
     const segmentRecords = buildEntitySegmentRecords(sourceEntities, tolerance);
     const normalizedCurveEndpoints = normalizeCurveEndpointsBeforeUnion(segmentRecords, tolerance);
@@ -2051,11 +1879,15 @@
     };
 
     if (!rawSegments.length || !jsts?.geom?.GeometryFactory || !jsts?.operation?.polygonize?.Polygonizer) {
-
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'shapely-polygonize', builderDebug: debug, rankedCandidates: [] };
+      const debug = {
+        ...debugBase,
+        stage: !rawSegments.length ? 'no-segments' : 'jsts-unavailable',
+      };
+      debugDXF('Outer contour builder', debug);
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'polygonize', builderDebug: debug, rankedCandidates: [] };
     }
 
-    const primaryPass = runShapelyPolygonizePass({
+    const primaryPass = runPolygonizePass({
       shapeRecord,
       sourceEntities,
       rawSegments,
@@ -2089,7 +1921,7 @@
         const promotedRawSegments = promotedRecordsResult.records
           .map(record => [record.start, record.end])
           .filter(([start, end]) => dist(start, end) > EPS);
-        const promotedPass = runShapelyPolygonizePass({
+        const promotedPass = runPolygonizePass({
           shapeRecord,
           sourceEntities,
           rawSegments: promotedRawSegments,
@@ -2111,7 +1943,7 @@
         if (shouldPreferPolygonizedPass(primaryPass, promotedPass)) chosenPass = promotedPass;
       }
 
-      const repairedPass = runShapelyPolygonizePass({
+      const repairedPass = runPolygonizePass({
         shapeRecord,
         sourceEntities,
         rawSegments: [...rawSegments, ...curveRepair.bridgeSegments],
@@ -2158,7 +1990,7 @@
         source: null,
         coverage: null,
         rankedCandidates: chosenPass.ranked || [],
-        builderMode: 'shapely-polygonize',
+        builderMode: 'polygonize',
         builderDebug: finalDebug,
       };
     }
@@ -2167,7 +1999,7 @@
       ...chosenPass.winner.candidate,
       coverage: chosenPass.winner.score,
       rankedCandidates: chosenPass.ranked || [],
-      builderMode: 'shapely-polygonize',
+      builderMode: 'polygonize',
       builderDebug: finalDebug,
     };
   }
@@ -2246,132 +2078,6 @@
     }
   }
 
-  function buildExtendedOuterContourFromParent(shapeRecord, options = {}) {
-    const seedCandidate = buildParentSeedCandidate(shapeRecord, options);
-    const tolerance = seedCandidate.tolerance;
-    const parentContour = seedCandidate.parentContour;
-    const seedPoints = seedCandidate.seedPoints;
-    if (!seedPoints || seedPoints.length < 4) {
-      const debug = {
-        shapeId: shapeRecord?.id || null,
-        seedContourId: parentContour?.id || null,
-        stage: 'missing-seed',
-        openEntityCount: shapeRecord?.openEntities?.length || 0,
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'parent-builder', builderDebug: debug };
-    }
-
-    const attachedEntities = findAttachedOpenEntities(shapeRecord, seedPoints, tolerance, entityToPathPoints, isRenderableEntity);
-    if (!attachedEntities.length) {
-      const coverage = seedCandidate.coverage;
-      const debug = {
-        shapeId: shapeRecord?.id || null,
-        seedContourId: parentContour?.id || null,
-        stage: 'no-attached-entities',
-        openEntityCount: shapeRecord?.openEntities?.length || 0,
-        openEntityIds: (shapeRecord?.openEntities || []).map(entity => entity.handle || entity.id || entity.type),
-      };
-      debugDXF('Outer contour builder', debug);
-      const usableSeed = (coverage?.entityCoverage ?? 0) >= 0.9 &&
-        (coverage?.pointCoverage ?? 0) >= 0.9 &&
-        (coverage?.outerCoverage ?? 0) >= 0.5 &&
-        (coverage?.outerMissCount ?? Infinity) === 0 &&
-        (coverage?.selfIntersectionCount ?? Infinity) === 0 &&
-        (coverage?.repeatedVertexCount ?? Infinity) === 0;
-      if (!usableSeed) {
-        return {
-          polygonPoints: null,
-          source: null,
-          coverage: null,
-          builderMode: 'parent-builder',
-          builderDebug: {
-            ...debug,
-            stage: 'rejected-seed',
-            rejectedCoverage: coverage,
-          },
-        };
-      }
-      return {
-        ...seedCandidate.rankedEntry.candidate,
-        coverage,
-        builderMode: 'parent-builder',
-        builderDebug: debug,
-        rankedCandidates: [seedCandidate.rankedEntry],
-      };
-    }
-
-    const graph = buildLocalGraph(seedPoints, attachedEntities, tolerance, entityToPathPoints);
-    const graphEdgeCount = [...graph.adjacency.values()].reduce((sum, neighbors) => sum + neighbors.length, 0) / 2;
-    const cycles = enumerateSimpleCycles(graph.nodes, graph.adjacency, graph.nodes.length > 40 ? 300 : 800);
-    if (!cycles.length) {
-      const debug = {
-        shapeId: shapeRecord?.id || null,
-        seedContourId: parentContour?.id || null,
-        stage: 'no-cycles',
-        attachedEntityCount: attachedEntities.length,
-        graphNodeCount: graph.nodes.length,
-        graphEdgeCount,
-        rawCycleCount: 0,
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'parent-builder', builderDebug: debug };
-    }
-
-    const attachedIds = attachedEntities.map(entity => entity.handle || entity.id || entity.type);
-    const ranked = rankParentBuilderCycles({
-      cycles,
-      shapeRecord,
-      seedPoints,
-      tolerance,
-      parentContourId: parentContour.id || null,
-      attachedIds,
-      scorePolygonCoverage,
-    });
-
-    if (!ranked.length) {
-      const debug = {
-        shapeId: shapeRecord?.id || null,
-        seedContourId: parentContour.id || null,
-        stage: 'no-ranked-cycles',
-        attachedEntityCount: attachedIds.length,
-        graphNodeCount: graph.nodes.length,
-        graphEdgeCount,
-        rawCycleCount: cycles.length,
-        cycleCount: cycles.length,
-      };
-      debugDXF('Outer contour builder', debug);
-      return { polygonPoints: null, source: null, coverage: null, builderMode: 'parent-builder', builderDebug: debug };
-    }
-
-    const debug = {
-      shapeId: shapeRecord?.id || null,
-      seedContourId: parentContour.id || null,
-      stage: 'success',
-      attachedEntityCount: attachedIds.length,
-      graphNodeCount: graph.nodes.length,
-      graphEdgeCount,
-      rawCycleCount: cycles.length,
-      cycleCount: ranked.length,
-      chosenSource: ranked[0]?.candidate?.source || null,
-      candidates: ranked.slice(0, 10).map(entry => ({
-        source: entry.candidate.source,
-        polygonPointCount: entry.candidate.polygonPoints?.length || 0,
-        areaGain: entry.areaGain,
-        coverage: summarizeCoverageMetrics(entry.score),
-      })),
-    };
-    debugDXF('Outer contour builder', debug);
-
-    return {
-      ...ranked[0].candidate,
-      coverage: ranked[0].score,
-      rankedCandidates: seedCandidate.rankedEntry ? [...ranked, seedCandidate.rankedEntry] : ranked,
-      builderMode: 'parent-builder',
-      builderDebug: debug,
-    };
-  }
-
   function hasMeaningfulBuilderOutput(result) {
     if (!result) return false;
     if (Array.isArray(result.polygonPoints) && result.polygonPoints.length >= 4) return true;
@@ -2441,8 +2147,6 @@
       maxArcFacet: Math.max(tolerance * 8, 0.5),
       gapTolerance,
     };
-
-    console.log("makerJsOptions", makerJsOptions)
 
     const outerContour = typeof getOuterNestingContour === 'function'
       ? getOuterNestingContour(dxfData, makerJsOptions)
@@ -2584,47 +2288,6 @@
     if (!shapeRecord?.entities?.length) return { polygonPoints: null, source: null, coverage: null, builderMode: 'missing-shape-record', builderDebug: null };
 
     const forcedSource = normalizeRequestedContourSource(options.contourMethod);
-    if (forcedSource === 'parent-seed') {
-      const seedCandidate = buildParentSeedCandidate(shapeRecord, options);
-      if (seedCandidate.rankedEntry) {
-        return withForcedBuilderMetadata({
-          ...seedCandidate.rankedEntry.candidate,
-          coverage: seedCandidate.rankedEntry.score,
-          rankedCandidates: [seedCandidate.rankedEntry],
-          builderMode: 'parent-builder',
-          builderDebug: {
-            shapeId: shapeRecord?.id || null,
-            seedContourId: seedCandidate.parentContour?.id || null,
-            stage: 'success-parent-seed',
-            chosenSource: 'parent-seed',
-          },
-        }, forcedSource, true);
-      }
-      return withForcedBuilderMetadata({
-        polygonPoints: null,
-        source: null,
-        coverage: null,
-        rankedCandidates: [],
-        builderMode: 'parent-builder',
-        builderDebug: {
-          shapeId: shapeRecord?.id || null,
-          stage: 'forced-source-unavailable',
-        },
-      }, forcedSource, false);
-    }
-
-    if (forcedSource === 'parent-extended') {
-      const parentBuilt = buildExtendedOuterContourFromParent(shapeRecord, options);
-      const forcedParent = selectForcedResultBySource(parentBuilt, forcedSource);
-      if (forcedParent) return withForcedBuilderMetadata(forcedParent, forcedSource, true);
-      return withForcedBuilderMetadata({
-        ...parentBuilt,
-        polygonPoints: null,
-        source: null,
-        coverage: null,
-      }, forcedSource, false);
-    }
-
     if (forcedSource === 'makerjs-chains') {
       const makerBuilt = buildMakerJsChainContour(shapeRecord, options);
       const forcedMaker = selectForcedResultBySource(makerBuilt, forcedSource);
@@ -2637,8 +2300,8 @@
       }, forcedSource, false);
     }
 
-    if (forcedSource === 'shapely-polygonize') {
-      const polygonized = buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options);
+    if (forcedSource === 'polygonize') {
+      const polygonized = buildPolygonizedContour(shapeRecord, options);
       const forcedPolygonized = selectForcedResultBySource(polygonized, forcedSource);
       if (forcedPolygonized) return withForcedBuilderMetadata(forcedPolygonized, forcedSource, true);
       return withForcedBuilderMetadata({
@@ -2649,23 +2312,15 @@
       }, forcedSource, false);
     }
 
-    const parentBuilt = buildExtendedOuterContourFromParent(shapeRecord, options);
-    if (hasMeaningfulBuilderOutput(parentBuilt)) return parentBuilt;
-
     const makerBuilt = buildMakerJsChainContour(shapeRecord, options);
-    const polygonized = buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options);
-    return chooseBetterBuilderResult(makerBuilt, polygonized) || makerBuilt || polygonized || parentBuilt;
+    const polygonized = buildPolygonizedContour(shapeRecord, options);
+    return chooseBetterBuilderResult(makerBuilt, polygonized) || makerBuilt || polygonized;
   }
 
   global.NestDxfNestingPolygonService = {
-    tryPolygonizeWithTolerance: () => null,
     scorePolygonCoverage,
-    findBestPolygonizedCandidate: () => null,
-    buildConcaveHullFallback: () => null,
-    buildExtendedOuterContourFromParent,
     buildMakerJsChainContour,
-    buildPolygonizedContourFromEntities,
-    buildPolygonizedContourFromEntitiesWithCurveRepair,
+    buildPolygonizedContour,
     detectNestingPolygon,
   };
 })(window);

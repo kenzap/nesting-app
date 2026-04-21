@@ -588,10 +588,10 @@
       ? initialGroups
       : mergeClosedGroupsIntoOpenOwners(splitGroupsByClosedness(initialGroups));
 
-    debugDXF('Shape structure groups', {
-      entityCount: renderableEntities.length,
-      groupCount: groupRecords.length,
-    });
+    // debugDXF('Shape structure groups', {
+    //   entityCount: renderableEntities.length,
+    //   groupCount: groupRecords.length,
+    // });
 
     return { renderableEntities, groupRecords };
   }

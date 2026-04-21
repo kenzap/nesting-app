@@ -121,23 +121,6 @@
       (coverage.outerCoverage ?? 0) >= 0.5;
   }
 
-  function isUsableParentBuilderCandidate(candidate, entityCount) {
-    if (isUsableSelectionCandidate(candidate)) return true;
-    const coverage = candidate?.coverage;
-    const source = candidate?.source || '';
-    if (!coverage) return false;
-    if (source !== 'parent-seed' && source !== 'parent-extended') return false;
-    const relaxedMaxUnsupported = Math.max(3, Math.floor((entityCount || 0) * 0.15));
-    return (coverage.entityCoverage ?? 0) >= 0.6 &&
-      (coverage.pointCoverage ?? 0) >= 0.5 &&
-      (coverage.outerCoverage ?? 0) >= 0.95 &&
-      (coverage.unsupportedEntityCount ?? Infinity) <= relaxedMaxUnsupported &&
-      (coverage.outerMissCount ?? Infinity) <= relaxedMaxUnsupported &&
-      (coverage.supportedAreaRatio ?? 0) >= 0.7 &&
-      (coverage.compactness ?? 0) >= 0.55 &&
-      (coverage.score ?? -Infinity) >= 0.05;
-  }
-
   function sortSelectionCandidates(a, b) {
     const aScore = a?.coverage?.score ?? -Infinity;
     const bScore = b?.coverage?.score ?? -Infinity;
@@ -207,9 +190,6 @@
   function isSelectableContourCandidate(candidate, entityCount) {
     if (!isValidSelectionCandidate(candidate)) return false;
     const source = candidate?.source || '';
-    if (source === 'parent-seed' || source === 'parent-extended') {
-      return isUsableParentBuilderCandidate(candidate, entityCount);
-    }
     if (source === 'structure-envelope') {
       return isTrustedSelectionCandidate(candidate, entityCount);
     }
@@ -795,7 +775,7 @@
   function parseDXFToShapes(dxf, raw, settingsInput = {}) {
     const settings = normalizeSettings(settingsInput);
     const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
-    const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
+    const polygonizeToleranceMultiplier = Number(settings.polygonizeToleranceMultiplier) || 1;
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
     const layerOrder = Object.keys(layerTable);
@@ -827,7 +807,7 @@
     const rasterShapes = detectRasterShapes(renderableEntities);
     const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape, {
       contourMethod: sketchContourMethod,
-      shapelyPolygonizeToleranceMultiplier,
+      polygonizeToleranceMultiplier,
     }));
     const shapes = structuredShapes.length
       ? structuredShapes
@@ -860,7 +840,7 @@
     //   rasterShapeCount: rasterShapes.length,
     //   nestingPolygonCount: nestingPolygons.filter(Boolean).length,
     //   sketchContourMethod,
-    //   shapelyPolygonizeToleranceMultiplier,
+    //   polygonizeToleranceMultiplier,
     // });
 
     // debugDXF('Shape pipeline compare', {
@@ -883,7 +863,7 @@
     //   })),
     //   structuredShapeCount: structuredShapes.length,
     //   sketchContourMethod,
-    //   shapelyPolygonizeToleranceMultiplier,
+    //   polygonizeToleranceMultiplier,
     //   structuredShapes: structuredShapes.map(shape => ({
     //     id: shape.id,
     //     parentContourType: shape.parentContour?.entity?.type || null,
@@ -967,27 +947,20 @@
         ? global.getCurrentNestingSettings()
         : {};
       const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
-      const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
+      const polygonizeToleranceMultiplier = Number(settings.polygonizeToleranceMultiplier) || 1;
       const matchesSketchMode = file?._multiSketchDetection === !!settings.multiSketchDetection;
       const matchesContourMethod = normalizeSketchContourMethod(file?._sketchContourMethod) === sketchContourMethod;
-      const matchesShapelyTolerance = Number(file?._shapelyPolygonizeToleranceMultiplier || 1) === shapelyPolygonizeToleranceMultiplier;
+      const matchesPolygonizeTolerance = Number(file?._polygonizeToleranceMultiplier || file?._shapelyPolygonizeToleranceMultiplier || 1) === polygonizeToleranceMultiplier;
       let data = null;
       let source = 'mock';
 
-      if (matchesSketchMode && matchesContourMethod && matchesShapelyTolerance && file?.shapes?.length) {
+      if (matchesSketchMode && matchesContourMethod && matchesPolygonizeTolerance && file?.shapes?.length) {
         data = applyPartLabelsToPreviewData(clonePreviewData({ shapes: file.shapes, layers: file.layers || [] }), filename);
         source = 'saved';
       }
 
       if (!data && file && file.path && global.electronAPI?.parseDXF) {
         try {
-          // Pre-warm concaveman's ESM dynamic import before entering the
-          // sync parse pipeline. buildMakerJsChains reads the resolved
-          // library synchronously; awaiting here guarantees it's populated
-          // by the time detectNestingPolygon is called downstream.
-          if (global.NestDxfMakerJsHelpers?.resolveConcaveman) {
-            await global.NestDxfMakerJsHelpers.resolveConcaveman();
-          }
           const result = await global.electronAPI.parseDXF(file.path);
           if (result.success && result.data) {
             const parsed = parseDXFToShapes(result.data, result.raw, settings);
@@ -997,7 +970,7 @@
               file.layers = clonePreviewData(data).layers;
               file._multiSketchDetection = !!settings.multiSketchDetection;
               file._sketchContourMethod = sketchContourMethod;
-              file._shapelyPolygonizeToleranceMultiplier = shapelyPolygonizeToleranceMultiplier;
+              file._polygonizeToleranceMultiplier = polygonizeToleranceMultiplier;
               source = 'real';
             }
           }
@@ -1022,7 +995,7 @@
         const settings = global.getCurrentNestingSettings();
         file._multiSketchDetection = !!settings.multiSketchDetection;
         file._sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
-        file._shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
+        file._polygonizeToleranceMultiplier = Number(settings.polygonizeToleranceMultiplier) || 1;
       }
       file.qty = file.shapes
         .filter(shape => shape.visible !== false)

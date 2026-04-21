@@ -164,16 +164,14 @@
           <label>Sketch contour method</label>
           <select data-setting-key="sketchContourMethod">
             <option value="auto" selected>Auto</option>
-            <option value="parent-extended">Parent extended</option>
-            <option value="parent-seed">Parent seed</option>
             <option value="makerjs-chains">Maker.js chains</option>
-            <option value="shapely-polygonize">Shapely polygonize</option>
+            <option value="polygonize">Polygonize</option>
           </select>
         </div>
         <div class="setting-row">
-          <label>Shapely tolerance</label>
+          <label>Polygonize tolerance</label>
           <div class="input-with-unit">
-            <input type="number" value="1" min="0.1" max="10" step="0.1" data-setting-key="shapelyPolygonizeToleranceMultiplier" />
+            <input type="number" value="1" min="0.1" max="10" step="0.1" data-setting-key="polygonizeToleranceMultiplier" />
             <span class="unit">x</span>
           </div>
         </div>
@@ -558,8 +556,6 @@
 <script src="services/dxf-engraving-preview-service.js"></script>
 <script src="services/dxf-flatten-service.js"></script>
 <script src="services/nesting-polygon/graph-utils.js"></script>
-<script src="services/nesting-polygon/cycle-ranking.js"></script>
-<script src="services/nesting-polygon/open-builder-helpers.js"></script>
 <script src="services/nesting-polygon/makerjs-helpers.js"></script>
 <script src="services/dxf-nesting-polygon-service.js"></script>
 <script src="services/dxf-shape-detection-service.js"></script>

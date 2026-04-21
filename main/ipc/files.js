@@ -119,20 +119,6 @@ function registerFileIpc({ getMainWindow }) {
     }
   });
 
-  ipcMain.on('run-concaveman-hull-sync', (event, payload) => {
-    try {
-      const concavemanModule = require('concaveman');
-      const concaveman = concavemanModule?.default || concavemanModule;
-      event.returnValue = concaveman(
-        Array.isArray(payload?.points) ? payload.points : [],
-        Number.isFinite(payload?.concavity) ? payload.concavity : 2,
-        Number.isFinite(payload?.lengthThreshold) ? payload.lengthThreshold : 0
-      );
-    } catch (err) {
-      event.returnValue = null;
-    }
-  });
-
   // Open a folder picker for DXF export destination.
   ipcMain.handle('choose-export-folder', async () => {
     const result = await dialog.showOpenDialog(getMainWindow(), {

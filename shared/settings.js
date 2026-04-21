@@ -3,10 +3,8 @@
 (function defineNestSettings(globalScope) {
   const SKETCH_CONTOUR_METHODS = [
     'auto',
-    'parent-seed',
-    'parent-extended',
     'makerjs-chains',
-    'shapely-polygonize',
+    'polygonize',
   ];
 
   const SETTINGS_DEFAULTS = {
@@ -21,7 +19,7 @@
     engravingLayer: '2',
     engravingStyle: 'simple',
     sketchContourMethod: 'auto',
-    shapelyPolygonizeToleranceMultiplier: 1,
+    polygonizeToleranceMultiplier: 1,
   };
 
   function coerceByDefault(value, fallback) {
@@ -56,6 +54,15 @@
     if (normalized.sketchContourMethod === 'makerjs-outline') {
       normalized.sketchContourMethod = 'makerjs-chains';
     }
+    if (normalized.sketchContourMethod === 'shapely-polygonize') {
+      normalized.sketchContourMethod = 'polygonize';
+    }
+    if (!('polygonizeToleranceMultiplier' in raw) && 'shapelyPolygonizeToleranceMultiplier' in raw) {
+      normalized.polygonizeToleranceMultiplier = coerceByDefault(
+        raw.shapelyPolygonizeToleranceMultiplier,
+        SETTINGS_DEFAULTS.polygonizeToleranceMultiplier
+      );
+    }
 
     if (!['top', 'bottom'].includes(normalized.preferredAlignment)) {
       normalized.preferredAlignment = SETTINGS_DEFAULTS.preferredAlignment;
@@ -86,9 +93,9 @@
     normalized.timeLimit = Math.max(10, Number(normalized.timeLimit) || SETTINGS_DEFAULTS.timeLimit);
     normalized.partSpacing = Math.max(0, Number(normalized.partSpacing) || 0);
     normalized.sheetMargin = Math.max(0, Number(normalized.sheetMargin) || 0);
-    normalized.shapelyPolygonizeToleranceMultiplier = Math.min(
+    normalized.polygonizeToleranceMultiplier = Math.min(
       10,
-      Math.max(0.1, Number(normalized.shapelyPolygonizeToleranceMultiplier) || SETTINGS_DEFAULTS.shapelyPolygonizeToleranceMultiplier)
+      Math.max(0.1, Number(normalized.polygonizeToleranceMultiplier) || SETTINGS_DEFAULTS.polygonizeToleranceMultiplier)
     );
 
     return normalized;
