@@ -669,16 +669,16 @@
       loop.area = area;
     });
 
-    debugDXF('Line loop result', {
-      lineCount: rawLineCount,
-      arcCount: rawArcCount,
-      splineCount: rawSplineCount,
-      planarEdgeCount: openEdges.length,
-      nodeCount: nodes.size,
-      componentCount: componentSeq,
-      inferredLoops: loops.length,
-      selectedLoops: loops.filter(loop => loop.isPrimary).length,
-    });
+    // debugDXF('Line loop result', {
+    //   lineCount: rawLineCount,
+    //   arcCount: rawArcCount,
+    //   splineCount: rawSplineCount,
+    //   planarEdgeCount: openEdges.length,
+    //   nodeCount: nodes.size,
+    //   componentCount: componentSeq,
+    //   inferredLoops: loops.length,
+    //   selectedLoops: loops.filter(loop => loop.isPrimary).length,
+    // });
 
     return loops;
   }

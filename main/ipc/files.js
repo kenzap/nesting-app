@@ -101,6 +101,38 @@ function registerFileIpc({ getMainWindow }) {
     }
   });
 
+  ipcMain.handle('write-debug-svg', async (event, payload) => {
+    try {
+      const safeName = String(payload?.name || 'debug-contour')
+        .replace(/[^a-z0-9-_]+/gi, '-')
+        .replace(/^-+|-+$/g, '') || 'debug-contour';
+      const debugDir = path.join(app.getAppPath(), 'etc', 'debug');
+      fs.mkdirSync(debugDir, { recursive: true });
+
+      const fileName = `${safeName}.svg`;
+      const filePath = path.join(debugDir, fileName);
+      fs.writeFileSync(filePath, String(payload?.svg || ''), 'utf-8');
+
+      return { success: true, path: filePath, directory: debugDir };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.on('run-concaveman-hull-sync', (event, payload) => {
+    try {
+      const concavemanModule = require('concaveman');
+      const concaveman = concavemanModule?.default || concavemanModule;
+      event.returnValue = concaveman(
+        Array.isArray(payload?.points) ? payload.points : [],
+        Number.isFinite(payload?.concavity) ? payload.concavity : 2,
+        Number.isFinite(payload?.lengthThreshold) ? payload.lengthThreshold : 0
+      );
+    } catch (err) {
+      event.returnValue = null;
+    }
+  });
+
   // Open a folder picker for DXF export destination.
   ipcMain.handle('choose-export-folder', async () => {
     const result = await dialog.showOpenDialog(getMainWindow(), {

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
   loadJobState: () => ipcRenderer.invoke('load-job-state'),
   saveJobState: (jobState) => ipcRenderer.invoke('save-job-state', jobState),
+  writeDebugSVG: (payload) => ipcRenderer.invoke('write-debug-svg', payload),
   getNativeEngineInfo: () => ipcRenderer.invoke('get-native-engine-info'),
   runSparrow: (payload, options) => ipcRenderer.invoke('run-sparrow', payload, options),
   pollSparrow: (runId) => ipcRenderer.invoke('poll-sparrow', runId),

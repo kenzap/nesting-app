@@ -7,7 +7,7 @@
   } = global.NestDxfFlattenService || {
     extractPolygonForEntities: () => null,
   };
-  const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  // const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
 
   if (!geometry) {
     global.NestDxfNestingPolygonLegacyService = {
@@ -1088,19 +1088,19 @@
 
     const best = ranked[0] || null;
 
-    debugDXF('Nesting polygon candidates', {
-      entityCount: (entities || []).filter(isRenderableEntity).length,
-      candidateCount: ranked.length,
-      chosenSource: best?.candidate?.source || null,
-      failedOpenChain: exactOpen && !exactOpen.polygonPoints ? exactOpen.failure : null,
-      candidates: ranked.map(entry => ({
-        source: entry.candidate.source,
-        tolerance: entry.candidate.tolerance || null,
-        alpha: entry.candidate.alpha || null,
-        polygonPointCount: entry.candidate.polygonPoints?.length || 0,
-        score: entry.score,
-      })),
-    });
+    // debugDXF('Nesting polygon candidates', {
+    //   entityCount: (entities || []).filter(isRenderableEntity).length,
+    //   candidateCount: ranked.length,
+    //   chosenSource: best?.candidate?.source || null,
+    //   failedOpenChain: exactOpen && !exactOpen.polygonPoints ? exactOpen.failure : null,
+    //   candidates: ranked.map(entry => ({
+    //     source: entry.candidate.source,
+    //     tolerance: entry.candidate.tolerance || null,
+    //     alpha: entry.candidate.alpha || null,
+    //     polygonPointCount: entry.candidate.polygonPoints?.length || 0,
+    //     score: entry.score,
+    //   })),
+    // });
 
     return best ? {
       ...best.candidate,

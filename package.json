@@ -15,8 +15,10 @@
   },
   "dependencies": {
     "@flatten-js/core": "^1.6.12",
+    "concaveman": "^2.0.0",
     "dxf-parser": "^1.1.2",
-    "jsts": "^2.12.1"
+    "jsts": "^2.12.1",
+    "makerjs": "^0.18.2"
   },
   "build": {
     "appId": "com.kenzap.nesting",

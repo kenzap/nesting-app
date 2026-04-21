@@ -5,6 +5,7 @@
     'auto',
     'parent-seed',
     'parent-extended',
+    'makerjs-chains',
     'shapely-polygonize',
   ];
 
@@ -51,6 +52,10 @@
       if (!(key in raw)) return;
       normalized[key] = coerceByDefault(raw[key], SETTINGS_DEFAULTS[key]);
     });
+
+    if (normalized.sketchContourMethod === 'makerjs-outline') {
+      normalized.sketchContourMethod = 'makerjs-chains';
+    }
 
     if (!['top', 'bottom'].includes(normalized.preferredAlignment)) {
       normalized.preferredAlignment = SETTINGS_DEFAULTS.preferredAlignment;

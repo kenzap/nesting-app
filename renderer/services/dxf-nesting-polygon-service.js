@@ -6,6 +6,7 @@
   const graphUtils = global.NestDxfNestingGraphUtils || {};
   const cycleRanking = global.NestDxfNestingCycleRanking || {};
   const openBuilderHelpers = global.NestDxfOpenBuilderHelpers || {};
+  const makerJsHelpers = global.NestDxfMakerJsHelpers || {};
 
   if (!geometry) {
     global.NestDxfNestingPolygonService = {
@@ -59,14 +60,21 @@
     rankParentBuilderCycles,
   } = openBuilderHelpers;
 
+  const {
+    buildMakerJsChains,
+    getOuterNestingContour,
+  } = makerJsHelpers;
+
   const FORCED_CONTOUR_SOURCES = new Set([
     'parent-seed',
     'parent-extended',
+    'makerjs-chains',
     'shapely-polygonize',
   ]);
 
   function normalizeRequestedContourSource(source) {
-    const normalized = source == null ? 'auto' : String(source);
+    const normalizedRaw = source == null ? 'auto' : String(source);
+    const normalized = normalizedRaw === 'makerjs-outline' ? 'makerjs-chains' : normalizedRaw;
     return normalized === 'auto' || FORCED_CONTOUR_SOURCES.has(normalized)
       ? normalized
       : 'auto';
@@ -1949,7 +1957,7 @@
         polygonizedFaceCount: 0,
         polygonizedRootCount: 0,
       };
-      debugDXF('Outer contour builder', debug);
+      // ('Outer contour builder', debug);
       return { polygonPoints: null, source: null, coverage: null, builderMode: 'shapely-polygonize', builderDebug: debug, rankedCandidates: [] };
     }
 
@@ -2003,55 +2011,6 @@
       tolerance: tolerance * 8,
     });
 
-    const debug = {
-      ...debugBase,
-      stage: winner ? 'success-shapely-polygonize' : 'rejected-shapely-polygonize',
-      chosenSource: winner?.candidate?.source || null,
-      chosenFaceIndex: winner?.candidate?.faceIndex ?? null,
-      chosenUnionGeometry: !!winner?.candidate?.unionGeometry,
-      chosenUnionBoundary: !!winner?.candidate?.unionBoundary,
-      lineUnionStrategy: lineUnion.lineUnionStrategy || null,
-      lineUnionFallbackUsed: !!lineUnion.lineUnionFallbackUsed,
-      lineUnionError: lineUnion.lineUnionError || null,
-      lineUnionType: typeof unionedLinework?.getGeometryType === 'function' ? unionedLinework.getGeometryType() : null,
-      lineUnionComponentCount: typeof unionedLinework?.getNumGeometries === 'function' ? unionedLinework.getNumGeometries() : 0,
-      nodedSegmentCount: lineUnion.nodedSegmentCount ?? null,
-      polygonizedFaceCount: faceEntries.length,
-      polygonizedRootCount: faceEntries.filter(entry => (entry.rootDepth || 0) === 0).length,
-      unionGeometryAvailable: unionGeometry.unionAvailable,
-      unionGeometryError: unionGeometry.error || null,
-      unionGeometryComponentCount: unionGeometry.componentCount || 0,
-      unionGeometryRootCount: (unionGeometry.entries || []).filter(entry => (entry.rootDepth || 0) === 0).length,
-      unionBoundarySegmentCount: unionBoundary.boundarySegments?.length || 0,
-      unionBoundaryFaceCount: unionBoundary.polygonizedFaces?.length || 0,
-      unionBoundaryRootCount: (unionBoundary.entries || []).filter(entry => (entry.rootDepth || 0) === 0).length,
-      rankedCandidateCount: ranked.length,
-      chosenContourEntities: provenance?.chosenContourEntities || [],
-      droppedSharedEntities: provenance?.droppedSharedEntities || [],
-      entityBoundaryStages,
-      polygonFaceMembership,
-      dominantRootFaceEntities,
-      boundaryDropReasons,
-      missingFaceConnectivity,
-      chosenContourSegmentCount: provenance?.chosenContourSegmentCount ?? null,
-      droppedSharedSegmentCount: provenance?.droppedSharedSegmentCount ?? null,
-      chosenDominantRootPreservation: winner?.dominantRootPreservation || null,
-      chosenUnionGeometryDominantPenalty: winner?.unionGeometryDominantPenalty || null,
-      candidates: ranked.slice(0, 10).map(entry => ({
-        source: entry.candidate?.source || null,
-        faceIndex: entry.candidate?.faceIndex ?? null,
-        unionGeometry: !!entry.candidate?.unionGeometry,
-        unionBoundary: !!entry.candidate?.unionBoundary,
-        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
-        rootDepth: entry.rootDepth ?? 0,
-        area: entry.area ?? null,
-        coverage: summarizeCoverageMetrics(entry.score),
-        dominantRootPreservation: entry.dominantRootPreservation || null,
-        unionGeometryDominantPenalty: entry.unionGeometryDominantPenalty || null,
-      })),
-    };
-    debugDXF('Outer contour builder', debug);
-
     if (!winner) {
       return {
         polygonPoints: null,
@@ -2092,21 +2051,7 @@
     };
 
     if (!rawSegments.length || !jsts?.geom?.GeometryFactory || !jsts?.operation?.polygonize?.Polygonizer) {
-      const debug = {
-        ...debugBase,
-        stage: !rawSegments.length ? 'no-segments' : 'jsts-unavailable',
-        curveEndpointRepairAttempted: false,
-        curveEndpointRepairApplied: false,
-        curveEndpointRepairLimit: null,
-        curveEndpointBridgeCount: 0,
-        curveEndpointRepairEntities: [],
-        curveEndpointRepairBridges: [],
-        curveEndpointSnapApplied: !!normalizedCurveEndpoints.applied,
-        curveEndpointSnapCount: normalizedCurveEndpoints.snapCount || 0,
-        curveEndpointSnapEntities: normalizedCurveEndpoints.snappedEntities || [],
-        curveEndpointSnaps: normalizedCurveEndpoints.snaps || [],
-      };
-      debugDXF('Outer contour builder', debug);
+
       return { polygonPoints: null, source: null, coverage: null, builderMode: 'shapely-polygonize', builderDebug: debug, rankedCandidates: [] };
     }
 
@@ -2433,6 +2378,206 @@
     return Array.isArray(result.rankedCandidates) && result.rankedCandidates.length > 0;
   }
 
+  function compareCoverageEntries(a, b) {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+    const aScore = a.score || {};
+    const bScore = b.score || {};
+    if ((aScore.outerMissCount || 0) !== (bScore.outerMissCount || 0)) return (aScore.outerMissCount || 0) - (bScore.outerMissCount || 0);
+    if (Math.abs((bScore.outerCoverage || 0) - (aScore.outerCoverage || 0)) > 1e-6) return (bScore.outerCoverage || 0) - (aScore.outerCoverage || 0);
+    if (Math.abs((bScore.entityCoverage || 0) - (aScore.entityCoverage || 0)) > 1e-6) return (bScore.entityCoverage || 0) - (aScore.entityCoverage || 0);
+    if (Math.abs((bScore.pointCoverage || 0) - (aScore.pointCoverage || 0)) > 1e-6) return (bScore.pointCoverage || 0) - (aScore.pointCoverage || 0);
+    if (Math.abs((bScore.areaCoverage || 0) - (aScore.areaCoverage || 0)) > 1e-6) return (bScore.areaCoverage || 0) - (aScore.areaCoverage || 0);
+    if (Math.abs((bScore.score || 0) - (aScore.score || 0)) > 1e-6) return (bScore.score || 0) - (aScore.score || 0);
+    return (b.area || 0) - (a.area || 0);
+  }
+
+  function chooseBetterBuilderResult(left, right) {
+    const leftUsable = hasMeaningfulBuilderOutput(left);
+    const rightUsable = hasMeaningfulBuilderOutput(right);
+    if (!leftUsable) return right;
+    if (!rightUsable) return left;
+
+    const leftEntry = {
+      score: left.coverage || null,
+      area: Math.abs(polygonSignedArea((left.polygonPoints || []).slice(0, -1))),
+    };
+    const rightEntry = {
+      score: right.coverage || null,
+      area: Math.abs(polygonSignedArea((right.polygonPoints || []).slice(0, -1))),
+    };
+    return compareCoverageEntries(leftEntry, rightEntry) <= 0 ? left : right;
+  }
+
+  function compareMakerJsChainEntries(a, b) {
+    const aScore = a.score || {};
+    const bScore = b.score || {};
+    if ((aScore.outerMissCount || 0) !== (bScore.outerMissCount || 0)) return (aScore.outerMissCount || 0) - (bScore.outerMissCount || 0);
+    if ((aScore.entityCoverage || 0) !== (bScore.entityCoverage || 0)) return (bScore.entityCoverage || 0) - (aScore.entityCoverage || 0);
+    if (Math.abs((aScore.score || 0) - (bScore.score || 0)) <= 0.05) {
+      if ((a.mergeCount || 0) !== (b.mergeCount || 0)) return (a.mergeCount || 0) - (b.mergeCount || 0);
+      if (Math.abs((a.closureGap || 0) - (b.closureGap || 0)) > EPS) return (a.closureGap || 0) - (b.closureGap || 0);
+    }
+    if ((aScore.pointCoverage || 0) !== (bScore.pointCoverage || 0)) return (bScore.pointCoverage || 0) - (aScore.pointCoverage || 0);
+    if ((aScore.areaCoverage || 0) !== (bScore.areaCoverage || 0)) return (bScore.areaCoverage || 0) - (aScore.areaCoverage || 0);
+    if ((aScore.score || 0) !== (bScore.score || 0)) return (bScore.score || 0) - (aScore.score || 0);
+    return (b.area || 0) - (a.area || 0);
+  }
+
+  function buildMakerJsChainContour(shapeRecord, options = {}) {
+    const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
+    const bbox = computeEntitiesBBox(shapeRecord?.entities || []);
+    const span = bboxSpan(bbox);
+    const gapTolerance = Number.isFinite(options.makerjsGapTolerance)
+      ? Math.max(0, options.makerjsGapTolerance)
+      : Math.max(tolerance * 64, span * 0.005, 1);
+    const dxfData = shapeRecord?.dxfData
+      || shapeRecord?._dxfData
+      || { entities: shapeRecord?.entities || [] };
+    const makerJsOptions = {
+      approximateSplines: true,
+      splineTolerance: Math.max(tolerance, 0.01),
+      maxArcFacet: Math.max(tolerance * 8, 0.5),
+      gapTolerance,
+    };
+
+    console.log("makerJsOptions", makerJsOptions)
+
+    const outerContour = typeof getOuterNestingContour === 'function'
+      ? getOuterNestingContour(dxfData, makerJsOptions)
+      : null;
+
+    const chainBuild = typeof buildMakerJsChains === 'function'
+      ? buildMakerJsChains(
+          dxfData,
+          makerJsOptions
+        )
+      : { available: false, candidates: [], pathCount: 0 };
+
+    const debugBase = {
+      shapeId: shapeRecord?.id || null,
+      stage: 'makerjs-unavailable',
+      gapTolerance,
+      sourceEntityCount: shapeRecord?.entities?.length || 0,
+      pathCount: chainBuild.pathCount || 0,
+      makerjsVersion: chainBuild.makerjs?.version || null,
+    };
+
+    if (!chainBuild.available) {
+      const debug = {
+        ...debugBase,
+        stage: 'makerjs-unavailable',
+      };
+      debugDXF('Outer contour builder', debug);
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'makerjs-chains', builderDebug: debug, rankedCandidates: [] };
+    }
+
+    if (chainBuild.error) {
+      const debug = {
+        ...debugBase,
+        stage: 'makerjs-chain-error',
+        error: chainBuild.error,
+      };
+      debugDXF('Outer contour builder', debug);
+      return { polygonPoints: null, source: null, coverage: null, builderMode: 'makerjs-chains', builderDebug: debug, rankedCandidates: [] };
+    }
+
+    const ranked = (chainBuild.candidates || [])
+      .map(candidate => {
+        const coverage = scorePolygonCoverage({ polygonPoints: candidate.polygonPoints }, shapeRecord.entities || []);
+        if (!coverage) return null;
+        return {
+          candidate: {
+            polygonPoints: candidate.polygonPoints,
+            source: 'makerjs-chains',
+            tolerance,
+            gapTolerance,
+            area: candidate.area,
+            chainIndex: candidate.chainIndex,
+            chainIndices: candidate.chainIndices || [],
+            mergeCount: candidate.mergeCount || 0,
+            closureGap: candidate.closureGap ?? null,
+            chainSource: candidate.source || null,
+          },
+          score: coverage,
+          area: candidate.area,
+          chainIndex: candidate.chainIndex,
+          mergeCount: candidate.mergeCount || 0,
+          closureGap: candidate.closureGap ?? null,
+        };
+      })
+      .filter(Boolean)
+      .sort(compareMakerJsChainEntries);
+
+    const outerCoverage = outerContour?.polygonPoints
+      ? scorePolygonCoverage({ polygonPoints: outerContour.polygonPoints }, shapeRecord.entities || [])
+      : null;
+    const winner = outerContour?.polygonPoints
+      ? {
+          candidate: {
+            polygonPoints: outerContour.polygonPoints,
+            source: 'makerjs-chains',
+            tolerance,
+            gapTolerance,
+            area: outerContour.area,
+            chainIndex: null,
+            chainIndices: outerContour.chainIndices || [],
+            mergeCount: Math.max(0, (outerContour.chainIndices || []).length - 1),
+            closureGap: outerContour.closureGap ?? null,
+            chainSource: outerContour.source || null,
+          },
+          score: outerCoverage,
+          area: outerContour.area,
+          chainIndex: null,
+          mergeCount: Math.max(0, (outerContour.chainIndices || []).length - 1),
+          closureGap: outerContour.closureGap ?? null,
+        }
+      : (ranked[0] || null);
+    const debug = {
+      ...debugBase,
+      stage: winner ? 'success-makerjs-chains' : 'no-makerjs-chain-candidates',
+      chainCount: chainBuild.chains?.length || 0,
+      closedChainCount: (chainBuild.chains || []).filter(entry => entry.endless).length,
+      openChainCount: (chainBuild.chains || []).filter(entry => !entry.endless).length,
+      candidateCount: ranked.length,
+      directOuterContourApplied: Boolean(outerContour?.polygonPoints),
+      chosenSource: winner?.candidate?.source || null,
+      chosenChainIndex: winner?.candidate?.chainIndex ?? null,
+      candidates: ranked.slice(0, 10).map(entry => ({
+        source: entry.candidate?.source || null,
+        chainSource: entry.candidate?.chainSource || null,
+        chainIndex: entry.candidate?.chainIndex ?? null,
+        chainIndices: (entry.candidate?.chainIndices || []).slice(0, 8),
+        mergeCount: entry.mergeCount ?? 0,
+        closureGap: entry.closureGap ?? null,
+        polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
+        area: entry.area ?? null,
+        coverage: summarizeCoverageMetrics(entry.score),
+      })),
+    };
+    debugDXF('Outer contour builder', debug);
+
+    if (!winner) {
+      return {
+        polygonPoints: null,
+        source: null,
+        coverage: null,
+        rankedCandidates: ranked,
+        builderMode: 'makerjs-chains',
+        builderDebug: debug,
+      };
+    }
+
+    return {
+      ...winner.candidate,
+      coverage: winner.score || null,
+      rankedCandidates: ranked,
+      builderMode: 'makerjs-chains',
+      builderDebug: debug,
+    };
+  }
+
   function detectNestingPolygon(input, options = {}) {
     if (Array.isArray(input)) return { polygonPoints: null, source: null, coverage: null, builderMode: 'array-input-unsupported', builderDebug: null };
     const shapeRecord = input;
@@ -2480,6 +2625,18 @@
       }, forcedSource, false);
     }
 
+    if (forcedSource === 'makerjs-chains') {
+      const makerBuilt = buildMakerJsChainContour(shapeRecord, options);
+      const forcedMaker = selectForcedResultBySource(makerBuilt, forcedSource);
+      if (forcedMaker) return withForcedBuilderMetadata(forcedMaker, forcedSource, true);
+      return withForcedBuilderMetadata({
+        ...makerBuilt,
+        polygonPoints: null,
+        source: null,
+        coverage: null,
+      }, forcedSource, false);
+    }
+
     if (forcedSource === 'shapely-polygonize') {
       const polygonized = buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options);
       const forcedPolygonized = selectForcedResultBySource(polygonized, forcedSource);
@@ -2495,9 +2652,9 @@
     const parentBuilt = buildExtendedOuterContourFromParent(shapeRecord, options);
     if (hasMeaningfulBuilderOutput(parentBuilt)) return parentBuilt;
 
+    const makerBuilt = buildMakerJsChainContour(shapeRecord, options);
     const polygonized = buildPolygonizedContourFromEntitiesWithCurveRepair(shapeRecord, options);
-    if (hasMeaningfulBuilderOutput(polygonized)) return polygonized;
-    return parentBuilt;
+    return chooseBetterBuilderResult(makerBuilt, polygonized) || makerBuilt || polygonized || parentBuilt;
   }
 
   global.NestDxfNestingPolygonService = {
@@ -2506,6 +2663,7 @@
     findBestPolygonizedCandidate: () => null,
     buildConcaveHullFallback: () => null,
     buildExtendedOuterContourFromParent,
+    buildMakerJsChainContour,
     buildPolygonizedContourFromEntities,
     buildPolygonizedContourFromEntitiesWithCurveRepair,
     detectNestingPolygon,

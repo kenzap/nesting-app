@@ -484,27 +484,27 @@
       mergedEntitiesByRoot.set(root, current);
     });
 
-    debugDXF('Dominant open merge', {
-      originalGroupCount: groupMeta.length,
-      openOwnerCount: openOwners.length,
-      owners: openOwners.map(owner => ({
-        entityCount: owner.group.entities.length,
-        envelopePointCount: owner.envelopePoints.length,
-        envelopeArea: +(owner.envelopeArea || 0).toFixed(3),
-        absorbedContourIds: absorbedIdsByOwner.get(owner.group) || [],
-      })),
-      absorbedGroupCount: absorbedGroups.size,
-      absorbedGroups: rankedGroups
-        .filter(entry => absorbedByGroup.has(entry.group))
-        .map(entry => ({
-          entityCount: entry.group.entities.length,
-          closedCount: entry.group.closedCount,
-          openCount: entry.group.openCount,
-          area: +(entry.area || 0).toFixed(3),
-          ownerEntityCount: absorbedByGroup.get(entry.group)?.entities?.length || 0,
-        })),
-      finalGroupCount: mergedEntitiesByRoot.size,
-    });
+    // debugDXF('Dominant open merge', {
+    //   originalGroupCount: groupMeta.length,
+    //   openOwnerCount: openOwners.length,
+    //   owners: openOwners.map(owner => ({
+    //     entityCount: owner.group.entities.length,
+    //     envelopePointCount: owner.envelopePoints.length,
+    //     envelopeArea: +(owner.envelopeArea || 0).toFixed(3),
+    //     absorbedContourIds: absorbedIdsByOwner.get(owner.group) || [],
+    //   })),
+    //   absorbedGroupCount: absorbedGroups.size,
+    //   absorbedGroups: rankedGroups
+    //     .filter(entry => absorbedByGroup.has(entry.group))
+    //     .map(entry => ({
+    //       entityCount: entry.group.entities.length,
+    //       closedCount: entry.group.closedCount,
+    //       openCount: entry.group.openCount,
+    //       area: +(entry.area || 0).toFixed(3),
+    //       ownerEntityCount: absorbedByGroup.get(entry.group)?.entities?.length || 0,
+    //     })),
+    //   finalGroupCount: mergedEntitiesByRoot.size,
+    // });
 
     const outputGroups = [];
     groupMeta.forEach(group => {
@@ -606,20 +606,20 @@
       .map((groupRecord, index) => buildShapeRecord(groupRecord, index))
       .filter(Boolean);
 
-    debugDXF('Shape structure result', {
-      shapeCount: shapes.length,
-      shapes: shapes.map(shape => ({
-        id: shape.id,
-        layer: shape.layer,
-        parentContourId: shape.parentContour?.id || null,
-        peerOuterIds: shape.peerOuters?.map(candidate => candidate.id) || [],
-        childClosedContourCount: shape.childClosedContours.length,
-        openEntityCount: shape.openEntities.length,
-        entityCount: shape.entities.length,
-        envelopePointCount: shape.envelopePoints?.length || 0,
-        usedWholeGroup: !!shape.usedWholeGroup,
-      })),
-    });
+    // debugDXF('Shape structure result', {
+    //   shapeCount: shapes.length,
+    //   shapes: shapes.map(shape => ({
+    //     id: shape.id,
+    //     layer: shape.layer,
+    //     parentContourId: shape.parentContour?.id || null,
+    //     peerOuterIds: shape.peerOuters?.map(candidate => candidate.id) || [],
+    //     childClosedContourCount: shape.childClosedContours.length,
+    //     openEntityCount: shape.openEntities.length,
+    //     entityCount: shape.entities.length,
+    //     envelopePointCount: shape.envelopePoints?.length || 0,
+    //     usedWholeGroup: !!shape.usedWholeGroup,
+    //   })),
+    // });
 
     return shapes;
   }

@@ -4,7 +4,7 @@
   const geometry = global.NestDxfGeometry;
   const svg = global.NestDxfSvg;
   const { createLayerResolver, FALLBACK_PALETTE } = global.NestDxfLayerService;
-  const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  // const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
   const {
     buildSketchGroups,
     extractPolygonForEntities,
@@ -852,61 +852,61 @@
       .map(([name, color]) => ({ name, color }));
     const layers = [...orderedLayers, ...extraLayers];
 
-    debugDXF('Raw preview parse', {
-      entityCount: entities.length,
-      renderableEntityCount: renderableEntities.length,
-      rawPreviewShapeCount: rawPreviewShapes.length,
-      structuredShapeCount: structuredShapes.length,
-      rasterShapeCount: rasterShapes.length,
-      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
-      sketchContourMethod,
-      shapelyPolygonizeToleranceMultiplier,
-    });
+    // debugDXF('Raw preview parse', {
+    //   entityCount: entities.length,
+    //   renderableEntityCount: renderableEntities.length,
+    //   rawPreviewShapeCount: rawPreviewShapes.length,
+    //   structuredShapeCount: structuredShapes.length,
+    //   rasterShapeCount: rasterShapes.length,
+    //   nestingPolygonCount: nestingPolygons.filter(Boolean).length,
+    //   sketchContourMethod,
+    //   shapelyPolygonizeToleranceMultiplier,
+    // });
 
-    debugDXF('Shape pipeline compare', {
-      rawPreviewShapeCount: rawPreviewShapes.length,
-      activePreviewShapeCount: shapes.length,
-      activePreviewShapes: shapes.map(shape => ({
-        id: shape.id,
-        entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
-        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
-        selectionPolygonPointCount: Array.isArray(shape.selectionPolygonPoints) ? shape.selectionPolygonPoints.length : 0,
-        selectionPolygonSource: shape.selectionPolygonSource || null,
-        selectionPolygonCoverage: shape.selectionPolygonCoverage || null,
-        selectionPolygonCandidates: shape.selectionPolygonCandidates || [],
-        forcedContourMethod: shape.forcedContourMethod || null,
-        forcedContourApplied: !!shape.forcedContourApplied,
-        nestingPolygonBuilderMode: shape.nestingPolygonBuilderMode || null,
-        nestingPolygonBuilderStage: shape.nestingPolygonBuilderDebug?.stage || null,
-        nestingPolygonBuilderStats: summarizeNestingBuilderDebug(shape.nestingPolygonBuilderDebug),
-        nestingPolygonCandidates: shape.nestingPolygonCandidates || [],
-      })),
-      structuredShapeCount: structuredShapes.length,
-      sketchContourMethod,
-      shapelyPolygonizeToleranceMultiplier,
-      structuredShapes: structuredShapes.map(shape => ({
-        id: shape.id,
-        parentContourType: shape.parentContour?.entity?.type || null,
-        childClosedContourCount: shape.childClosedContours?.length || 0,
-        openEntityCount: shape.openEntities?.length || 0,
-        entityCount: shape.entities?.length || 0,
-      })),
-      rasterShapeCount: rasterShapes.length,
-      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
-      nestingPolygons: nestingPolygons.map((polygon, index) => ({
-        shapeId: structuredShapes[index]?.id || `shape_${index}`,
-        source: polygon?.source || null,
-        builderMode: polygon?.builderMode || null,
-        builderStage: polygon?.builderDebug?.stage || null,
-        builderStats: summarizeNestingBuilderDebug(polygon?.builderDebug),
-        polygonPointCount: Array.isArray(polygon?.polygonPoints) ? polygon.polygonPoints.length : 0,
-        coverage: summarizeCoverageMetrics(polygon?.coverage),
-        candidates: (polygon?.rankedCandidates || [])
-          .slice(0, 4)
-          .map(summarizeNestingCandidateEntry)
-          .filter(Boolean),
-      })),
-    });
+    // debugDXF('Shape pipeline compare', {
+    //   rawPreviewShapeCount: rawPreviewShapes.length,
+    //   activePreviewShapeCount: shapes.length,
+    //   activePreviewShapes: shapes.map(shape => ({
+    //     id: shape.id,
+    //     entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
+    //     polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+    //     selectionPolygonPointCount: Array.isArray(shape.selectionPolygonPoints) ? shape.selectionPolygonPoints.length : 0,
+    //     selectionPolygonSource: shape.selectionPolygonSource || null,
+    //     selectionPolygonCoverage: shape.selectionPolygonCoverage || null,
+    //     selectionPolygonCandidates: shape.selectionPolygonCandidates || [],
+    //     forcedContourMethod: shape.forcedContourMethod || null,
+    //     forcedContourApplied: !!shape.forcedContourApplied,
+    //     nestingPolygonBuilderMode: shape.nestingPolygonBuilderMode || null,
+    //     nestingPolygonBuilderStage: shape.nestingPolygonBuilderDebug?.stage || null,
+    //     nestingPolygonBuilderStats: summarizeNestingBuilderDebug(shape.nestingPolygonBuilderDebug),
+    //     nestingPolygonCandidates: shape.nestingPolygonCandidates || [],
+    //   })),
+    //   structuredShapeCount: structuredShapes.length,
+    //   sketchContourMethod,
+    //   shapelyPolygonizeToleranceMultiplier,
+    //   structuredShapes: structuredShapes.map(shape => ({
+    //     id: shape.id,
+    //     parentContourType: shape.parentContour?.entity?.type || null,
+    //     childClosedContourCount: shape.childClosedContours?.length || 0,
+    //     openEntityCount: shape.openEntities?.length || 0,
+    //     entityCount: shape.entities?.length || 0,
+    //   })),
+    //   rasterShapeCount: rasterShapes.length,
+    //   nestingPolygonCount: nestingPolygons.filter(Boolean).length,
+    //   nestingPolygons: nestingPolygons.map((polygon, index) => ({
+    //     shapeId: structuredShapes[index]?.id || `shape_${index}`,
+    //     source: polygon?.source || null,
+    //     builderMode: polygon?.builderMode || null,
+    //     builderStage: polygon?.builderDebug?.stage || null,
+    //     builderStats: summarizeNestingBuilderDebug(polygon?.builderDebug),
+    //     polygonPointCount: Array.isArray(polygon?.polygonPoints) ? polygon.polygonPoints.length : 0,
+    //     coverage: summarizeCoverageMetrics(polygon?.coverage),
+    //     candidates: (polygon?.rankedCandidates || [])
+    //       .slice(0, 4)
+    //       .map(summarizeNestingCandidateEntry)
+    //       .filter(Boolean),
+    //   })),
+    // });
 
     return { shapes, layers };
   }
@@ -981,6 +981,13 @@
 
       if (!data && file && file.path && global.electronAPI?.parseDXF) {
         try {
+          // Pre-warm concaveman's ESM dynamic import before entering the
+          // sync parse pipeline. buildMakerJsChains reads the resolved
+          // library synchronously; awaiting here guarantees it's populated
+          // by the time detectNestingPolygon is called downstream.
+          if (global.NestDxfMakerJsHelpers?.resolveConcaveman) {
+            await global.NestDxfMakerJsHelpers.resolveConcaveman();
+          }
           const result = await global.electronAPI.parseDXF(file.path);
           if (result.success && result.data) {
             const parsed = parseDXFToShapes(result.data, result.raw, settings);
