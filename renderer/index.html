@@ -105,17 +105,6 @@
     </div>
     <div class="modal-body">
       <div class="settings-section">
-        <div class="settings-section-title">Sketch</div>
-        <div class="setting-row">
-          <label>Multi-Sketch Detection</label>
-          <label class="toggle">
-            <input type="checkbox" data-setting-key="multiSketchDetection" />
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-      </div>
-
-      <div class="settings-section">
         <div class="settings-section-title">Spacing &amp; Tolerances</div>
         <div class="setting-row">
           <label>Part Spacing (mm)</label>
@@ -171,6 +160,22 @@
             <span class="unit">seconds</span>
           </div>
         </div>
+        <div class="setting-row">
+          <label>Sketch contour method</label>
+          <select data-setting-key="sketchContourMethod">
+            <option value="auto" selected>Auto</option>
+            <option value="parent-extended">Parent extended</option>
+            <option value="parent-seed">Parent seed</option>
+            <option value="shapely-polygonize">Shapely polygonize</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label>Shapely tolerance</label>
+          <div class="input-with-unit">
+            <input type="number" value="1" min="0.1" max="10" step="0.1" data-setting-key="shapelyPolygonizeToleranceMultiplier" />
+            <span class="unit">x</span>
+          </div>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -195,8 +200,8 @@
         <div class="setting-row">
           <label>Engraving style</label>
           <select data-setting-key="engravingStyle">
-            <option value="simple">Simple - single line</option>
-            <option value="stroked" selected>Stroked - outlined</option>
+            <option value="simple" selected>Simple - single line</option>
+            <option value="stroked">Stroked - outlined</option>
           </select>
         </div>
       </div>
@@ -535,6 +540,8 @@
 
 <script src="../shared/constants.js"></script>
 <script src="../shared/settings.js"></script>
+<script src="../node_modules/@flatten-js/core/dist/main.umd.js"></script>
+<script src="../node_modules/jsts/dist/jsts.min.js"></script>
 <script src="helpers.js"></script>
 <script src="utils/dxf-color.js"></script>
 <script src="utils/dxf-geometry.js"></script>
@@ -546,7 +553,14 @@
 <script src="services/dxf-layer-service.js"></script>
 <script src="services/dxf-export-metadata-service.js"></script>
 <script src="services/dxf-engraving-preview-service.js"></script>
+<script src="services/dxf-flatten-service.js"></script>
+<script src="services/nesting-polygon/graph-utils.js"></script>
+<script src="services/nesting-polygon/cycle-ranking.js"></script>
+<script src="services/nesting-polygon/open-builder-helpers.js"></script>
+<script src="services/dxf-nesting-polygon-service.js"></script>
 <script src="services/dxf-shape-detection-service.js"></script>
+<script src="services/dxf-shape-structure-service.js"></script>
+<script src="services/dxf-raster-envelope-service.js"></script>
 <script src="services/dxf-preview-service.js"></script>
 <script src="views/files-pane.js"></script>
 <script src="views/sheets-pane.js"></script>

@@ -119,6 +119,22 @@
       renderSVG();
       renderList();
       if (pv.selectedId) {
+        const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
+        if (selected) {
+          console.log('[DXF DEBUG] Selected shape highlight', {
+            shapeId: selected.id,
+            method: selected.selectionPolygonSource || 'unknown',
+            forcedContourMethod: selected.forcedContourMethod || null,
+            forcedContourApplied: !!selected.forcedContourApplied,
+            selectionPolygonPointCount: Array.isArray(selected.selectionPolygonPoints) ? selected.selectionPolygonPoints.length : 0,
+            basePolygonPointCount: Array.isArray(selected.polygonPoints) ? selected.polygonPoints.length : 0,
+            entityCount: Array.isArray(selected.exportEntities) ? selected.exportEntities.length : 0,
+            coverage: selected.selectionPolygonCoverage || null,
+            candidates: selected.selectionPolygonCandidates || [],
+            nestingPolygonFailure: selected.nestingPolygonFailure || null,
+            nestingCandidates: selected.nestingPolygonCandidates || [],
+          });
+        }
         const element = dom.shapesList.querySelector(`[data-id="${pv.selectedId}"]`);
         if (element) element.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }

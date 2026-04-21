@@ -4,13 +4,41 @@
   const geometry = global.NestDxfGeometry;
   const svg = global.NestDxfSvg;
   const { createLayerResolver, FALLBACK_PALETTE } = global.NestDxfLayerService;
-  const { groupByContour, contourEntityToPath, contourEntityToPoints, debugDXF } = global.NestDxfShapeDetectionService;
+  const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  const {
+    buildSketchGroups,
+    extractPolygonForEntities,
+  } = global.NestDxfFlattenService || {
+    buildSketchGroups: () => [],
+    extractPolygonForEntities: () => null,
+  };
+  const { detectShapes: detectStructuredShapes } = global.NestDxfShapeStructureService || {
+    detectShapes: () => [],
+  };
+  const { detectRasterShapes } = global.NestDxfRasterEnvelopeService || {
+    detectRasterShapes: () => [],
+  };
+  const { detectNestingPolygon, scorePolygonCoverage } = global.NestDxfNestingPolygonService || {
+    detectNestingPolygon: () => null,
+    scorePolygonCoverage: () => null,
+  };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
-  const { normalizeSettings } = global.NestSettings;
+  const {
+    normalizeSettings,
+    SKETCH_CONTOUR_METHODS = [],
+  } = global.NestSettings;
 
   const { f1, mkRng, hashStr } = svg;
-  const { unionBBox, entityBBox, closePointRing } = geometry;
+  const {
+    unionBBox,
+    entityBBox,
+    closePointRing,
+    polylineVerticesToPoints,
+    ellipseToPoints,
+    splineToPoints,
+    circleToPoints,
+  } = geometry;
 
   function dedupeRenderedItems(items) {
     const seen = new Set();
@@ -21,6 +49,653 @@
       seen.add(key);
       return true;
     });
+  }
+
+  function rectPath(width, height) {
+    return `M0,0 H${svg.f(width)} V${svg.f(height)} H0 Z`;
+  }
+
+  function rectPolygonFromBBox(bbox) {
+    return closePointRing([
+      { x: bbox.minX, y: bbox.minY },
+      { x: bbox.maxX, y: bbox.minY },
+      { x: bbox.maxX, y: bbox.maxY },
+      { x: bbox.minX, y: bbox.maxY },
+    ]);
+  }
+
+  function pointsToPathData(polygonPoints, minX, maxY) {
+    const pathPoints = polygonPoints.length > 1 && polygonPoints[polygonPoints.length - 1]?.x === polygonPoints[0]?.x &&
+      polygonPoints[polygonPoints.length - 1]?.y === polygonPoints[0]?.y
+      ? polygonPoints.slice(0, -1)
+      : polygonPoints;
+    return pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
+  }
+
+  function normalizeSketchContourMethod(method) {
+    const normalized = method == null ? 'auto' : String(method);
+    return SKETCH_CONTOUR_METHODS.includes(normalized) ? normalized : 'auto';
+  }
+
+  function isForcedSketchContourMethod(method) {
+    return normalizeSketchContourMethod(method) !== 'auto';
+  }
+
+  function isTrustedSelectionCandidate(candidate, entityCount) {
+    const coverage = candidate?.coverage;
+    if (!coverage) return false;
+    const source = candidate?.source || '';
+    if ((coverage.selfIntersectionCount ?? 0) > 0 || (coverage.repeatedVertexCount ?? 0) > 0) return false;
+    const baseMaxUnsupported = Math.max(0, Math.floor((entityCount || 0) * 0.05));
+    const isOpenChain = source === 'exact-open-chain' || source === 'polygonized-tolerance';
+    const isTinyShape = (entityCount || 0) <= 3;
+
+    if (isOpenChain) {
+      return (coverage.entityCoverage ?? 0) >= 0.9 &&
+        (coverage.pointCoverage ?? 0) >= (isTinyShape ? 0.98 : 0.8) &&
+        (coverage.unsupportedEntityCount ?? Infinity) <= Math.max(2, baseMaxUnsupported) &&
+        (coverage.outerCoverage ?? 0) >= 0.9 &&
+        (coverage.outerMissCount ?? Infinity) === 0 &&
+        (coverage.selfIntersectionCount ?? Infinity) === 0 &&
+        (coverage.repeatedVertexCount ?? Infinity) === 0;
+    }
+
+    return (coverage.entityCoverage ?? 0) >= 0.9 &&
+      (coverage.pointCoverage ?? 0) >= 0.85 &&
+      (coverage.unsupportedEntityCount ?? Infinity) <= baseMaxUnsupported &&
+      (coverage.areaCoverage ?? 0) >= 0.1;
+  }
+
+  function isValidSelectionCandidate(candidate) {
+    const coverage = candidate?.coverage;
+    if (!coverage) return false;
+    return (coverage.selfIntersectionCount ?? 0) === 0 &&
+      (coverage.repeatedVertexCount ?? 0) === 0;
+  }
+
+  function isUsableSelectionCandidate(candidate) {
+    const coverage = candidate?.coverage;
+    if (!coverage) return false;
+    return (coverage.entityCoverage ?? 0) >= 0.6 &&
+      (coverage.pointCoverage ?? 0) >= 0.6 &&
+      (coverage.outerCoverage ?? 0) >= 0.5;
+  }
+
+  function isUsableParentBuilderCandidate(candidate, entityCount) {
+    if (isUsableSelectionCandidate(candidate)) return true;
+    const coverage = candidate?.coverage;
+    const source = candidate?.source || '';
+    if (!coverage) return false;
+    if (source !== 'parent-seed' && source !== 'parent-extended') return false;
+    const relaxedMaxUnsupported = Math.max(3, Math.floor((entityCount || 0) * 0.15));
+    return (coverage.entityCoverage ?? 0) >= 0.6 &&
+      (coverage.pointCoverage ?? 0) >= 0.5 &&
+      (coverage.outerCoverage ?? 0) >= 0.95 &&
+      (coverage.unsupportedEntityCount ?? Infinity) <= relaxedMaxUnsupported &&
+      (coverage.outerMissCount ?? Infinity) <= relaxedMaxUnsupported &&
+      (coverage.supportedAreaRatio ?? 0) >= 0.7 &&
+      (coverage.compactness ?? 0) >= 0.55 &&
+      (coverage.score ?? -Infinity) >= 0.05;
+  }
+
+  function sortSelectionCandidates(a, b) {
+    const aScore = a?.coverage?.score ?? -Infinity;
+    const bScore = b?.coverage?.score ?? -Infinity;
+    if (Math.abs(bScore - aScore) > 0.025) return bScore - aScore;
+    const aEntity = a.coverage?.entityCoverage ?? -Infinity;
+    const bEntity = b.coverage?.entityCoverage ?? -Infinity;
+    if (Math.abs(bEntity - aEntity) > 0.025) return bEntity - aEntity;
+    const aPoint = a.coverage?.pointCoverage ?? -Infinity;
+    const bPoint = b.coverage?.pointCoverage ?? -Infinity;
+    if (Math.abs(bPoint - aPoint) > 0.025) return bPoint - aPoint;
+    return b.priority - a.priority;
+  }
+
+  function summarizeCoverageMetrics(coverage) {
+    if (!coverage) return null;
+    return {
+      entityCoverage: coverage.entityCoverage ?? null,
+      pointCoverage: coverage.pointCoverage ?? null,
+      areaCoverage: coverage.areaCoverage ?? null,
+      outerCoverage: coverage.outerCoverage ?? null,
+      outerMissCount: coverage.outerMissCount ?? null,
+      outerMissIds: (coverage.outerMissIds || []).slice(0, 8),
+      unsupportedEntityCount: coverage.unsupportedEntityCount ?? null,
+      unsupportedEntityIds: (coverage.unsupportedEntityIds || []).slice(0, 8),
+      partialEntityCount: coverage.partialEntityCount ?? null,
+      partialEntityIds: (coverage.partialEntityIds || []).slice(0, 8),
+      partialEntities: (coverage.partialEntities || []).slice(0, 5).map(item => ({
+        id: item.id ?? null,
+        type: item.type ?? null,
+        layer: item.layer ?? null,
+        samplePointCount: item.samplePointCount ?? null,
+        supportedProbeCount: item.supportedProbeCount ?? null,
+        insideProbeCount: item.insideProbeCount ?? null,
+        outsideProbeCount: item.outsideProbeCount ?? null,
+        supportRatio: item.supportRatio ?? null,
+        outsideSamplePoints: (item.outsideSamplePoints || []).slice(0, 3),
+      })),
+      supportedAreaRatio: coverage.supportedAreaRatio ?? null,
+      compactness: coverage.compactness ?? null,
+      selfIntersectionCount: coverage.selfIntersectionCount ?? null,
+      repeatedVertexCount: coverage.repeatedVertexCount ?? null,
+      score: coverage.score ?? null,
+    };
+  }
+
+  function summarizeCandidateCoverageMetrics(coverage) {
+    if (!coverage) return null;
+    return {
+      entityCoverage: coverage.entityCoverage ?? null,
+      pointCoverage: coverage.pointCoverage ?? null,
+      areaCoverage: coverage.areaCoverage ?? null,
+      outerCoverage: coverage.outerCoverage ?? null,
+      outerMissCount: coverage.outerMissCount ?? null,
+      outerMissIds: (coverage.outerMissIds || []).slice(0, 6),
+      unsupportedEntityCount: coverage.unsupportedEntityCount ?? null,
+      unsupportedEntityIds: (coverage.unsupportedEntityIds || []).slice(0, 6),
+      partialEntityCount: coverage.partialEntityCount ?? null,
+      partialEntityIds: (coverage.partialEntityIds || []).slice(0, 6),
+      supportedAreaRatio: coverage.supportedAreaRatio ?? null,
+      compactness: coverage.compactness ?? null,
+      selfIntersectionCount: coverage.selfIntersectionCount ?? null,
+      repeatedVertexCount: coverage.repeatedVertexCount ?? null,
+      score: coverage.score ?? null,
+    };
+  }
+
+  function isSelectableContourCandidate(candidate, entityCount) {
+    if (!isValidSelectionCandidate(candidate)) return false;
+    const source = candidate?.source || '';
+    if (source === 'parent-seed' || source === 'parent-extended') {
+      return isUsableParentBuilderCandidate(candidate, entityCount);
+    }
+    if (source === 'structure-envelope') {
+      return isTrustedSelectionCandidate(candidate, entityCount);
+    }
+    return isUsableSelectionCandidate(candidate);
+  }
+
+  function buildRankedSelectionCandidate(entry, entities) {
+    const source = entry?.candidate?.source || null;
+    const polygonPoints = entry?.candidate?.polygonPoints || null;
+    if (!Array.isArray(polygonPoints) || polygonPoints.length < 4) return null;
+    return {
+      source,
+      polygonPoints,
+      coverage: entry.score || scorePolygonCoverage({ polygonPoints }, entities),
+      priority: 3,
+    };
+  }
+
+  function buildSelectionCandidateSummary(candidate, entityCount, trusted) {
+    return {
+      source: candidate.source,
+      priority: candidate.priority,
+      polygonPointCount: candidate.polygonPoints?.length || 0,
+      coverage: summarizeCoverageMetrics(candidate.coverage),
+      highlightEligible: isValidSelectionCandidate(candidate),
+      trusted: !!trusted,
+    };
+  }
+
+  function resolveSelectionNestingCandidate(nestingPolygon, entities, forcedSource = 'auto') {
+    if (!nestingPolygon) return null;
+    const normalizedForcedSource = normalizeSketchContourMethod(forcedSource);
+
+    const directCandidate = Array.isArray(nestingPolygon.polygonPoints) && nestingPolygon.polygonPoints.length >= 4
+      ? {
+          source: nestingPolygon.source,
+          polygonPoints: nestingPolygon.polygonPoints,
+          coverage: nestingPolygon.coverage || scorePolygonCoverage(nestingPolygon, entities),
+          priority: 3,
+        }
+      : null;
+
+    const rankedCandidates = Array.isArray(nestingPolygon.rankedCandidates)
+      ? nestingPolygon.rankedCandidates
+          .map(entry => buildRankedSelectionCandidate(entry, entities))
+          .filter(Boolean)
+      : [];
+
+    if (normalizedForcedSource !== 'auto') {
+      return [directCandidate, ...rankedCandidates]
+        .filter(Boolean)
+        .find(candidate => candidate.source === normalizedForcedSource) || null;
+    }
+
+    if (directCandidate && isValidSelectionCandidate(directCandidate)) {
+      return directCandidate;
+    }
+
+    return rankedCandidates.find(isValidSelectionCandidate) || directCandidate;
+  }
+
+  function chooseSelectionPolygon({ entities, structurePolygonPoints, envelopePolygonPoints, nestingPolygon, forcedSource = 'auto' }) {
+    const normalizedForcedSource = normalizeSketchContourMethod(forcedSource);
+    const forcedMode = normalizedForcedSource !== 'auto';
+    const candidates = [];
+    const entityCount = entities?.length || 0;
+
+    const resolvedNestingCandidate = resolveSelectionNestingCandidate(nestingPolygon, entities, normalizedForcedSource);
+    if (resolvedNestingCandidate?.polygonPoints?.length) {
+      candidates.push(resolvedNestingCandidate);
+    }
+
+    if (!forcedMode && Array.isArray(structurePolygonPoints) && structurePolygonPoints.length >= 4) {
+      candidates.push({
+        source: 'structure-polygon',
+        polygonPoints: structurePolygonPoints,
+        coverage: scorePolygonCoverage({ polygonPoints: structurePolygonPoints }, entities),
+        priority: 2,
+      });
+    }
+
+    if (!forcedMode && Array.isArray(envelopePolygonPoints) && envelopePolygonPoints.length >= 4) {
+      candidates.push({
+        source: 'structure-envelope',
+        polygonPoints: envelopePolygonPoints,
+        coverage: scorePolygonCoverage({ polygonPoints: envelopePolygonPoints }, entities),
+        priority: 0,
+      });
+    }
+
+    if (forcedMode) {
+      if (resolvedNestingCandidate?.polygonPoints?.length) {
+        return {
+          ...resolvedNestingCandidate,
+          candidateSummaries: candidates.map(candidate =>
+            buildSelectionCandidateSummary(candidate, entityCount, candidate === resolvedNestingCandidate)
+          ),
+        };
+      }
+
+      return {
+        source: null,
+        polygonPoints: [],
+        coverage: null,
+        priority: -1,
+        candidateSummaries: [],
+      };
+    }
+
+    if (resolvedNestingCandidate && isValidSelectionCandidate(resolvedNestingCandidate)) {
+      return {
+        ...resolvedNestingCandidate,
+        candidateSummaries: candidates.map(candidate =>
+          buildSelectionCandidateSummary(
+            candidate,
+            entityCount,
+            candidate === resolvedNestingCandidate || isTrustedSelectionCandidate(candidate, entityCount)
+          )
+        ),
+      };
+    }
+
+    const selectableCandidates = candidates
+      .filter(candidate => candidate !== resolvedNestingCandidate)
+      .filter(candidate => isSelectableContourCandidate(candidate, entityCount));
+    if (selectableCandidates.length) {
+      const selected = selectableCandidates[0];
+      return {
+        ...selected,
+        candidateSummaries: candidates.map(candidate =>
+          buildSelectionCandidateSummary(
+            candidate,
+            entityCount,
+            candidate === selected || isTrustedSelectionCandidate(candidate, entityCount)
+          )
+        ),
+      };
+    }
+
+    const validCandidates = candidates.filter(isValidSelectionCandidate).sort(sortSelectionCandidates);
+    if (validCandidates.length) {
+      const fallback = validCandidates[0];
+      return {
+        ...fallback,
+        candidateSummaries: candidates.map(candidate =>
+          buildSelectionCandidateSummary(
+            candidate,
+            entityCount,
+            candidate === fallback || isTrustedSelectionCandidate(candidate, entityCount)
+          )
+        ),
+      };
+    }
+
+    return {
+      source: null,
+      polygonPoints: [],
+      coverage: null,
+      priority: -1,
+      candidateSummaries: candidates.map(candidate =>
+        buildSelectionCandidateSummary(candidate, entityCount, false)
+      ),
+    };
+  }
+
+  function summarizeNestingBuilderDebug(builderDebug) {
+    if (!builderDebug) return null;
+    return {
+      autoChosenSource: builderDebug.autoChosenSource ?? null,
+      forcedSource: builderDebug.forcedSource ?? null,
+      forcedApplied: builderDebug.forcedApplied ?? null,
+      tolerance: builderDebug.tolerance ?? null,
+      toleranceMultiplier: builderDebug.toleranceMultiplier ?? null,
+      rawSegmentCount: builderDebug.rawSegmentCount ?? null,
+      snappedSegmentCount: builderDebug.snappedSegmentCount ?? null,
+      repairedSegmentCount: builderDebug.repairedSegmentCount ?? null,
+      endpointSegmentRepairCount: builderDebug.endpointSegmentRepairCount ?? null,
+      bridgeSegmentCount: builderDebug.bridgeSegmentCount ?? null,
+      endpointBridgeCount: builderDebug.endpointBridgeCount ?? null,
+      boundaryChildContourCount: builderDebug.boundaryChildContourCount ?? null,
+      childContourSegmentCount: builderDebug.childContourSegmentCount ?? null,
+      splitSegmentCount: builderDebug.splitSegmentCount ?? null,
+      graphNodeCount: builderDebug.graphNodeCount ?? null,
+      graphEdgeCount: builderDebug.graphEdgeCount ?? null,
+      rawCycleCount: builderDebug.rawCycleCount ?? null,
+      extendedGraphNodeCount: builderDebug.extendedGraphNodeCount ?? null,
+      extendedGraphEdgeCount: builderDebug.extendedGraphEdgeCount ?? null,
+      extendedRawCycleCount: builderDebug.extendedRawCycleCount ?? null,
+      subgroupGraphCount: builderDebug.subgroupGraphCount ?? null,
+      subgroupRawCycleCount: builderDebug.subgroupRawCycleCount ?? null,
+      polygonizedFaceCount: builderDebug.polygonizedFaceCount ?? null,
+      polygonizedRootCount: builderDebug.polygonizedRootCount ?? null,
+      lineUnionStrategy: builderDebug.lineUnionStrategy ?? null,
+      lineUnionFallbackUsed: builderDebug.lineUnionFallbackUsed ?? null,
+      lineUnionError: builderDebug.lineUnionError ?? null,
+      lineUnionType: builderDebug.lineUnionType ?? null,
+      lineUnionComponentCount: builderDebug.lineUnionComponentCount ?? null,
+      unionGeometryAvailable: builderDebug.unionGeometryAvailable ?? null,
+      unionGeometryError: builderDebug.unionGeometryError ?? null,
+      unionGeometryComponentCount: builderDebug.unionGeometryComponentCount ?? null,
+      unionGeometryRootCount: builderDebug.unionGeometryRootCount ?? null,
+      chosenUnionGeometry: builderDebug.chosenUnionGeometry ?? null,
+      chosenContourSegmentCount: builderDebug.chosenContourSegmentCount ?? null,
+      droppedSharedSegmentCount: builderDebug.droppedSharedSegmentCount ?? null,
+      chosenContourEntities: (builderDebug.chosenContourEntities || []).slice(0, 8),
+      droppedSharedEntities: (builderDebug.droppedSharedEntities || []).slice(0, 8),
+      entityBoundaryStages: (builderDebug.entityBoundaryStages || []).slice(0, 10),
+      polygonFaceMembership: (builderDebug.polygonFaceMembership || []).slice(0, 8),
+      dominantRootFaceEntities: (builderDebug.dominantRootFaceEntities || []).slice(0, 8),
+      boundaryDropReasons: (builderDebug.boundaryDropReasons || []).slice(0, 10),
+      missingFaceConnectivity: (builderDebug.missingFaceConnectivity || []).slice(0, 6),
+      chosenDominantRootPreservation: builderDebug.chosenDominantRootPreservation || null,
+      chosenUnionGeometryDominantPenalty: builderDebug.chosenUnionGeometryDominantPenalty || null,
+      polygonizerDiagnostics: builderDebug.polygonizerDiagnostics ? {
+        dangleCount: builderDebug.polygonizerDiagnostics.dangleCount ?? null,
+        cutEdgeCount: builderDebug.polygonizerDiagnostics.cutEdgeCount ?? null,
+        invalidRingLineCount: builderDebug.polygonizerDiagnostics.invalidRingLineCount ?? null,
+        dangleEntities: (builderDebug.polygonizerDiagnostics.dangleEntities || []).slice(0, 8),
+        cutEdgeEntities: (builderDebug.polygonizerDiagnostics.cutEdgeEntities || []).slice(0, 8),
+        invalidRingEntities: (builderDebug.polygonizerDiagnostics.invalidRingEntities || []).slice(0, 8),
+      } : null,
+      curveEndpointSnapApplied: builderDebug.curveEndpointSnapApplied ?? null,
+      curveEndpointSnapCount: builderDebug.curveEndpointSnapCount ?? null,
+      curveEndpointSnapEntities: (builderDebug.curveEndpointSnapEntities || []).slice(0, 6),
+      curveEndpointSnaps: (builderDebug.curveEndpointSnaps || []).slice(0, 8),
+      curveEndpointRepairAttempted: builderDebug.curveEndpointRepairAttempted ?? null,
+      curveEndpointRepairApplied: builderDebug.curveEndpointRepairApplied ?? null,
+      curveEndpointRepairPromotedApplied: builderDebug.curveEndpointRepairPromotedApplied ?? null,
+      curveEndpointRepairPromotedCount: builderDebug.curveEndpointRepairPromotedCount ?? null,
+      curveEndpointRepairLimit: builderDebug.curveEndpointRepairLimit ?? null,
+      curveEndpointBridgeCount: builderDebug.curveEndpointBridgeCount ?? null,
+      curveEndpointRepairEntities: (builderDebug.curveEndpointRepairEntities || []).slice(0, 6),
+      curveEndpointRepairBridges: (builderDebug.curveEndpointRepairBridges || []).slice(0, 8),
+      chosenSubgroupSource: builderDebug.chosenSubgroupSource ?? null,
+      rankedCycleCount: builderDebug.rankedCycleCount ?? null,
+    };
+  }
+
+  function summarizeNestingCandidateEntry(entry) {
+    if (!entry) return null;
+    return {
+      source: entry.candidate?.source || null,
+      subgroupIndex: entry.candidate?.subgroupIndex ?? null,
+      subgroupEntityCount: entry.candidate?.subgroupEntityCount ?? null,
+      subgroupSource: entry.candidate?.subgroupSource ?? null,
+      tolerance: entry.candidate?.tolerance || null,
+      alpha: entry.candidate?.alpha || null,
+      polygonPointCount: entry.candidate?.polygonPoints?.length || 0,
+      bboxCoverage: entry.bboxCoverage ?? null,
+      area: entry.area ?? entry.candidate?.area ?? null,
+      areaGain: entry.areaGain ?? null,
+      enclosesSeed: entry.enclosesSeed ?? null,
+      rootDepth: entry.rootDepth ?? null,
+      coverage: summarizeCandidateCoverageMetrics(entry.score),
+      dominantRootPreservation: entry.dominantRootPreservation || null,
+      unionGeometryDominantPenalty: entry.unionGeometryDominantPenalty || null,
+    };
+  }
+
+  function buildRawPreviewShape({ entities, index, layerOrder, layerColor, resolveEntityColor }) {
+    if (!Array.isArray(entities) || !entities.length) return null;
+
+    let renderBBox = null;
+    entities.forEach(entity => { renderBBox = unionBBox(renderBBox, entityBBox(entity)); });
+    if (!renderBBox) return null;
+
+    const { minX, minY, maxX, maxY } = renderBBox;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (width < 0.5 || height < 0.5) return null;
+
+    const usedLayers = [...new Set(entities.map(entity => entity.layer || '0'))];
+    const preferredLayer = layerOrder.find(name => usedLayers.includes(name)) || usedLayers[0] || '0';
+
+    const outerBoundaryItems = dedupeRenderedItems(entities.map(entity => {
+      const layerName = entity.layer || '0';
+      const color = resolveEntityColor(entity, layerName);
+      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+      if (!svgStr) return null;
+      return { layer: layerName, color, svg: svgStr };
+    }).filter(Boolean));
+
+    const exportEntityMap = new Map();
+    entities.forEach(entity => {
+      const key = entity.handle || JSON.stringify([
+        entity.type, entity.layer,
+        entity.start?.x, entity.start?.y,
+        entity.end?.x, entity.end?.y,
+        entity.center?.x, entity.center?.y,
+        entity.radius, entity.startAngle, entity.endAngle,
+        entity.vertices?.length,
+      ]);
+      if (!exportEntityMap.has(key)) {
+        const serialized = serializeEntityForExport(entity, entityToPointsForExport);
+        if (serialized) exportEntityMap.set(key, serialized);
+      }
+    });
+
+    const extractedPolygon = extractPolygonForEntities(entities);
+    const polygonPoints = extractedPolygon?.polygonPoints || rectPolygonFromBBox(renderBBox);
+    const polygonPath = pointsToPathData(polygonPoints, minX, maxY);
+    const fallbackPath = rectPath(width, height);
+    const selectionPath = polygonPath || fallbackPath;
+    return {
+      id: `s_${index}`,
+      name: `Sketch ${index + 1}`,
+      layer: preferredLayer,
+      layerColor: layerColor(preferredLayer),
+      hasSyntheticOuter: true,
+      hasExtractedPolygon: !!extractedPolygon,
+      mixedOuterLayers: usedLayers.length > 1,
+      selectionFillAllowed: false,
+      selectionPolygonSource: extractedPolygon ? 'raw-extracted' : 'bbox-fallback',
+      outerBoundaryItems,
+      pathData: selectionPath,
+      selectionPathData: selectionPath,
+      fillRule: 'nonzero',
+      polygonPoints,
+      bbox: { w: width, h: height },
+      decorSVG: [],
+      decorItems: [],
+      exportEntities: [...exportEntityMap.values()],
+      ownerLayers: usedLayers,
+      involvedLayers: usedLayers,
+      holes: [],
+      qty: 1,
+      visible: true,
+      selected: false,
+    };
+  }
+
+  function buildStructuredPreviewShape({
+    shapeRecord,
+    index,
+    layerOrder,
+    layerColor,
+    resolveEntityColor,
+    nestingPolygon,
+    forcedContourMethod = 'auto',
+  }) {
+    const entities = Array.isArray(shapeRecord?.entities) ? shapeRecord.entities : [];
+    if (!entities.length) return null;
+
+    let renderBBox = shapeRecord?.bbox || null;
+    entities.forEach(entity => { renderBBox = unionBBox(renderBBox, entityBBox(entity)); });
+    if (!renderBBox) return null;
+
+    const { minX, minY, maxX, maxY } = renderBBox;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (width < 0.5 || height < 0.5) return null;
+
+    const usedLayers = [...new Set(entities.map(entity => entity.layer || '0'))];
+    const preferredLayer = layerOrder.find(name => usedLayers.includes(name)) || shapeRecord.layer || usedLayers[0] || '0';
+
+    const outerBoundaryItems = dedupeRenderedItems(entities.map(entity => {
+      const layerName = entity.layer || '0';
+      const color = resolveEntityColor(entity, layerName);
+      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
+      if (!svgStr) return null;
+      return { layer: layerName, color, svg: svgStr };
+    }).filter(Boolean));
+
+    const exportEntityMap = new Map();
+    entities.forEach(entity => {
+      const key = entity.handle || JSON.stringify([
+        entity.type, entity.layer,
+        entity.start?.x, entity.start?.y,
+        entity.end?.x, entity.end?.y,
+        entity.center?.x, entity.center?.y,
+        entity.radius, entity.startAngle, entity.endAngle,
+        entity.vertices?.length,
+      ]);
+      if (!exportEntityMap.has(key)) {
+        const serialized = serializeEntityForExport(entity, entityToPointsForExport);
+        if (serialized) exportEntityMap.set(key, serialized);
+      }
+    });
+
+    const directParentSourcePoints = Array.isArray(shapeRecord?.parentContour?.polygonPoints) && shapeRecord.parentContour.polygonPoints.length >= 4
+      ? shapeRecord.parentContour.polygonPoints
+      : (Array.isArray(shapeRecord?.parentContour?.points) && shapeRecord.parentContour.points.length >= 4
+        ? shapeRecord.parentContour.points
+        : null);
+    const directParentPolygonPoints = Array.isArray(directParentSourcePoints) && directParentSourcePoints.length >= 4
+      ? closePointRing(directParentSourcePoints)
+      : null;
+    const directPeerSourcePoints = Array.isArray(shapeRecord?.peerOuters) && shapeRecord.peerOuters.length === 1
+      ? (Array.isArray(shapeRecord.peerOuters[0]?.polygonPoints) && shapeRecord.peerOuters[0].polygonPoints.length >= 4
+        ? shapeRecord.peerOuters[0].polygonPoints
+        : (Array.isArray(shapeRecord.peerOuters[0]?.points) && shapeRecord.peerOuters[0].points.length >= 4
+          ? shapeRecord.peerOuters[0].points
+          : null))
+      : null;
+    const directPeerPolygonPoints = Array.isArray(directPeerSourcePoints) && directPeerSourcePoints.length >= 4
+      ? closePointRing(directPeerSourcePoints)
+      : null;
+    const polygonPoints = Array.isArray(shapeRecord?.polygonPoints) && shapeRecord.polygonPoints.length
+      ? shapeRecord.polygonPoints
+      : rectPolygonFromBBox(renderBBox);
+    const structureOwnsPolygon = !!shapeRecord?.parentContour || !!(shapeRecord?.peerOuters && shapeRecord.peerOuters.length);
+    const structurePolygonPoints = structureOwnsPolygon
+      ? (directParentPolygonPoints || directPeerPolygonPoints || polygonPoints)
+      : null;
+    const envelopePolygonPoints = Array.isArray(shapeRecord?.envelopePoints) && shapeRecord.envelopePoints.length
+      ? shapeRecord.envelopePoints
+      : rectPolygonFromBBox(renderBBox);
+    const normalizedForcedContourMethod = normalizeSketchContourMethod(forcedContourMethod);
+    const forcedMode = isForcedSketchContourMethod(normalizedForcedContourMethod);
+    const selectionChoice = chooseSelectionPolygon({
+      entities,
+      structurePolygonPoints,
+      envelopePolygonPoints,
+      nestingPolygon,
+      forcedSource: normalizedForcedContourMethod,
+    });
+    const selectionPolygonPoints = selectionChoice.polygonPoints?.length ? selectionChoice.polygonPoints : null;
+    const displayPolygonPoints = forcedMode && selectionPolygonPoints?.length
+      ? selectionPolygonPoints
+      : (structurePolygonPoints || polygonPoints);
+    const polygonPath = pointsToPathData(displayPolygonPoints, minX, maxY);
+    const selectionPolygonPath = selectionPolygonPoints ? pointsToPathData(selectionPolygonPoints, minX, maxY) : null;
+    const fallbackPath = rectPath(width, height);
+    const selectionPath = selectionPolygonPath || null;
+
+    return {
+      id: shapeRecord.id || `s_${index}`,
+      name: `Sketch ${index + 1}`,
+      layer: preferredLayer,
+      layerColor: layerColor(preferredLayer),
+      hasSyntheticOuter: !shapeRecord?.parentContour,
+      hasExtractedPolygon: !!shapeRecord?.polygonPoints?.length,
+      mixedOuterLayers: usedLayers.length > 1,
+      selectionFillAllowed: false,
+      selectionPolygonSource: selectionChoice.source,
+      selectionPolygonCoverage: summarizeCoverageMetrics(selectionChoice.coverage),
+      selectionPolygonCandidates: selectionChoice.candidateSummaries || [],
+      forcedContourMethod: forcedMode ? normalizedForcedContourMethod : null,
+      forcedContourApplied: forcedMode ? !!selectionPolygonPoints?.length : false,
+      nestingPolygonFailure: nestingPolygon?.failedOpenChain || null,
+      nestingPolygonBuilderMode: nestingPolygon?.builderMode || null,
+      nestingPolygonBuilderDebug: nestingPolygon?.builderDebug || null,
+      nestingPolygonCandidates: (nestingPolygon?.rankedCandidates || [])
+        .slice(0, 4)
+        .map(summarizeNestingCandidateEntry)
+        .filter(Boolean),
+      nestingPolygon: nestingPolygon || null,
+      outerBoundaryItems,
+      pathData: polygonPath || fallbackPath,
+      selectionPathData: selectionPath,
+      fillRule: 'nonzero',
+      polygonPoints: displayPolygonPoints,
+      selectionPolygonPoints,
+      bbox: { w: width, h: height },
+      decorSVG: [],
+      decorItems: [],
+      exportEntities: [...exportEntityMap.values()],
+      ownerLayers: usedLayers,
+      involvedLayers: usedLayers,
+      holes: (shapeRecord.childClosedContours || []).map(contour => ({
+        id: contour.id,
+        points: contour.polygonPoints || contour.points || [],
+      })),
+      qty: 1,
+      visible: true,
+      selected: false,
+    };
+  }
+
+  function entityToPointsForExport(entity) {
+    if (!entity?.type) return [];
+    switch (entity.type) {
+      case 'LWPOLYLINE':
+      case 'POLYLINE':
+        return Array.isArray(entity.vertices)
+          ? polylineVerticesToPoints(entity.vertices, entity.closed !== false)
+          : [];
+      case 'CIRCLE':
+        return circleToPoints(entity);
+      case 'ELLIPSE':
+        return ellipseToPoints(entity, false);
+      case 'SPLINE':
+        return splineToPoints(entity);
+      default:
+        return [];
+    }
   }
 
   // Reads the raw DXF text line-by-line to pull out fields that dxf-parser
@@ -113,542 +788,123 @@
     });
   }
 
-  // Collapses the multi-group result into one sketch when multi-sketch
-  // detection is disabled. We keep the largest contour as the nesting boundary
-  // and treat every other group as supporting geometry within the same sketch.
-  function mergeGroupsIntoSingleSketch(groups) {
-    if (!groups.length) return groups;
-    const primary = groups
-      .slice()
-      .sort((a, b) => ((b.outer?.area || 0) - (a.outer?.area || 0)))[0];
-    if (!primary?.outer) return groups;
-
-    const merged = {
-      outer: primary.outer,
-      contours: [...primary.contours],
-      decorators: [...primary.decorators],
-      bbox: primary.bbox,
-      layer: primary.layer,
-    };
-
-    groups.forEach(group => {
-      if (group === primary) return;
-      merged.bbox = unionBBox(merged.bbox, group.bbox);
-      group.contours.forEach(contour => {
-        if (contour.id === group.outer?.id) {
-          merged.contours.push({ ...contour, depth: 0, parentId: primary.outer.id });
-        } else {
-          merged.contours.push({ ...contour, depth: 0, parentId: contour.parentId || primary.outer.id });
-        }
-      });
-      group.decorators.forEach(entity => merged.decorators.push(entity));
-    });
-
-    return [merged];
-  }
-
-  // Builds one preview shape from the entire DXF entity set. Used when
-  // multi-sketch detection is off: we still need one reliable polygon for
-  // nesting, but we should render all parsed geometry instead of only the
-  // entities that contour grouping happened to attach to a sub-shape.
-  function buildWholeSketchShape(entities, groups, layerTable, context) {
-    if (!groups.length) return null;
-    const primary = groups
-      .slice()
-      .sort((a, b) => ((b.outer?.area || 0) - (a.outer?.area || 0)))[0];
-    const outer = primary?.outer;
-    if (!outer) return null;
-
-    const { layerColor, resolveEntityColor, layerOrder, layerMap } = context;
-    const renderEntities = [];
-    const seenEntities = new Set();
-    const skippedRenderEntities = [];
-    const addEntity = entity => {
-      if (!entity || seenEntities.has(entity)) return;
-      seenEntities.add(entity);
-      renderEntities.push(entity);
-    };
-
-    entities.forEach(addEntity);
-
-    let renderBBox = outer.bbox;
-    groups.forEach(group => {
-      renderBBox = unionBBox(renderBBox, group.bbox);
-      group.contours.forEach(contour => { renderBBox = unionBBox(renderBBox, contour.bbox); });
-    });
-    renderEntities.forEach(entity => { renderBBox = unionBBox(renderBBox, entityBBox(entity)); });
-    if (!renderBBox) return null;
-
-    const { minX, maxY, maxX, minY } = renderBBox;
-    const width = maxX - minX;
-    const height = maxY - minY;
-    if (width < 0.5 || height < 0.5) return null;
-
-    const hasSyntheticOuter = outer.entity?.type === 'LINE_LOOP';
-    const outerPath = contourEntityToPath(outer.entity, minX, maxY);
-    if (!outerPath) return null;
-
-    const outerSourceEntities = hasSyntheticOuter ? (outer.entity?.sourceEntities || []) : [outer.entity];
-    const outerEntitySet = new Set(outerSourceEntities.filter(Boolean));
-
-    const decorItems = [];
-    renderEntities.forEach(entity => {
-      if (!entity || ['HATCH', 'TEXT', 'MTEXT', 'DIMENSION', 'INSERT'].includes(entity.type)) return;
-      if (outerEntitySet.has(entity)) return;
-      const layerName = entity.layer || outer.layer || '0';
-      const color = resolveEntityColor(entity, layerName);
-      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
-      if (!svgStr) {
-        skippedRenderEntities.push({
-          type: entity.type || 'UNKNOWN',
-          handle: entity.handle || null,
-          layer: layerName,
-        });
-        return;
-      }
-      layerMap.set(layerName, layerColor(layerName));
-      decorItems.push({
-        type: 'entity',
-        layer: layerName,
-        color,
-        svg: svgStr,
-      });
-    });
-
-    const contourLayers = [...new Set(groups.flatMap(group => group.contours.map(contour => contour.layer || '0').filter(Boolean)))];
-    const preferredOuterLayer = layerOrder.find(layerName => contourLayers.includes(layerName)) || contourLayers[0] || outer.layer || '0';
-    layerMap.set(preferredOuterLayer, layerColor(preferredOuterLayer));
-
-    const exportEntityMap = new Map();
-    const addExportEntity = entity => {
-      if (!entity) return;
-      const key = entity.handle || JSON.stringify([
-        entity.type, entity.layer,
-        entity.start?.x, entity.start?.y,
-        entity.end?.x, entity.end?.y,
-        entity.center?.x, entity.center?.y,
-        entity.radius, entity.startAngle, entity.endAngle,
-        entity.vertices?.length,
-      ]);
-      if (!exportEntityMap.has(key)) {
-        const serialized = serializeEntityForExport(entity, contourEntityToPoints);
-        if (serialized) exportEntityMap.set(key, serialized);
-      }
-    };
-    renderEntities.forEach(addExportEntity);
-
-    const outerBoundaryItems = outerSourceEntities.map(entity => {
-      const layerName = entity.layer || '0';
-      const color = resolveEntityColor(entity, layerName);
-      const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
-      if (!svgStr) return null;
-      return { layer: layerName, color, svg: svgStr };
-    }).filter(Boolean);
-
-    debugDXF('Single sketch build', {
-      totalEntities: entities.length,
-      renderedEntities: decorItems.length + outerBoundaryItems.length,
-      skippedEntities: skippedRenderEntities.length,
-      skippedByType: skippedRenderEntities.reduce((acc, item) => {
-        acc[item.type] = (acc[item.type] || 0) + 1;
-        return acc;
-      }, {}),
-      skippedEntities: skippedRenderEntities,
-    });
-
-    return {
-      id: 's_0',
-      name: 'Sketch 1',
-      layer: preferredOuterLayer,
-      layerColor: resolveEntityColor(outer.entity, preferredOuterLayer),
-      hasSyntheticOuter,
-      mixedOuterLayers: false,
-      selectionFillAllowed: false,
-      outerBoundaryItems,
-      pathData: outerPath,
-      selectionPathData: outerPath,
-      fillRule: 'nonzero',
-      polygonPoints: closePointRing(outer.points),
-      bbox: { w: width, h: height },
-      decorSVG: decorItems.map(item => item.svg),
-      decorItems,
-      exportEntities: [...exportEntityMap.values()],
-      ownerLayers: [preferredOuterLayer],
-      involvedLayers: [...new Set([preferredOuterLayer, ...decorItems.map(item => item.layer)])],
-      holes: [],
-      qty: 1,
-      visible: true,
-      selected: false,
-    };
-  }
-
-  // Core DXF-to-shapes pipeline. Takes a parsed DXF object and the original raw
-  // text, detects contours, builds SVG path data, collects decorator entities,
-  // and returns the shape + layer list the rest of the app uses.
+  // Parser-driven DXF-to-preview pipeline. We intentionally avoid contour or
+  // shape inference here and instead render the DXF entities directly, grouped
+  // only by Flatten-based connectivity. This keeps the modal faithful to the
+  // source file and removes custom contour heuristics from the active path.
   function parseDXFToShapes(dxf, raw, settingsInput = {}) {
     const settings = normalizeSettings(settingsInput);
+    const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+    const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
     const layerOrder = Object.keys(layerTable);
     const { layerColor, resolveEntityColor } = createLayerResolver(layerTable);
-    const detectedGroups = groupByContour(entities);
-    if (!detectedGroups.length) return null;
+    const renderableEntities = entities.filter(entity => {
+      if (!entity?.type) return false;
+      if (['HATCH', 'TEXT', 'MTEXT', 'DIMENSION', 'INSERT', 'POINT'].includes(entity.type)) return false;
+      return !!entityBBox(entity) && !!svg.entityToSVGStr(entity, 0, 0, '#fff');
+    });
+    if (!renderableEntities.length) return null;
 
-    const shapes = [];
-    const layerMap = new Map();
-    let idx = 0;
+    const groups = settings?.multiSketchDetection === false
+      ? [renderableEntities]
+      : buildSketchGroups(renderableEntities);
+    const rawPreviewShapes = groups
+      .map((groupEntities, index) => buildRawPreviewShape({
+        entities: groupEntities,
+        index,
+        layerOrder,
+        layerColor,
+        resolveEntityColor,
+      }))
+      .filter(Boolean);
+    if (!rawPreviewShapes.length) return null;
 
-    if (settings.multiSketchDetection === false) {
-      const wholeSketch = buildWholeSketchShape(
-        entities,
-        detectedGroups,
-        layerTable,
-        { layerColor, resolveEntityColor, layerOrder, layerMap }
-      );
-      if (wholeSketch) shapes.push(wholeSketch);
-    } else {
-      const groups = detectedGroups;
-
-    groups.forEach(group => {
-      const { outer, contours, decorators, bbox } = group;
-      let renderBBox = bbox;
-      const peerOuterContours = contours.filter(contour =>
-        contour.id !== outer.id &&
-        contour.depth === 0 &&
-        !contour.entity?.isAlphaShape
-      );
-      const syntheticSupportContours = contours.filter(contour =>
-        contour.id !== outer.id &&
-        contour.entity?.type === 'LINE_LOOP' &&
-        !contour.entity?.isAlphaShape
-      );
-
-      const holeContours = contours.filter(contour =>
-        contour.id !== outer.id &&
-        contour.depth % 2 === 1 &&
-        contour.entity?.type !== 'LINE_LOOP'
-      );
-
-      const closedDecorContours = contours.filter(contour =>
-        contour.id !== outer.id &&
-        contour.depth !== 0 &&
-        !(contour.layer === outer.layer && contour.depth % 2 === 1)
-      );
-
-      closedDecorContours.forEach(contour => { renderBBox = unionBBox(renderBBox, contour.bbox); });
-      decorators.forEach(decorator => { renderBBox = unionBBox(renderBBox, entityBBox(decorator)); });
-
-      const { minX, maxY, maxX, minY } = renderBBox;
-      const width = maxX - minX;
-      const height = maxY - minY;
-      if (width < 0.5 || height < 0.5) return;
-
-      const topLevelContours = [outer, ...peerOuterContours];
-      const boundaryContourPaths = [];
-      const boundaryItems = [];
-
-      topLevelContours.forEach(contour => {
-        const path = contourEntityToPath(contour.entity, minX, maxY);
-        if (path) {
-          boundaryContourPaths.push(path);
-          return;
-        }
-        if (contour.entity?.type === 'LINE_LOOP') {
-          (contour.entity?.sourceEntities || []).forEach(entity => {
-            const layerName = entity.layer || contour.layer || '0';
-            const color = resolveEntityColor(entity, layerName);
-            const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
-            if (!svgStr) return;
-            boundaryItems.push({ layer: layerName, color, svg: svgStr, contourId: contour.id });
-          });
-        }
-      });
-
-      syntheticSupportContours.forEach(contour => {
-        (contour.entity?.sourceEntities || []).forEach(entity => {
-          const layerName = entity.layer || contour.layer || '0';
-          const color = resolveEntityColor(entity, layerName);
-          const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
-          if (!svgStr) return;
-          boundaryItems.push({ layer: layerName, color, svg: svgStr, contourId: contour.id });
-        });
-      });
-
-      const contourPaths = [
-        ...boundaryContourPaths,
-        ...holeContours.map(contour => svg.pathFromPoints([...contour.points].reverse(), minX, maxY, true)).filter(Boolean),
-      ];
-      const pathData = contourPaths.join(' ');
-      const selectionPathData = contourEntityToPath(outer.entity, minX, maxY) || boundaryContourPaths[0] || '';
-      const fillRule = contourPaths.length > 1 ? 'evenodd' : 'nonzero';
-
-      const decorItems = [];
-      const renderedDecoratorHandles = [];
-      const skippedDecoratorHandles = [];
-      closedDecorContours.forEach(contour => {
-        if (contour.entity?.type === 'LINE_LOOP') return;
-        const layerName = contour.layer || '0';
-        const path = contourEntityToPath(contour.entity, minX, maxY);
-        if (!path) return;
-        const color = resolveEntityColor(contour.entity, layerName);
-        decorItems.push({
-          type: 'closed-contour',
-          layer: layerName,
-          color,
-          svg: `<path d="${path}" stroke="${color}" stroke-width="0.8" opacity="0.9" fill="none" stroke-linejoin="round"/>`,
-        });
-      });
-
-      decorators.forEach(decorator => {
-        const color = resolveEntityColor(decorator, outer.layer || '0');
-        const svgStr = svg.entityToSVGStr(decorator, minX, maxY, color);
-        if (!svgStr) {
-          skippedDecoratorHandles.push({
-            handle: decorator.handle || null,
-            type: decorator.type || 'UNKNOWN',
-            layer: decorator.layer || outer.layer || '0',
-          });
-          return;
-        }
-        renderedDecoratorHandles.push({
-          handle: decorator.handle || null,
-          type: decorator.type || 'UNKNOWN',
-          layer: decorator.layer || outer.layer || '0',
-        });
-        decorItems.push({
-          type: 'entity',
-          layer: decorator.layer || outer.layer || '0',
-          color,
-          svg: svgStr,
-        });
-      });
-
-      contours.slice(1).forEach(contour => layerMap.set(contour.layer || '0', layerColor(contour.layer || '0')));
-      decorators.forEach(decorator => layerMap.set(decorator.layer || '0', layerColor(decorator.layer || '0')));
-
-      const hasSyntheticOuter = outer.entity?.type === 'LINE_LOOP';
-      const mixedOuterLayers = hasSyntheticOuter && Array.isArray(outer.entity?.sourceLayers) && outer.entity.sourceLayers.length > 1;
-      const contourLayers = [...new Set(contours.map(contour => contour.layer || '0').filter(Boolean))];
-      const preferredOuterLayer = layerOrder.find(layerName => contourLayers.includes(layerName)) || contourLayers[0] || outer.layer || '0';
-      const ownerContour = contours
-        .filter(contour => (contour.layer || '0') === preferredOuterLayer)
-        .sort((a, b) => b.area - a.area)[0] || outer;
-      const ownerLayers = [preferredOuterLayer];
-      ownerLayers.forEach(layerName => layerMap.set(layerName, layerColor(layerName)));
-      const involvedLayers = [...new Set([...contourLayers, ...decorItems.map(item => item.layer)])];
-      const selectionFillAllowed = !hasSyntheticOuter && !mixedOuterLayers && involvedLayers.length <= 1 && closedDecorContours.length === 0 && decorators.length === 0 && peerOuterContours.length === 0;
-
-      const exportEntityMap = new Map();
-      const addExportEntity = entity => {
-        if (!entity) return;
-        const key = entity.handle || JSON.stringify([
-          entity.type, entity.layer,
-          entity.start?.x, entity.start?.y,
-          entity.end?.x, entity.end?.y,
-          entity.center?.x, entity.center?.y,
-          entity.radius, entity.startAngle, entity.endAngle,
-          entity.vertices?.length,
-        ]);
-        if (!exportEntityMap.has(key)) {
-          const serialized = serializeEntityForExport(entity, contourEntityToPoints);
-          if (serialized) exportEntityMap.set(key, serialized);
-        }
-      };
-
-      if (hasSyntheticOuter) (outer.entity?.sourceEntities || []).forEach(addExportEntity);
-      else addExportEntity(outer.entity);
-      holeContours.forEach(contour => addExportEntity(contour.entity));
-      closedDecorContours.forEach(contour => addExportEntity(contour.entity));
-      decorators.forEach(addExportEntity);
-
-      // When the chosen outer is a synthetic LINE_LOOP, pathData is suppressed by
-      // the canvas (renderSyntheticPath = false). LINE_LOOP peer outers are covered
-      // by syntheticSupportContours → boundaryItems, but non-LINE_LOOP peer outers
-      // (e.g. LWPOLYLINE c_0, c_1) end up in neither boundaryItems nor
-      // outerBoundaryItems, making them invisible. Add them explicitly here.
-      const nonSyntheticPeerOuterItems = hasSyntheticOuter
-        ? peerOuterContours
-            .filter(c => c.entity?.type !== 'LINE_LOOP')
-            .flatMap(contour => {
-              const path = contourEntityToPath(contour.entity, minX, maxY);
-              if (!path) return [];
-              const layerName = contour.layer || '0';
-              const color = resolveEntityColor(contour.entity, layerName);
-              return [{ layer: layerName, color, svg: `<path d="${path}" fill="none" stroke="${color}" stroke-width="1.4" stroke-linejoin="round"/>` }];
-            })
-        : [];
-
-      const outerBoundaryItems = dedupeRenderedItems([
-        ...boundaryItems,
-        ...nonSyntheticPeerOuterItems,
-        ...(hasSyntheticOuter
-        ? (outer.entity?.sourceEntities || []).map(entity => {
-            const layerName = entity.layer || '0';
-            const color = resolveEntityColor(entity, layerName);
-            const svgStr = svg.entityToSVGStr(entity, minX, maxY, color);
-            if (!svgStr) return null;
-            return { layer: layerName, color, svg: svgStr };
-          }).filter(Boolean)
-        : []),
-      ]);
-
-      debugDXF('Shape render summary', {
-        shapeId: `s_${idx}`,
-        outerId: outer.id,
-        contourIds: contours.map(contour => contour.id),
-        decoratorHandles: decorators.map(entity => ({
-          handle: entity.handle || null,
-          type: entity.type || 'UNKNOWN',
-          layer: entity.layer || outer.layer || '0',
-        })),
-        renderedDecoratorHandles,
-        skippedDecoratorHandles,
-        topLevelContours: topLevelContours.map(contour => ({
-          id: contour.id,
-          type: contour.entity?.type || 'UNKNOWN',
-          pathRendered: !!contourEntityToPath(contour.entity, minX, maxY),
-          boundaryItemCount: boundaryItems.filter(item => item.contourId === contour.id).length,
-          sourceEntityHandles: Array.isArray(contour.entity?.sourceEntities)
-            ? contour.entity.sourceEntities.map(entity => ({
-                handle: entity.handle || null,
-                type: entity.type || 'UNKNOWN',
-                layer: entity.layer || contour.layer || '0',
-              }))
-            : [],
-        })),
-        syntheticSupportContours: syntheticSupportContours.map(contour => ({
-          id: contour.id,
-          depth: contour.depth,
-          sourceEntityHandles: Array.isArray(contour.entity?.sourceEntities)
-            ? contour.entity.sourceEntities.map(entity => ({
-                handle: entity.handle || null,
-                type: entity.type || 'UNKNOWN',
-                layer: entity.layer || contour.layer || '0',
-              }))
-            : [],
-          boundaryItemCount: boundaryItems.filter(item => item.contourId === contour.id).length,
-        })),
-      });
-
-      debugDXF('Shape svg fragment', {
-        shapeId: `s_${idx}`,
-        outerId: outer.id,
-        contourIds: contours.map(contour => contour.id),
-        pathData,
-        selectionPathData,
-        fillRule,
-        outerBoundaryItems: outerBoundaryItems.map(item => ({
-          layer: item.layer,
-          color: item.color,
-          svg: item.svg,
-        })),
-        decorItems: decorItems.map(item => ({
-          type: item.type,
-          layer: item.layer,
-          color: item.color,
-          svg: item.svg,
-        })),
-      });
-
-      debugDXF('Shape contour sources', {
-        shapeId: `s_${idx}`,
-        outerId: outer.id,
-        contours: contours.map(contour => ({
-          id: contour.id,
-          depth: contour.depth,
-          type: contour.entity?.type || 'UNKNOWN',
-          isAlphaShape: !!contour.entity?.isAlphaShape,
-          isPrimary: !!contour.entity?.isPrimary,
-          isOuterBoundary: !!contour.entity?.isOuterBoundary,
-          sourceEntities: Array.isArray(contour.entity?.sourceEntities)
-            ? contour.entity.sourceEntities.map(entity => ({
-                handle: entity.handle || null,
-                type: entity.type || 'UNKNOWN',
-                layer: entity.layer || contour.layer || '0',
-                svg: svg.entityToSVGStr(entity, minX, maxY, resolveEntityColor(entity, entity.layer || contour.layer || '0')),
-              }))
-            : [],
-        })),
-      });
-
-      debugDXF('Shape contour geometry', {
-        shapeId: `s_${idx}`,
-        outerId: outer.id,
-        contours: contours.map(contour => ({
-          id: contour.id,
-          type: contour.entity?.type || 'UNKNOWN',
-          handle: contour.entity?.handle || null,
-          depth: contour.depth,
-          bbox: contour.bbox,
-          points: Array.isArray(contour.points)
-            ? contour.points.map(point => ({
-                x: +point.x.toFixed(3),
-                y: +point.y.toFixed(3),
-              }))
-            : [],
-          entityVertices: Array.isArray(contour.entity?.vertices)
-            ? contour.entity.vertices.map(vertex => ({
-                x: +vertex.x.toFixed(3),
-                y: +vertex.y.toFixed(3),
-                bulge: Number.isFinite(vertex.bulge) ? +vertex.bulge.toFixed(6) : null,
-              }))
-            : [],
-          entityCenter: contour.entity?.center
-            ? {
-                x: +contour.entity.center.x.toFixed(3),
-                y: +contour.entity.center.y.toFixed(3),
-              }
-            : null,
-          entityRadius: Number.isFinite(contour.entity?.radius)
-            ? +contour.entity.radius.toFixed(3)
-            : null,
-        })),
-      });
-
-      shapes.push({
-          id: `s_${idx++}`,
-          name: `Shape ${idx}`,
-          layer: preferredOuterLayer,
-          layerColor: resolveEntityColor(ownerContour.entity, preferredOuterLayer),
-          hasSyntheticOuter,
-          mixedOuterLayers,
-          selectionFillAllowed,
-          outerBoundaryItems,
-          pathData,
-          selectionPathData,
-          fillRule,
-          polygonPoints: closePointRing(outer.points),
-          bbox: { w: width, h: height },
-          decorSVG: decorItems.map(item => item.svg),
-          decorItems,
-          exportEntities: [...exportEntityMap.values()],
-          ownerLayers,
-          involvedLayers,
-          holes: [],
-          qty: 1,
-          visible: true,
-          selected: false,
-        });
-      });
-    }
-
+    const structuredShapes = detectStructuredShapes(renderableEntities, {
+      singleSketch: settings?.multiSketchDetection === false,
+    });
+    const rasterShapes = detectRasterShapes(renderableEntities);
+    const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape, {
+      contourMethod: sketchContourMethod,
+      shapelyPolygonizeToleranceMultiplier,
+    }));
+    const shapes = structuredShapes.length
+      ? structuredShapes
+          .map((shapeRecord, index) => buildStructuredPreviewShape({
+            shapeRecord,
+            index,
+            layerOrder,
+            layerColor,
+            resolveEntityColor,
+            nestingPolygon: nestingPolygons[index] || null,
+            forcedContourMethod: sketchContourMethod,
+          }))
+          .filter(Boolean)
+      : rawPreviewShapes;
     if (!shapes.length) return null;
 
-    const orderedLayers = layerOrder.map(name => ({ name, color: layerColor(name) })).filter(layer => layer.name);
+    const usedLayers = [...new Set(shapes.flatMap(shape => shape.involvedLayers || [shape.layer]))];
+    const layerMap = new Map(usedLayers.map(name => [name, layerColor(name)]));
+    const orderedLayers = layerOrder.map(name => ({ name, color: layerColor(name) })).filter(layer => layer.name && usedLayers.includes(layer.name));
     const extraLayers = [...layerMap.entries()]
       .filter(([name]) => !layerOrder.includes(name))
       .map(([name, color]) => ({ name, color }));
     const layers = [...orderedLayers, ...extraLayers];
 
-    debugDXF('Parse complete', {
-      shapeCount: shapes.length,
-      layerCount: layers.length,
-      shapes: shapes.map(shape => ({
+    debugDXF('Raw preview parse', {
+      entityCount: entities.length,
+      renderableEntityCount: renderableEntities.length,
+      rawPreviewShapeCount: rawPreviewShapes.length,
+      structuredShapeCount: structuredShapes.length,
+      rasterShapeCount: rasterShapes.length,
+      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
+      sketchContourMethod,
+      shapelyPolygonizeToleranceMultiplier,
+    });
+
+    debugDXF('Shape pipeline compare', {
+      rawPreviewShapeCount: rawPreviewShapes.length,
+      activePreviewShapeCount: shapes.length,
+      activePreviewShapes: shapes.map(shape => ({
         id: shape.id,
-        layer: shape.layer,
-        bbox: shape.bbox,
-        fillRule: shape.fillRule,
-        decorCount: shape.decorSVG.length,
+        entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
+        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
+        selectionPolygonPointCount: Array.isArray(shape.selectionPolygonPoints) ? shape.selectionPolygonPoints.length : 0,
+        selectionPolygonSource: shape.selectionPolygonSource || null,
+        selectionPolygonCoverage: shape.selectionPolygonCoverage || null,
+        selectionPolygonCandidates: shape.selectionPolygonCandidates || [],
+        forcedContourMethod: shape.forcedContourMethod || null,
+        forcedContourApplied: !!shape.forcedContourApplied,
+        nestingPolygonBuilderMode: shape.nestingPolygonBuilderMode || null,
+        nestingPolygonBuilderStage: shape.nestingPolygonBuilderDebug?.stage || null,
+        nestingPolygonBuilderStats: summarizeNestingBuilderDebug(shape.nestingPolygonBuilderDebug),
+        nestingPolygonCandidates: shape.nestingPolygonCandidates || [],
+      })),
+      structuredShapeCount: structuredShapes.length,
+      sketchContourMethod,
+      shapelyPolygonizeToleranceMultiplier,
+      structuredShapes: structuredShapes.map(shape => ({
+        id: shape.id,
+        parentContourType: shape.parentContour?.entity?.type || null,
+        childClosedContourCount: shape.childClosedContours?.length || 0,
+        openEntityCount: shape.openEntities?.length || 0,
+        entityCount: shape.entities?.length || 0,
+      })),
+      rasterShapeCount: rasterShapes.length,
+      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
+      nestingPolygons: nestingPolygons.map((polygon, index) => ({
+        shapeId: structuredShapes[index]?.id || `shape_${index}`,
+        source: polygon?.source || null,
+        builderMode: polygon?.builderMode || null,
+        builderStage: polygon?.builderDebug?.stage || null,
+        builderStats: summarizeNestingBuilderDebug(polygon?.builderDebug),
+        polygonPointCount: Array.isArray(polygon?.polygonPoints) ? polygon.polygonPoints.length : 0,
+        coverage: summarizeCoverageMetrics(polygon?.coverage),
+        candidates: (polygon?.rankedCandidates || [])
+          .slice(0, 4)
+          .map(summarizeNestingCandidateEntry)
+          .filter(Boolean),
       })),
     });
 
@@ -710,11 +966,15 @@
       const settings = typeof global.getCurrentNestingSettings === 'function'
         ? global.getCurrentNestingSettings()
         : {};
+      const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+      const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
       const matchesSketchMode = file?._multiSketchDetection === !!settings.multiSketchDetection;
+      const matchesContourMethod = normalizeSketchContourMethod(file?._sketchContourMethod) === sketchContourMethod;
+      const matchesShapelyTolerance = Number(file?._shapelyPolygonizeToleranceMultiplier || 1) === shapelyPolygonizeToleranceMultiplier;
       let data = null;
       let source = 'mock';
 
-      if (matchesSketchMode && file?.shapes?.length) {
+      if (matchesSketchMode && matchesContourMethod && matchesShapelyTolerance && file?.shapes?.length) {
         data = applyPartLabelsToPreviewData(clonePreviewData({ shapes: file.shapes, layers: file.layers || [] }), filename);
         source = 'saved';
       }
@@ -729,6 +989,8 @@
               file.shapes = clonePreviewData(data).shapes;
               file.layers = clonePreviewData(data).layers;
               file._multiSketchDetection = !!settings.multiSketchDetection;
+              file._sketchContourMethod = sketchContourMethod;
+              file._shapelyPolygonizeToleranceMultiplier = shapelyPolygonizeToleranceMultiplier;
               source = 'real';
             }
           }
@@ -750,7 +1012,10 @@
       file.shapes = shapes.map(shape => global.NestDxfPreviewState.clonePreviewShape(shape));
       file.layers = layers.map(layer => ({ ...layer }));
       if (typeof global.getCurrentNestingSettings === 'function') {
-        file._multiSketchDetection = !!global.getCurrentNestingSettings().multiSketchDetection;
+        const settings = global.getCurrentNestingSettings();
+        file._multiSketchDetection = !!settings.multiSketchDetection;
+        file._sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+        file._shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
       }
       file.qty = file.shapes
         .filter(shape => shape.visible !== false)

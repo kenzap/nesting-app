@@ -1,8 +1,14 @@
 'use strict';
 
 (function defineNestSettings(globalScope) {
+  const SKETCH_CONTOUR_METHODS = [
+    'auto',
+    'parent-seed',
+    'parent-extended',
+    'shapely-polygonize',
+  ];
+
   const SETTINGS_DEFAULTS = {
-    multiSketchDetection: true,
     partSpacing: 0,
     sheetMargin: 0,
     rotationStep: '90',
@@ -10,9 +16,11 @@
     earlyStopping: true,
     preferredAlignment: 'top',
     timeLimit: 60,
-    exportFormat: 'svg',
+    exportFormat: 'dxf',
     engravingLayer: '2',
-    engravingStyle: 'stroked',
+    engravingStyle: 'simple',
+    sketchContourMethod: 'auto',
+    shapelyPolygonizeToleranceMultiplier: 1,
   };
 
   function coerceByDefault(value, fallback) {
@@ -56,6 +64,10 @@
       normalized.engravingStyle = SETTINGS_DEFAULTS.engravingStyle;
     }
 
+    if (!SKETCH_CONTOUR_METHODS.includes(normalized.sketchContourMethod)) {
+      normalized.sketchContourMethod = SETTINGS_DEFAULTS.sketchContourMethod;
+    }
+
     const engravingLayerRaw = normalized.engravingLayer;
     if (engravingLayerRaw !== 'off') {
       const parsed = Number.parseInt(String(engravingLayerRaw), 10);
@@ -69,12 +81,17 @@
     normalized.timeLimit = Math.max(10, Number(normalized.timeLimit) || SETTINGS_DEFAULTS.timeLimit);
     normalized.partSpacing = Math.max(0, Number(normalized.partSpacing) || 0);
     normalized.sheetMargin = Math.max(0, Number(normalized.sheetMargin) || 0);
+    normalized.shapelyPolygonizeToleranceMultiplier = Math.min(
+      10,
+      Math.max(0.1, Number(normalized.shapelyPolygonizeToleranceMultiplier) || SETTINGS_DEFAULTS.shapelyPolygonizeToleranceMultiplier)
+    );
 
     return normalized;
   }
 
   const settingsApi = {
     SETTINGS_DEFAULTS,
+    SKETCH_CONTOUR_METHODS,
     normalizeSettings,
   };
 
