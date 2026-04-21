@@ -165,7 +165,6 @@
           <select data-setting-key="sketchContourMethod">
             <option value="auto" selected>Auto</option>
             <option value="makerjs-chains">Maker.js chains</option>
-            <option value="polygonize">Polygonize</option>
           </select>
         </div>
       </div>
@@ -533,7 +532,6 @@
 <script src="../shared/constants.js"></script>
 <script src="../shared/settings.js"></script>
 <script src="../node_modules/@flatten-js/core/dist/main.umd.js"></script>
-<script src="../node_modules/jsts/dist/jsts.min.js"></script>
 <script src="../node_modules/makerjs/dist/browser.maker.js"></script>
 <script src="vendor/concaveman.js"></script>
 <script src="helpers.js"></script>
@@ -548,8 +546,10 @@
 <script src="services/dxf-export-metadata-service.js"></script>
 <script src="services/dxf-engraving-preview-service.js"></script>
 <script src="services/dxf-flatten-service.js"></script>
+<script src="utils/contour-helpers.js"></script>
 <script src="services/nesting-polygon/makerjs-helpers.js"></script>
-<script src="services/dxf-nesting-polygon-service.js"></script>
+<script src="services/contour-detection-makerjs-service.js"></script>
+<script src="services/contour-detection-service.js"></script>
 <script src="services/dxf-shape-detection-service.js"></script>
 <script src="services/dxf-shape-structure-service.js"></script>
 <script src="services/dxf-raster-envelope-service.js"></script>

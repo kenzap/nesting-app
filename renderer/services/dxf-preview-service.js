@@ -15,8 +15,8 @@
   const { detectShapes: detectStructuredShapes } = global.NestDxfShapeStructureService || {
     detectShapes: () => [],
   };
-  const { detectNestingPolygon } = global.NestDxfNestingPolygonService || {
-    detectNestingPolygon: () => null,
+  const { detectContour } = global.NestDxfContourDetectionService || {
+    detectContour: () => null,
   };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
@@ -83,7 +83,7 @@
     const source = candidate?.source || '';
     if ((coverage.selfIntersectionCount ?? 0) > 0 || (coverage.repeatedVertexCount ?? 0) > 0) return false;
     const baseMaxUnsupported = Math.max(0, Math.floor((entityCount || 0) * 0.05));
-    const isOpenChain = source === 'exact-open-chain' || source === 'polygonized-tolerance';
+    const isOpenChain = source === 'exact-open-chain';
     const isTinyShape = (entityCount || 0) <= 3;
 
     if (isOpenChain) {
@@ -346,79 +346,6 @@
       candidateSummaries: candidates.map(candidate =>
         buildSelectionCandidateSummary(candidate, entityCount, false)
       ),
-    };
-  }
-
-  function summarizeNestingBuilderDebug(builderDebug) {
-    if (!builderDebug) return null;
-    return {
-      autoChosenSource: builderDebug.autoChosenSource ?? null,
-      forcedSource: builderDebug.forcedSource ?? null,
-      forcedApplied: builderDebug.forcedApplied ?? null,
-      tolerance: builderDebug.tolerance ?? null,
-      toleranceMultiplier: builderDebug.toleranceMultiplier ?? null,
-      rawSegmentCount: builderDebug.rawSegmentCount ?? null,
-      snappedSegmentCount: builderDebug.snappedSegmentCount ?? null,
-      repairedSegmentCount: builderDebug.repairedSegmentCount ?? null,
-      endpointSegmentRepairCount: builderDebug.endpointSegmentRepairCount ?? null,
-      bridgeSegmentCount: builderDebug.bridgeSegmentCount ?? null,
-      endpointBridgeCount: builderDebug.endpointBridgeCount ?? null,
-      boundaryChildContourCount: builderDebug.boundaryChildContourCount ?? null,
-      childContourSegmentCount: builderDebug.childContourSegmentCount ?? null,
-      splitSegmentCount: builderDebug.splitSegmentCount ?? null,
-      graphNodeCount: builderDebug.graphNodeCount ?? null,
-      graphEdgeCount: builderDebug.graphEdgeCount ?? null,
-      rawCycleCount: builderDebug.rawCycleCount ?? null,
-      extendedGraphNodeCount: builderDebug.extendedGraphNodeCount ?? null,
-      extendedGraphEdgeCount: builderDebug.extendedGraphEdgeCount ?? null,
-      extendedRawCycleCount: builderDebug.extendedRawCycleCount ?? null,
-      subgroupGraphCount: builderDebug.subgroupGraphCount ?? null,
-      subgroupRawCycleCount: builderDebug.subgroupRawCycleCount ?? null,
-      polygonizedFaceCount: builderDebug.polygonizedFaceCount ?? null,
-      polygonizedRootCount: builderDebug.polygonizedRootCount ?? null,
-      lineUnionStrategy: builderDebug.lineUnionStrategy ?? null,
-      lineUnionFallbackUsed: builderDebug.lineUnionFallbackUsed ?? null,
-      lineUnionError: builderDebug.lineUnionError ?? null,
-      lineUnionType: builderDebug.lineUnionType ?? null,
-      lineUnionComponentCount: builderDebug.lineUnionComponentCount ?? null,
-      unionGeometryAvailable: builderDebug.unionGeometryAvailable ?? null,
-      unionGeometryError: builderDebug.unionGeometryError ?? null,
-      unionGeometryComponentCount: builderDebug.unionGeometryComponentCount ?? null,
-      unionGeometryRootCount: builderDebug.unionGeometryRootCount ?? null,
-      chosenUnionGeometry: builderDebug.chosenUnionGeometry ?? null,
-      chosenContourSegmentCount: builderDebug.chosenContourSegmentCount ?? null,
-      droppedSharedSegmentCount: builderDebug.droppedSharedSegmentCount ?? null,
-      chosenContourEntities: (builderDebug.chosenContourEntities || []).slice(0, 8),
-      droppedSharedEntities: (builderDebug.droppedSharedEntities || []).slice(0, 8),
-      entityBoundaryStages: (builderDebug.entityBoundaryStages || []).slice(0, 10),
-      polygonFaceMembership: (builderDebug.polygonFaceMembership || []).slice(0, 8),
-      dominantRootFaceEntities: (builderDebug.dominantRootFaceEntities || []).slice(0, 8),
-      boundaryDropReasons: (builderDebug.boundaryDropReasons || []).slice(0, 10),
-      missingFaceConnectivity: (builderDebug.missingFaceConnectivity || []).slice(0, 6),
-      chosenDominantRootPreservation: builderDebug.chosenDominantRootPreservation || null,
-      chosenUnionGeometryDominantPenalty: builderDebug.chosenUnionGeometryDominantPenalty || null,
-      polygonizerDiagnostics: builderDebug.polygonizerDiagnostics ? {
-        dangleCount: builderDebug.polygonizerDiagnostics.dangleCount ?? null,
-        cutEdgeCount: builderDebug.polygonizerDiagnostics.cutEdgeCount ?? null,
-        invalidRingLineCount: builderDebug.polygonizerDiagnostics.invalidRingLineCount ?? null,
-        dangleEntities: (builderDebug.polygonizerDiagnostics.dangleEntities || []).slice(0, 8),
-        cutEdgeEntities: (builderDebug.polygonizerDiagnostics.cutEdgeEntities || []).slice(0, 8),
-        invalidRingEntities: (builderDebug.polygonizerDiagnostics.invalidRingEntities || []).slice(0, 8),
-      } : null,
-      curveEndpointSnapApplied: builderDebug.curveEndpointSnapApplied ?? null,
-      curveEndpointSnapCount: builderDebug.curveEndpointSnapCount ?? null,
-      curveEndpointSnapEntities: (builderDebug.curveEndpointSnapEntities || []).slice(0, 6),
-      curveEndpointSnaps: (builderDebug.curveEndpointSnaps || []).slice(0, 8),
-      curveEndpointRepairAttempted: builderDebug.curveEndpointRepairAttempted ?? null,
-      curveEndpointRepairApplied: builderDebug.curveEndpointRepairApplied ?? null,
-      curveEndpointRepairPromotedApplied: builderDebug.curveEndpointRepairPromotedApplied ?? null,
-      curveEndpointRepairPromotedCount: builderDebug.curveEndpointRepairPromotedCount ?? null,
-      curveEndpointRepairLimit: builderDebug.curveEndpointRepairLimit ?? null,
-      curveEndpointBridgeCount: builderDebug.curveEndpointBridgeCount ?? null,
-      curveEndpointRepairEntities: (builderDebug.curveEndpointRepairEntities || []).slice(0, 6),
-      curveEndpointRepairBridges: (builderDebug.curveEndpointRepairBridges || []).slice(0, 8),
-      chosenSubgroupSource: builderDebug.chosenSubgroupSource ?? null,
-      rankedCycleCount: builderDebug.rankedCycleCount ?? null,
     };
   }
 
@@ -797,7 +724,7 @@
     const structuredShapes = detectStructuredShapes(renderableEntities, {
       singleSketch: settings?.multiSketchDetection === false,
     });
-    const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape, {
+    const nestingPolygons = structuredShapes.map(shape => detectContour(shape, {
       contourMethod: sketchContourMethod,
     }));
 

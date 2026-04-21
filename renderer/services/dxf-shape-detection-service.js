@@ -852,34 +852,6 @@
     return probes;
   }
 
-  // Decides whether a loose entity belongs to the current top-level contour.
-  // We combine probe points with a bbox overlap fallback so lines that sit on
-  // the profile or partially extend outside the strict contour bbox still get
-  // a fair chance to stay attached to the shape in the preview modal.
-  function entityBelongsToOuterContour(entity, outer) {
-    const outerBBox = outer?.bbox;
-    if (!outerBBox) return false;
-    const probes = entityProbePoints(entity);
-    if (probes.some(point => pointInsideOrOnContour(point, outer))) return true;
-
-    const bbox = entityBBox(entity);
-    if (!bbox) return false;
-    const overlaps =
-      bbox.maxX >= outerBBox.minX - LOOP_TOLERANCE &&
-      bbox.minX <= outerBBox.maxX + LOOP_TOLERANCE &&
-      bbox.maxY >= outerBBox.minY - LOOP_TOLERANCE &&
-      bbox.minY <= outerBBox.maxY + LOOP_TOLERANCE;
-    if (!overlaps) return false;
-
-    const corners = [
-      { x: bbox.minX, y: bbox.minY },
-      { x: bbox.minX, y: bbox.maxY },
-      { x: bbox.maxX, y: bbox.minY },
-      { x: bbox.maxX, y: bbox.maxY },
-    ];
-    return corners.some(point => pointInsideOrOnContour(point, outer));
-  }
-
   // Returns the overlapping area between two axis-aligned bounding boxes.
   // Used as a softer ownership hint when a loose entity sits next to a shape
   // rather than fully inside it.

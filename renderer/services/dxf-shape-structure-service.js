@@ -379,15 +379,6 @@
       .filter(owner => Array.isArray(owner.envelopePoints) && owner.envelopePoints.length >= 4);
   }
 
-  function isAbsorbableChildGroup(group) {
-    if (!group) return false;
-    if (group.closedCount <= 0) return false;
-    if (group.openCount === 0) return true;
-    if (group.entities.length <= 4 && group.openCount <= 2) return true;
-    if (group.entities.length <= 5 && group.openCount <= 1) return true;
-    return false;
-  }
-
   function groupProbePoints(group) {
     const contourPoints = (group.closedContours || [])
       .map(contour => contour.sample || safeSamplePoint(contour.entity))
