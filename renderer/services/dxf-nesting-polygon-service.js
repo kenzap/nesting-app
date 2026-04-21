@@ -1661,13 +1661,7 @@
     const baseTolerance = Number.isFinite(requestedTolerance) && requestedTolerance > 0
       ? requestedTolerance
       : LOOP_TOLERANCE * 8;
-    const multiplier = Math.min(
-      10,
-      Math.max(
-        0.1,
-        Number(options.polygonizeToleranceMultiplier ?? options.shapelyPolygonizeToleranceMultiplier) || 1
-      )
-    );
+    const multiplier = 1;
     return {
       multiplier,
       tolerance: Math.max(LOOP_TOLERANCE * 4, baseTolerance * multiplier),
