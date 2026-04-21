@@ -16,10 +16,14 @@
     async function ensureFileShapes(file) {
       const settings = getCurrentNestingSettings();
       const matchesSketchMode = file._multiSketchDetection === !!settings.multiSketchDetection;
+      const sketchContourMethod = String(settings?.sketchContourMethod || 'auto');
+      const shapelyPolygonizeToleranceMultiplier = Number(settings?.shapelyPolygonizeToleranceMultiplier || 1);
+      const matchesContourMethod = String(file?._sketchContourMethod || 'auto') === sketchContourMethod;
+      const matchesShapelyTolerance = Number(file?._shapelyPolygonizeToleranceMultiplier || 1) === shapelyPolygonizeToleranceMultiplier;
       const hasUsableShapes = Array.isArray(file.shapes) && file.shapes.length;
       const hasExportMetadata = hasUsableShapes && file.shapes.every(shape => Array.isArray(shape.exportEntities));
       const hasLayerTable = Array.isArray(file.layers) && file.layers.length;
-      if (matchesSketchMode && hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
+      if (matchesSketchMode && matchesContourMethod && matchesShapelyTolerance && hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
       if (!file.path || !window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') {
         throw new Error(`No parsed shapes available for ${file.name}`);
       }
@@ -40,6 +44,8 @@
       }));
       file.layers = Array.isArray(parsed.layers) ? parsed.layers.map(layer => ({ ...layer })) : [];
       file._multiSketchDetection = !!settings.multiSketchDetection;
+      file._sketchContourMethod = sketchContourMethod;
+      file._shapelyPolygonizeToleranceMultiplier = shapelyPolygonizeToleranceMultiplier;
       file.qty = effectiveFileQty(file);
       return file.shapes;
     }

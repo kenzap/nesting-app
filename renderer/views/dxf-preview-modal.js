@@ -124,6 +124,8 @@
           console.log('[DXF DEBUG] Selected shape highlight', {
             shapeId: selected.id,
             method: selected.selectionPolygonSource || 'unknown',
+            forcedContourMethod: selected.forcedContourMethod || null,
+            forcedContourApplied: !!selected.forcedContourApplied,
             selectionPolygonPointCount: Array.isArray(selected.selectionPolygonPoints) ? selected.selectionPolygonPoints.length : 0,
             basePolygonPointCount: Array.isArray(selected.polygonPoints) ? selected.polygonPoints.length : 0,
             entityCount: Array.isArray(selected.exportEntities) ? selected.exportEntities.length : 0,

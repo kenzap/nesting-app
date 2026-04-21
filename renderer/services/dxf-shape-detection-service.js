@@ -47,8 +47,8 @@
             events: this.events,
           };
         },
-        stringify() {
-          return JSON.stringify(this.toJSON(), null, 2);
+        stringify(pretty = false) {
+          return JSON.stringify(this.toJSON(), null, pretty ? 2 : 0);
         },
         copy() {
           const text = this.stringify();

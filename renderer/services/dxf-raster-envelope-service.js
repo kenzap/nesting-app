@@ -260,19 +260,33 @@
 
     if (!edges.size) return [];
 
+    // Build a DIRECTED adjacency: each boundary edge a→b is stored only under
+    // key(a), never as b→a.  Adding the reverse was the original bug — it let
+    // the tracer retreat backwards at concave corners (backward dir = π, right
+    // turn = 3π/2; without the reverse option the confusion cannot occur).
     const adjacency = new Map();
     edges.forEach(({ a, b }) => {
       const aKey = `${a.x},${a.y}`;
-      const bKey = `${b.x},${b.y}`;
       if (!adjacency.has(aKey)) adjacency.set(aKey, []);
-      if (!adjacency.has(bKey)) adjacency.set(bKey, []);
       adjacency.get(aKey).push({ from: a, to: b });
-      adjacency.get(bKey).push({ from: b, to: a });
     });
 
+    // Find the bottom-left vertex numerically, not via string sort.  String
+    // comparison of floating-point keys ("9.5,…" > "123.4,…") picks the wrong
+    // vertex when coordinates span more than one order of magnitude.  The
+    // bottom-left vertex is guaranteed to lie on the outer boundary.
     let startKey = null;
+    let startX = Infinity;
+    let startY = Infinity;
     adjacency.forEach((_, key) => {
-      if (!startKey || key < startKey) startKey = key;
+      const comma = key.indexOf(',');
+      const kx = parseFloat(key);
+      const ky = parseFloat(key.slice(comma + 1));
+      if (ky < startY || (ky === startY && kx < startX)) {
+        startKey = key;
+        startX = kx;
+        startY = ky;
+      }
     });
     if (!startKey) return [];
 
@@ -435,10 +449,14 @@
     const assignedRegions = assignEntitiesToRegions(grid, labels, regions, renderableEntities)
       .map((region, index) => {
         const tracedBoundary = traceRegionPolygon(grid, region);
-        const polygonPoints = options.boundaryMode === 'trace'
-          ? (tracedBoundary.length >= 4
-              ? simplifyRegionBoundary(tracedBoundary, grid.cellSize)
-              : convexHull(regionCellCenters(grid, region)))
+        // Always prefer the traced boundary — it carries the actual arc/curve
+        // geometry at cell resolution.  Fall back to convex hull only when the
+        // trace fails to produce a usable polygon (e.g. degenerate single-cell
+        // regions).  The old default of always using convex hull meant the
+        // boundary was discarded unconditionally, leaving callers with a coarse
+        // ~8-vertex approximation even for smoothly-curved open-shell parts.
+        const polygonPoints = tracedBoundary.length >= 4
+          ? simplifyRegionBoundary(tracedBoundary, grid.cellSize)
           : convexHull(regionCellCenters(grid, region));
         let bbox = null;
         region.entities.forEach(entity => { bbox = unionBBox(bbox, entityBBox(entity)); });

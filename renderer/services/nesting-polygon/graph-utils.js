@@ -252,6 +252,142 @@
     return splitSegments;
   }
 
+  function buildOutgoingHalfEdges(nodes, edges) {
+    const outgoing = new Map();
+
+    function register(fromIndex, edgeIndex, toIndex) {
+      if (!outgoing.has(fromIndex)) outgoing.set(fromIndex, []);
+      const from = nodes[fromIndex];
+      const to = nodes[toIndex];
+      outgoing.get(fromIndex).push({
+        fromIndex,
+        toIndex,
+        edgeIndex,
+        angle: Math.atan2(to.y - from.y, to.x - from.x),
+      });
+    }
+
+    (edges || []).forEach((edge, edgeIndex) => {
+      register(edge.startIndex, edgeIndex, edge.endIndex);
+      register(edge.endIndex, edgeIndex, edge.startIndex);
+    });
+
+    outgoing.forEach(list => list.sort((a, b) => a.angle - b.angle));
+    return outgoing;
+  }
+
+  function polygonizeSegments(segments, tolerance) {
+    const nodedSegments = splitSegmentsAtIntersections(segments || [], tolerance);
+    const nodes = [];
+    const adjacency = new Map();
+    const edgeKeys = new Set();
+    const edges = [];
+
+    nodedSegments.forEach(([a, b]) => {
+      if (!a || !b || dist(a, b) <= EPS) return;
+      const startIndex = ensureNode(a, nodes, tolerance);
+      const endIndex = ensureNode(b, nodes, tolerance);
+      if (startIndex === endIndex) return;
+      const key = edgeKey(startIndex, endIndex);
+      if (edgeKeys.has(key)) return;
+      edgeKeys.add(key);
+      if (!adjacency.has(startIndex)) adjacency.set(startIndex, []);
+      if (!adjacency.has(endIndex)) adjacency.set(endIndex, []);
+      adjacency.get(startIndex).push(endIndex);
+      adjacency.get(endIndex).push(startIndex);
+      edges.push({ startIndex, endIndex });
+    });
+
+    if (!edges.length) {
+      return { nodes, adjacency, edges, nodedSegments, faces: [] };
+    }
+
+    const outgoing = buildOutgoingHalfEdges(nodes, edges);
+    const visitedHalfEdges = new Set();
+    const seenCycles = new Set();
+    const faces = [];
+
+    function halfEdgeKey(fromIndex, edgeIndex, toIndex) {
+      return `${fromIndex}|${edgeIndex}|${toIndex}`;
+    }
+
+    function traceFace(startHalfEdge) {
+      const pointIndices = [startHalfEdge.fromIndex];
+      const edgeIndices = [];
+      const visitedInFace = new Set();
+      let current = startHalfEdge;
+      let safety = 0;
+
+      while (safety++ < edges.length * 2 + 8) {
+        const key = halfEdgeKey(current.fromIndex, current.edgeIndex, current.toIndex);
+        if (visitedInFace.has(key)) return null;
+        visitedInFace.add(key);
+        edgeIndices.push(current.edgeIndex);
+        pointIndices.push(current.toIndex);
+
+        if (current.toIndex === startHalfEdge.fromIndex) {
+          const ringIndices = pointIndices.slice(0, -1);
+          if (ringIndices.length < 3) return null;
+          const points = ringIndices.map(index => nodes[index]);
+          const area = polygonSignedArea(points);
+          if (Math.abs(area) <= EPS) return null;
+          return { pointIndices, edgeIndices, points, area };
+        }
+
+        const options = outgoing.get(current.toIndex) || [];
+        const reverseIndex = options.findIndex(option =>
+          option.edgeIndex === current.edgeIndex && option.toIndex === current.fromIndex
+        );
+        if (reverseIndex === -1 || !options.length) return null;
+        current = options[(reverseIndex - 1 + options.length) % options.length];
+      }
+
+      return null;
+    }
+
+    edges.forEach((edge, edgeIndex) => {
+      [
+        { fromIndex: edge.startIndex, edgeIndex, toIndex: edge.endIndex },
+        { fromIndex: edge.endIndex, edgeIndex, toIndex: edge.startIndex },
+      ].forEach(startHalfEdge => {
+        const startKey = halfEdgeKey(startHalfEdge.fromIndex, startHalfEdge.edgeIndex, startHalfEdge.toIndex);
+        if (visitedHalfEdges.has(startKey)) return;
+
+        const face = traceFace(startHalfEdge);
+        if (!face) {
+          visitedHalfEdges.add(startKey);
+          return;
+        }
+
+        face.pointIndices.slice(0, -1).forEach((fromIndex, index) => {
+          const toIndex = face.pointIndices[index + 1];
+          const tracedEdgeIndex = face.edgeIndices[index];
+          visitedHalfEdges.add(halfEdgeKey(fromIndex, tracedEdgeIndex, toIndex));
+        });
+
+        if (face.area <= EPS) return;
+
+        const cycleKey = canonicalizeCycle(face.pointIndices.slice(0, -1));
+        if (!cycleKey || seenCycles.has(cycleKey)) return;
+        seenCycles.add(cycleKey);
+
+        faces.push({
+          points: face.points,
+          area: Math.abs(face.area),
+          edgeIndices: face.edgeIndices.slice(),
+        });
+      });
+    });
+
+    return {
+      nodes,
+      adjacency,
+      edges,
+      nodedSegments,
+      faces,
+    };
+  }
+
   global.NestDxfNestingGraphUtils = {
     bboxGap,
     ringBBox,
@@ -262,6 +398,7 @@
     enumerateSimpleCycles,
     buildGraphFromSegments,
     splitSegmentsAtIntersections,
+    polygonizeSegments,
     addSegment,
   };
 })(window);

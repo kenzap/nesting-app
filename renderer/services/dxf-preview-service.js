@@ -24,7 +24,10 @@
   };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
-  const { normalizeSettings } = global.NestSettings;
+  const {
+    normalizeSettings,
+    SKETCH_CONTOUR_METHODS = [],
+  } = global.NestSettings;
 
   const { f1, mkRng, hashStr } = svg;
   const {
@@ -67,6 +70,15 @@
       ? polygonPoints.slice(0, -1)
       : polygonPoints;
     return pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
+  }
+
+  function normalizeSketchContourMethod(method) {
+    const normalized = method == null ? 'auto' : String(method);
+    return SKETCH_CONTOUR_METHODS.includes(normalized) ? normalized : 'auto';
+  }
+
+  function isForcedSketchContourMethod(method) {
+    return normalizeSketchContourMethod(method) !== 'auto';
   }
 
   function isTrustedSelectionCandidate(candidate, entityCount) {
@@ -150,6 +162,40 @@
       outerMissIds: (coverage.outerMissIds || []).slice(0, 8),
       unsupportedEntityCount: coverage.unsupportedEntityCount ?? null,
       unsupportedEntityIds: (coverage.unsupportedEntityIds || []).slice(0, 8),
+      partialEntityCount: coverage.partialEntityCount ?? null,
+      partialEntityIds: (coverage.partialEntityIds || []).slice(0, 8),
+      partialEntities: (coverage.partialEntities || []).slice(0, 5).map(item => ({
+        id: item.id ?? null,
+        type: item.type ?? null,
+        layer: item.layer ?? null,
+        samplePointCount: item.samplePointCount ?? null,
+        supportedProbeCount: item.supportedProbeCount ?? null,
+        insideProbeCount: item.insideProbeCount ?? null,
+        outsideProbeCount: item.outsideProbeCount ?? null,
+        supportRatio: item.supportRatio ?? null,
+        outsideSamplePoints: (item.outsideSamplePoints || []).slice(0, 3),
+      })),
+      supportedAreaRatio: coverage.supportedAreaRatio ?? null,
+      compactness: coverage.compactness ?? null,
+      selfIntersectionCount: coverage.selfIntersectionCount ?? null,
+      repeatedVertexCount: coverage.repeatedVertexCount ?? null,
+      score: coverage.score ?? null,
+    };
+  }
+
+  function summarizeCandidateCoverageMetrics(coverage) {
+    if (!coverage) return null;
+    return {
+      entityCoverage: coverage.entityCoverage ?? null,
+      pointCoverage: coverage.pointCoverage ?? null,
+      areaCoverage: coverage.areaCoverage ?? null,
+      outerCoverage: coverage.outerCoverage ?? null,
+      outerMissCount: coverage.outerMissCount ?? null,
+      outerMissIds: (coverage.outerMissIds || []).slice(0, 6),
+      unsupportedEntityCount: coverage.unsupportedEntityCount ?? null,
+      unsupportedEntityIds: (coverage.unsupportedEntityIds || []).slice(0, 6),
+      partialEntityCount: coverage.partialEntityCount ?? null,
+      partialEntityIds: (coverage.partialEntityIds || []).slice(0, 6),
       supportedAreaRatio: coverage.supportedAreaRatio ?? null,
       compactness: coverage.compactness ?? null,
       selfIntersectionCount: coverage.selfIntersectionCount ?? null,
@@ -193,8 +239,9 @@
     };
   }
 
-  function resolveSelectionNestingCandidate(nestingPolygon, entities) {
+  function resolveSelectionNestingCandidate(nestingPolygon, entities, forcedSource = 'auto') {
     if (!nestingPolygon) return null;
+    const normalizedForcedSource = normalizeSketchContourMethod(forcedSource);
 
     const directCandidate = Array.isArray(nestingPolygon.polygonPoints) && nestingPolygon.polygonPoints.length >= 4
       ? {
@@ -211,6 +258,12 @@
           .filter(Boolean)
       : [];
 
+    if (normalizedForcedSource !== 'auto') {
+      return [directCandidate, ...rankedCandidates]
+        .filter(Boolean)
+        .find(candidate => candidate.source === normalizedForcedSource) || null;
+    }
+
     if (directCandidate && isValidSelectionCandidate(directCandidate)) {
       return directCandidate;
     }
@@ -218,16 +271,18 @@
     return rankedCandidates.find(isValidSelectionCandidate) || directCandidate;
   }
 
-  function chooseSelectionPolygon({ entities, structurePolygonPoints, envelopePolygonPoints, nestingPolygon }) {
+  function chooseSelectionPolygon({ entities, structurePolygonPoints, envelopePolygonPoints, nestingPolygon, forcedSource = 'auto' }) {
+    const normalizedForcedSource = normalizeSketchContourMethod(forcedSource);
+    const forcedMode = normalizedForcedSource !== 'auto';
     const candidates = [];
     const entityCount = entities?.length || 0;
 
-    const resolvedNestingCandidate = resolveSelectionNestingCandidate(nestingPolygon, entities);
+    const resolvedNestingCandidate = resolveSelectionNestingCandidate(nestingPolygon, entities, normalizedForcedSource);
     if (resolvedNestingCandidate?.polygonPoints?.length) {
       candidates.push(resolvedNestingCandidate);
     }
 
-    if (Array.isArray(structurePolygonPoints) && structurePolygonPoints.length >= 4) {
+    if (!forcedMode && Array.isArray(structurePolygonPoints) && structurePolygonPoints.length >= 4) {
       candidates.push({
         source: 'structure-polygon',
         polygonPoints: structurePolygonPoints,
@@ -236,13 +291,32 @@
       });
     }
 
-    if (Array.isArray(envelopePolygonPoints) && envelopePolygonPoints.length >= 4) {
+    if (!forcedMode && Array.isArray(envelopePolygonPoints) && envelopePolygonPoints.length >= 4) {
       candidates.push({
         source: 'structure-envelope',
         polygonPoints: envelopePolygonPoints,
         coverage: scorePolygonCoverage({ polygonPoints: envelopePolygonPoints }, entities),
         priority: 0,
       });
+    }
+
+    if (forcedMode) {
+      if (resolvedNestingCandidate?.polygonPoints?.length) {
+        return {
+          ...resolvedNestingCandidate,
+          candidateSummaries: candidates.map(candidate =>
+            buildSelectionCandidateSummary(candidate, entityCount, candidate === resolvedNestingCandidate)
+          ),
+        };
+      }
+
+      return {
+        source: null,
+        polygonPoints: [],
+        coverage: null,
+        priority: -1,
+        candidateSummaries: [],
+      };
     }
 
     if (resolvedNestingCandidate && isValidSelectionCandidate(resolvedNestingCandidate)) {
@@ -304,6 +378,11 @@
   function summarizeNestingBuilderDebug(builderDebug) {
     if (!builderDebug) return null;
     return {
+      autoChosenSource: builderDebug.autoChosenSource ?? null,
+      forcedSource: builderDebug.forcedSource ?? null,
+      forcedApplied: builderDebug.forcedApplied ?? null,
+      tolerance: builderDebug.tolerance ?? null,
+      toleranceMultiplier: builderDebug.toleranceMultiplier ?? null,
       rawSegmentCount: builderDebug.rawSegmentCount ?? null,
       snappedSegmentCount: builderDebug.snappedSegmentCount ?? null,
       repairedSegmentCount: builderDebug.repairedSegmentCount ?? null,
@@ -321,6 +400,49 @@
       extendedRawCycleCount: builderDebug.extendedRawCycleCount ?? null,
       subgroupGraphCount: builderDebug.subgroupGraphCount ?? null,
       subgroupRawCycleCount: builderDebug.subgroupRawCycleCount ?? null,
+      polygonizedFaceCount: builderDebug.polygonizedFaceCount ?? null,
+      polygonizedRootCount: builderDebug.polygonizedRootCount ?? null,
+      lineUnionStrategy: builderDebug.lineUnionStrategy ?? null,
+      lineUnionFallbackUsed: builderDebug.lineUnionFallbackUsed ?? null,
+      lineUnionError: builderDebug.lineUnionError ?? null,
+      lineUnionType: builderDebug.lineUnionType ?? null,
+      lineUnionComponentCount: builderDebug.lineUnionComponentCount ?? null,
+      unionGeometryAvailable: builderDebug.unionGeometryAvailable ?? null,
+      unionGeometryError: builderDebug.unionGeometryError ?? null,
+      unionGeometryComponentCount: builderDebug.unionGeometryComponentCount ?? null,
+      unionGeometryRootCount: builderDebug.unionGeometryRootCount ?? null,
+      chosenUnionGeometry: builderDebug.chosenUnionGeometry ?? null,
+      chosenContourSegmentCount: builderDebug.chosenContourSegmentCount ?? null,
+      droppedSharedSegmentCount: builderDebug.droppedSharedSegmentCount ?? null,
+      chosenContourEntities: (builderDebug.chosenContourEntities || []).slice(0, 8),
+      droppedSharedEntities: (builderDebug.droppedSharedEntities || []).slice(0, 8),
+      entityBoundaryStages: (builderDebug.entityBoundaryStages || []).slice(0, 10),
+      polygonFaceMembership: (builderDebug.polygonFaceMembership || []).slice(0, 8),
+      dominantRootFaceEntities: (builderDebug.dominantRootFaceEntities || []).slice(0, 8),
+      boundaryDropReasons: (builderDebug.boundaryDropReasons || []).slice(0, 10),
+      missingFaceConnectivity: (builderDebug.missingFaceConnectivity || []).slice(0, 6),
+      chosenDominantRootPreservation: builderDebug.chosenDominantRootPreservation || null,
+      chosenUnionGeometryDominantPenalty: builderDebug.chosenUnionGeometryDominantPenalty || null,
+      polygonizerDiagnostics: builderDebug.polygonizerDiagnostics ? {
+        dangleCount: builderDebug.polygonizerDiagnostics.dangleCount ?? null,
+        cutEdgeCount: builderDebug.polygonizerDiagnostics.cutEdgeCount ?? null,
+        invalidRingLineCount: builderDebug.polygonizerDiagnostics.invalidRingLineCount ?? null,
+        dangleEntities: (builderDebug.polygonizerDiagnostics.dangleEntities || []).slice(0, 8),
+        cutEdgeEntities: (builderDebug.polygonizerDiagnostics.cutEdgeEntities || []).slice(0, 8),
+        invalidRingEntities: (builderDebug.polygonizerDiagnostics.invalidRingEntities || []).slice(0, 8),
+      } : null,
+      curveEndpointSnapApplied: builderDebug.curveEndpointSnapApplied ?? null,
+      curveEndpointSnapCount: builderDebug.curveEndpointSnapCount ?? null,
+      curveEndpointSnapEntities: (builderDebug.curveEndpointSnapEntities || []).slice(0, 6),
+      curveEndpointSnaps: (builderDebug.curveEndpointSnaps || []).slice(0, 8),
+      curveEndpointRepairAttempted: builderDebug.curveEndpointRepairAttempted ?? null,
+      curveEndpointRepairApplied: builderDebug.curveEndpointRepairApplied ?? null,
+      curveEndpointRepairPromotedApplied: builderDebug.curveEndpointRepairPromotedApplied ?? null,
+      curveEndpointRepairPromotedCount: builderDebug.curveEndpointRepairPromotedCount ?? null,
+      curveEndpointRepairLimit: builderDebug.curveEndpointRepairLimit ?? null,
+      curveEndpointBridgeCount: builderDebug.curveEndpointBridgeCount ?? null,
+      curveEndpointRepairEntities: (builderDebug.curveEndpointRepairEntities || []).slice(0, 6),
+      curveEndpointRepairBridges: (builderDebug.curveEndpointRepairBridges || []).slice(0, 8),
       chosenSubgroupSource: builderDebug.chosenSubgroupSource ?? null,
       rankedCycleCount: builderDebug.rankedCycleCount ?? null,
     };
@@ -340,7 +462,10 @@
       area: entry.area ?? entry.candidate?.area ?? null,
       areaGain: entry.areaGain ?? null,
       enclosesSeed: entry.enclosesSeed ?? null,
-      coverage: summarizeCoverageMetrics(entry.score),
+      rootDepth: entry.rootDepth ?? null,
+      coverage: summarizeCandidateCoverageMetrics(entry.score),
+      dominantRootPreservation: entry.dominantRootPreservation || null,
+      unionGeometryDominantPenalty: entry.unionGeometryDominantPenalty || null,
     };
   }
 
@@ -416,7 +541,15 @@
     };
   }
 
-  function buildStructuredPreviewShape({ shapeRecord, index, layerOrder, layerColor, resolveEntityColor, nestingPolygon }) {
+  function buildStructuredPreviewShape({
+    shapeRecord,
+    index,
+    layerOrder,
+    layerColor,
+    resolveEntityColor,
+    nestingPolygon,
+    forcedContourMethod = 'auto',
+  }) {
     const entities = Array.isArray(shapeRecord?.entities) ? shapeRecord.entities : [];
     if (!entities.length) return null;
 
@@ -484,15 +617,20 @@
     const envelopePolygonPoints = Array.isArray(shapeRecord?.envelopePoints) && shapeRecord.envelopePoints.length
       ? shapeRecord.envelopePoints
       : rectPolygonFromBBox(renderBBox);
-    const displayPolygonPoints = structurePolygonPoints || polygonPoints;
-    const polygonPath = pointsToPathData(displayPolygonPoints, minX, maxY);
+    const normalizedForcedContourMethod = normalizeSketchContourMethod(forcedContourMethod);
+    const forcedMode = isForcedSketchContourMethod(normalizedForcedContourMethod);
     const selectionChoice = chooseSelectionPolygon({
       entities,
       structurePolygonPoints,
       envelopePolygonPoints,
       nestingPolygon,
+      forcedSource: normalizedForcedContourMethod,
     });
     const selectionPolygonPoints = selectionChoice.polygonPoints?.length ? selectionChoice.polygonPoints : null;
+    const displayPolygonPoints = forcedMode && selectionPolygonPoints?.length
+      ? selectionPolygonPoints
+      : (structurePolygonPoints || polygonPoints);
+    const polygonPath = pointsToPathData(displayPolygonPoints, minX, maxY);
     const selectionPolygonPath = selectionPolygonPoints ? pointsToPathData(selectionPolygonPoints, minX, maxY) : null;
     const fallbackPath = rectPath(width, height);
     const selectionPath = selectionPolygonPath || null;
@@ -509,10 +647,13 @@
       selectionPolygonSource: selectionChoice.source,
       selectionPolygonCoverage: summarizeCoverageMetrics(selectionChoice.coverage),
       selectionPolygonCandidates: selectionChoice.candidateSummaries || [],
+      forcedContourMethod: forcedMode ? normalizedForcedContourMethod : null,
+      forcedContourApplied: forcedMode ? !!selectionPolygonPoints?.length : false,
       nestingPolygonFailure: nestingPolygon?.failedOpenChain || null,
       nestingPolygonBuilderMode: nestingPolygon?.builderMode || null,
       nestingPolygonBuilderDebug: nestingPolygon?.builderDebug || null,
       nestingPolygonCandidates: (nestingPolygon?.rankedCandidates || [])
+        .slice(0, 4)
         .map(summarizeNestingCandidateEntry)
         .filter(Boolean),
       nestingPolygon: nestingPolygon || null,
@@ -652,7 +793,9 @@
   // only by Flatten-based connectivity. This keeps the modal faithful to the
   // source file and removes custom contour heuristics from the active path.
   function parseDXFToShapes(dxf, raw, settingsInput = {}) {
-    normalizeSettings(settingsInput);
+    const settings = normalizeSettings(settingsInput);
+    const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+    const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
     const layerOrder = Object.keys(layerTable);
@@ -664,7 +807,7 @@
     });
     if (!renderableEntities.length) return null;
 
-    const groups = settingsInput?.multiSketchDetection === false
+    const groups = settings?.multiSketchDetection === false
       ? [renderableEntities]
       : buildSketchGroups(renderableEntities);
     const rawPreviewShapes = groups
@@ -679,10 +822,13 @@
     if (!rawPreviewShapes.length) return null;
 
     const structuredShapes = detectStructuredShapes(renderableEntities, {
-      singleSketch: settingsInput?.multiSketchDetection === false,
+      singleSketch: settings?.multiSketchDetection === false,
     });
     const rasterShapes = detectRasterShapes(renderableEntities);
-    const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape));
+    const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape, {
+      contourMethod: sketchContourMethod,
+      shapelyPolygonizeToleranceMultiplier,
+    }));
     const shapes = structuredShapes.length
       ? structuredShapes
           .map((shapeRecord, index) => buildStructuredPreviewShape({
@@ -692,6 +838,7 @@
             layerColor,
             resolveEntityColor,
             nestingPolygon: nestingPolygons[index] || null,
+            forcedContourMethod: sketchContourMethod,
           }))
           .filter(Boolean)
       : rawPreviewShapes;
@@ -712,6 +859,8 @@
       structuredShapeCount: structuredShapes.length,
       rasterShapeCount: rasterShapes.length,
       nestingPolygonCount: nestingPolygons.filter(Boolean).length,
+      sketchContourMethod,
+      shapelyPolygonizeToleranceMultiplier,
     });
 
     debugDXF('Shape pipeline compare', {
@@ -725,12 +874,16 @@
         selectionPolygonSource: shape.selectionPolygonSource || null,
         selectionPolygonCoverage: shape.selectionPolygonCoverage || null,
         selectionPolygonCandidates: shape.selectionPolygonCandidates || [],
+        forcedContourMethod: shape.forcedContourMethod || null,
+        forcedContourApplied: !!shape.forcedContourApplied,
         nestingPolygonBuilderMode: shape.nestingPolygonBuilderMode || null,
         nestingPolygonBuilderStage: shape.nestingPolygonBuilderDebug?.stage || null,
         nestingPolygonBuilderStats: summarizeNestingBuilderDebug(shape.nestingPolygonBuilderDebug),
         nestingPolygonCandidates: shape.nestingPolygonCandidates || [],
       })),
       structuredShapeCount: structuredShapes.length,
+      sketchContourMethod,
+      shapelyPolygonizeToleranceMultiplier,
       structuredShapes: structuredShapes.map(shape => ({
         id: shape.id,
         parentContourType: shape.parentContour?.entity?.type || null,
@@ -749,7 +902,7 @@
         polygonPointCount: Array.isArray(polygon?.polygonPoints) ? polygon.polygonPoints.length : 0,
         coverage: summarizeCoverageMetrics(polygon?.coverage),
         candidates: (polygon?.rankedCandidates || [])
-          .slice(0, 8)
+          .slice(0, 4)
           .map(summarizeNestingCandidateEntry)
           .filter(Boolean),
       })),
@@ -813,11 +966,15 @@
       const settings = typeof global.getCurrentNestingSettings === 'function'
         ? global.getCurrentNestingSettings()
         : {};
+      const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+      const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
       const matchesSketchMode = file?._multiSketchDetection === !!settings.multiSketchDetection;
+      const matchesContourMethod = normalizeSketchContourMethod(file?._sketchContourMethod) === sketchContourMethod;
+      const matchesShapelyTolerance = Number(file?._shapelyPolygonizeToleranceMultiplier || 1) === shapelyPolygonizeToleranceMultiplier;
       let data = null;
       let source = 'mock';
 
-      if (matchesSketchMode && file?.shapes?.length) {
+      if (matchesSketchMode && matchesContourMethod && matchesShapelyTolerance && file?.shapes?.length) {
         data = applyPartLabelsToPreviewData(clonePreviewData({ shapes: file.shapes, layers: file.layers || [] }), filename);
         source = 'saved';
       }
@@ -832,6 +989,8 @@
               file.shapes = clonePreviewData(data).shapes;
               file.layers = clonePreviewData(data).layers;
               file._multiSketchDetection = !!settings.multiSketchDetection;
+              file._sketchContourMethod = sketchContourMethod;
+              file._shapelyPolygonizeToleranceMultiplier = shapelyPolygonizeToleranceMultiplier;
               source = 'real';
             }
           }
@@ -853,7 +1012,10 @@
       file.shapes = shapes.map(shape => global.NestDxfPreviewState.clonePreviewShape(shape));
       file.layers = layers.map(layer => ({ ...layer }));
       if (typeof global.getCurrentNestingSettings === 'function') {
-        file._multiSketchDetection = !!global.getCurrentNestingSettings().multiSketchDetection;
+        const settings = global.getCurrentNestingSettings();
+        file._multiSketchDetection = !!settings.multiSketchDetection;
+        file._sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+        file._shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
       }
       file.qty = file.shapes
         .filter(shape => shape.visible !== false)
