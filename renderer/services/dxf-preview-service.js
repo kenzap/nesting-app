@@ -15,12 +15,8 @@
   const { detectShapes: detectStructuredShapes } = global.NestDxfShapeStructureService || {
     detectShapes: () => [],
   };
-  const { detectRasterShapes } = global.NestDxfRasterEnvelopeService || {
-    detectRasterShapes: () => [],
-  };
-  const { detectNestingPolygon, scorePolygonCoverage } = global.NestDxfNestingPolygonService || {
+  const { detectNestingPolygon } = global.NestDxfNestingPolygonService || {
     detectNestingPolygon: () => null,
-    scorePolygonCoverage: () => null,
   };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
@@ -196,14 +192,14 @@
     return isUsableSelectionCandidate(candidate);
   }
 
-  function buildRankedSelectionCandidate(entry, entities) {
+  function buildRankedSelectionCandidate(entry) {
     const source = entry?.candidate?.source || null;
     const polygonPoints = entry?.candidate?.polygonPoints || null;
     if (!Array.isArray(polygonPoints) || polygonPoints.length < 4) return null;
     return {
       source,
       polygonPoints,
-      coverage: entry.score || scorePolygonCoverage({ polygonPoints }, entities),
+      coverage: entry.score,
       priority: 3,
     };
   }
@@ -227,14 +223,14 @@
       ? {
           source: nestingPolygon.source,
           polygonPoints: nestingPolygon.polygonPoints,
-          coverage: nestingPolygon.coverage || scorePolygonCoverage(nestingPolygon, entities),
+          coverage: nestingPolygon.coverage,
           priority: 3,
         }
       : null;
 
     const rankedCandidates = Array.isArray(nestingPolygon.rankedCandidates)
       ? nestingPolygon.rankedCandidates
-          .map(entry => buildRankedSelectionCandidate(entry, entities))
+          .map(entry => buildRankedSelectionCandidate(entry))
           .filter(Boolean)
       : [];
 
@@ -266,7 +262,6 @@
       candidates.push({
         source: 'structure-polygon',
         polygonPoints: structurePolygonPoints,
-        coverage: scorePolygonCoverage({ polygonPoints: structurePolygonPoints }, entities),
         priority: 2,
       });
     }
@@ -275,7 +270,6 @@
       candidates.push({
         source: 'structure-envelope',
         polygonPoints: envelopePolygonPoints,
-        coverage: scorePolygonCoverage({ polygonPoints: envelopePolygonPoints }, entities),
         priority: 0,
       });
     }
@@ -803,10 +797,10 @@
     const structuredShapes = detectStructuredShapes(renderableEntities, {
       singleSketch: settings?.multiSketchDetection === false,
     });
-    const rasterShapes = detectRasterShapes(renderableEntities);
     const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape, {
       contourMethod: sketchContourMethod,
     }));
+
     const shapes = structuredShapes.length
       ? structuredShapes
           .map((shapeRecord, index) => buildStructuredPreviewShape({
