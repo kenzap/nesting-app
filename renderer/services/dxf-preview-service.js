@@ -15,12 +15,8 @@
   const { detectShapes: detectStructuredShapes } = global.NestDxfShapeStructureService || {
     detectShapes: () => [],
   };
-  const { detectRasterShapes } = global.NestDxfRasterEnvelopeService || {
-    detectRasterShapes: () => [],
-  };
-  const { detectNestingPolygon, scorePolygonCoverage } = global.NestDxfNestingPolygonService || {
-    detectNestingPolygon: () => null,
-    scorePolygonCoverage: () => null,
+  const { detectContour } = global.NestDxfContourDetectionService || {
+    detectContour: () => null,
   };
   const { serializeEntityForExport } = global.NestDxfExportMetadataService;
   const { clonePreviewData, applyPartLabelsToPreviewData } = global.NestDxfPreviewState;
@@ -87,7 +83,7 @@
     const source = candidate?.source || '';
     if ((coverage.selfIntersectionCount ?? 0) > 0 || (coverage.repeatedVertexCount ?? 0) > 0) return false;
     const baseMaxUnsupported = Math.max(0, Math.floor((entityCount || 0) * 0.05));
-    const isOpenChain = source === 'exact-open-chain' || source === 'polygonized-tolerance';
+    const isOpenChain = source === 'exact-open-chain';
     const isTinyShape = (entityCount || 0) <= 3;
 
     if (isOpenChain) {
@@ -119,23 +115,6 @@
     return (coverage.entityCoverage ?? 0) >= 0.6 &&
       (coverage.pointCoverage ?? 0) >= 0.6 &&
       (coverage.outerCoverage ?? 0) >= 0.5;
-  }
-
-  function isUsableParentBuilderCandidate(candidate, entityCount) {
-    if (isUsableSelectionCandidate(candidate)) return true;
-    const coverage = candidate?.coverage;
-    const source = candidate?.source || '';
-    if (!coverage) return false;
-    if (source !== 'parent-seed' && source !== 'parent-extended') return false;
-    const relaxedMaxUnsupported = Math.max(3, Math.floor((entityCount || 0) * 0.15));
-    return (coverage.entityCoverage ?? 0) >= 0.6 &&
-      (coverage.pointCoverage ?? 0) >= 0.5 &&
-      (coverage.outerCoverage ?? 0) >= 0.95 &&
-      (coverage.unsupportedEntityCount ?? Infinity) <= relaxedMaxUnsupported &&
-      (coverage.outerMissCount ?? Infinity) <= relaxedMaxUnsupported &&
-      (coverage.supportedAreaRatio ?? 0) >= 0.7 &&
-      (coverage.compactness ?? 0) >= 0.55 &&
-      (coverage.score ?? -Infinity) >= 0.05;
   }
 
   function sortSelectionCandidates(a, b) {
@@ -207,23 +186,20 @@
   function isSelectableContourCandidate(candidate, entityCount) {
     if (!isValidSelectionCandidate(candidate)) return false;
     const source = candidate?.source || '';
-    if (source === 'parent-seed' || source === 'parent-extended') {
-      return isUsableParentBuilderCandidate(candidate, entityCount);
-    }
     if (source === 'structure-envelope') {
       return isTrustedSelectionCandidate(candidate, entityCount);
     }
     return isUsableSelectionCandidate(candidate);
   }
 
-  function buildRankedSelectionCandidate(entry, entities) {
+  function buildRankedSelectionCandidate(entry) {
     const source = entry?.candidate?.source || null;
     const polygonPoints = entry?.candidate?.polygonPoints || null;
     if (!Array.isArray(polygonPoints) || polygonPoints.length < 4) return null;
     return {
       source,
       polygonPoints,
-      coverage: entry.score || scorePolygonCoverage({ polygonPoints }, entities),
+      coverage: entry.score,
       priority: 3,
     };
   }
@@ -247,21 +223,25 @@
       ? {
           source: nestingPolygon.source,
           polygonPoints: nestingPolygon.polygonPoints,
-          coverage: nestingPolygon.coverage || scorePolygonCoverage(nestingPolygon, entities),
+          coverage: nestingPolygon.coverage,
           priority: 3,
         }
       : null;
 
     const rankedCandidates = Array.isArray(nestingPolygon.rankedCandidates)
       ? nestingPolygon.rankedCandidates
-          .map(entry => buildRankedSelectionCandidate(entry, entities))
+          .map(entry => buildRankedSelectionCandidate(entry))
           .filter(Boolean)
       : [];
 
     if (normalizedForcedSource !== 'auto') {
-      return [directCandidate, ...rankedCandidates]
+      const forcedMatch = [directCandidate, ...rankedCandidates]
         .filter(Boolean)
-        .find(candidate => candidate.source === normalizedForcedSource) || null;
+        .find(candidate =>
+          candidate.source === normalizedForcedSource ||
+          nestingPolygon.builderMode === normalizedForcedSource
+        );
+      return forcedMatch || directCandidate || rankedCandidates[0] || null;
     }
 
     if (directCandidate && isValidSelectionCandidate(directCandidate)) {
@@ -286,7 +266,6 @@
       candidates.push({
         source: 'structure-polygon',
         polygonPoints: structurePolygonPoints,
-        coverage: scorePolygonCoverage({ polygonPoints: structurePolygonPoints }, entities),
         priority: 2,
       });
     }
@@ -295,7 +274,6 @@
       candidates.push({
         source: 'structure-envelope',
         polygonPoints: envelopePolygonPoints,
-        coverage: scorePolygonCoverage({ polygonPoints: envelopePolygonPoints }, entities),
         priority: 0,
       });
     }
@@ -372,79 +350,6 @@
       candidateSummaries: candidates.map(candidate =>
         buildSelectionCandidateSummary(candidate, entityCount, false)
       ),
-    };
-  }
-
-  function summarizeNestingBuilderDebug(builderDebug) {
-    if (!builderDebug) return null;
-    return {
-      autoChosenSource: builderDebug.autoChosenSource ?? null,
-      forcedSource: builderDebug.forcedSource ?? null,
-      forcedApplied: builderDebug.forcedApplied ?? null,
-      tolerance: builderDebug.tolerance ?? null,
-      toleranceMultiplier: builderDebug.toleranceMultiplier ?? null,
-      rawSegmentCount: builderDebug.rawSegmentCount ?? null,
-      snappedSegmentCount: builderDebug.snappedSegmentCount ?? null,
-      repairedSegmentCount: builderDebug.repairedSegmentCount ?? null,
-      endpointSegmentRepairCount: builderDebug.endpointSegmentRepairCount ?? null,
-      bridgeSegmentCount: builderDebug.bridgeSegmentCount ?? null,
-      endpointBridgeCount: builderDebug.endpointBridgeCount ?? null,
-      boundaryChildContourCount: builderDebug.boundaryChildContourCount ?? null,
-      childContourSegmentCount: builderDebug.childContourSegmentCount ?? null,
-      splitSegmentCount: builderDebug.splitSegmentCount ?? null,
-      graphNodeCount: builderDebug.graphNodeCount ?? null,
-      graphEdgeCount: builderDebug.graphEdgeCount ?? null,
-      rawCycleCount: builderDebug.rawCycleCount ?? null,
-      extendedGraphNodeCount: builderDebug.extendedGraphNodeCount ?? null,
-      extendedGraphEdgeCount: builderDebug.extendedGraphEdgeCount ?? null,
-      extendedRawCycleCount: builderDebug.extendedRawCycleCount ?? null,
-      subgroupGraphCount: builderDebug.subgroupGraphCount ?? null,
-      subgroupRawCycleCount: builderDebug.subgroupRawCycleCount ?? null,
-      polygonizedFaceCount: builderDebug.polygonizedFaceCount ?? null,
-      polygonizedRootCount: builderDebug.polygonizedRootCount ?? null,
-      lineUnionStrategy: builderDebug.lineUnionStrategy ?? null,
-      lineUnionFallbackUsed: builderDebug.lineUnionFallbackUsed ?? null,
-      lineUnionError: builderDebug.lineUnionError ?? null,
-      lineUnionType: builderDebug.lineUnionType ?? null,
-      lineUnionComponentCount: builderDebug.lineUnionComponentCount ?? null,
-      unionGeometryAvailable: builderDebug.unionGeometryAvailable ?? null,
-      unionGeometryError: builderDebug.unionGeometryError ?? null,
-      unionGeometryComponentCount: builderDebug.unionGeometryComponentCount ?? null,
-      unionGeometryRootCount: builderDebug.unionGeometryRootCount ?? null,
-      chosenUnionGeometry: builderDebug.chosenUnionGeometry ?? null,
-      chosenContourSegmentCount: builderDebug.chosenContourSegmentCount ?? null,
-      droppedSharedSegmentCount: builderDebug.droppedSharedSegmentCount ?? null,
-      chosenContourEntities: (builderDebug.chosenContourEntities || []).slice(0, 8),
-      droppedSharedEntities: (builderDebug.droppedSharedEntities || []).slice(0, 8),
-      entityBoundaryStages: (builderDebug.entityBoundaryStages || []).slice(0, 10),
-      polygonFaceMembership: (builderDebug.polygonFaceMembership || []).slice(0, 8),
-      dominantRootFaceEntities: (builderDebug.dominantRootFaceEntities || []).slice(0, 8),
-      boundaryDropReasons: (builderDebug.boundaryDropReasons || []).slice(0, 10),
-      missingFaceConnectivity: (builderDebug.missingFaceConnectivity || []).slice(0, 6),
-      chosenDominantRootPreservation: builderDebug.chosenDominantRootPreservation || null,
-      chosenUnionGeometryDominantPenalty: builderDebug.chosenUnionGeometryDominantPenalty || null,
-      polygonizerDiagnostics: builderDebug.polygonizerDiagnostics ? {
-        dangleCount: builderDebug.polygonizerDiagnostics.dangleCount ?? null,
-        cutEdgeCount: builderDebug.polygonizerDiagnostics.cutEdgeCount ?? null,
-        invalidRingLineCount: builderDebug.polygonizerDiagnostics.invalidRingLineCount ?? null,
-        dangleEntities: (builderDebug.polygonizerDiagnostics.dangleEntities || []).slice(0, 8),
-        cutEdgeEntities: (builderDebug.polygonizerDiagnostics.cutEdgeEntities || []).slice(0, 8),
-        invalidRingEntities: (builderDebug.polygonizerDiagnostics.invalidRingEntities || []).slice(0, 8),
-      } : null,
-      curveEndpointSnapApplied: builderDebug.curveEndpointSnapApplied ?? null,
-      curveEndpointSnapCount: builderDebug.curveEndpointSnapCount ?? null,
-      curveEndpointSnapEntities: (builderDebug.curveEndpointSnapEntities || []).slice(0, 6),
-      curveEndpointSnaps: (builderDebug.curveEndpointSnaps || []).slice(0, 8),
-      curveEndpointRepairAttempted: builderDebug.curveEndpointRepairAttempted ?? null,
-      curveEndpointRepairApplied: builderDebug.curveEndpointRepairApplied ?? null,
-      curveEndpointRepairPromotedApplied: builderDebug.curveEndpointRepairPromotedApplied ?? null,
-      curveEndpointRepairPromotedCount: builderDebug.curveEndpointRepairPromotedCount ?? null,
-      curveEndpointRepairLimit: builderDebug.curveEndpointRepairLimit ?? null,
-      curveEndpointBridgeCount: builderDebug.curveEndpointBridgeCount ?? null,
-      curveEndpointRepairEntities: (builderDebug.curveEndpointRepairEntities || []).slice(0, 6),
-      curveEndpointRepairBridges: (builderDebug.curveEndpointRepairBridges || []).slice(0, 8),
-      chosenSubgroupSource: builderDebug.chosenSubgroupSource ?? null,
-      rankedCycleCount: builderDebug.rankedCycleCount ?? null,
     };
   }
 
@@ -795,7 +700,6 @@
   function parseDXFToShapes(dxf, raw, settingsInput = {}) {
     const settings = normalizeSettings(settingsInput);
     const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
-    const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
     const layerOrder = Object.keys(layerTable);
@@ -824,11 +728,19 @@
     const structuredShapes = detectStructuredShapes(renderableEntities, {
       singleSketch: settings?.multiSketchDetection === false,
     });
-    const rasterShapes = detectRasterShapes(renderableEntities);
-    const nestingPolygons = structuredShapes.map(shape => detectNestingPolygon(shape, {
+    debugDXF('Sketch contour method', {
+      rawSetting: settingsInput?.sketchContourMethod ?? null,
+      normalizedSetting: settings.sketchContourMethod,
+      methodPassedToDetect: sketchContourMethod,
+      shapeCount: structuredShapes.length,
+      knownMethods: SKETCH_CONTOUR_METHODS,
+    });
+    const nestingPolygons = structuredShapes.map(shape => detectContour(shape, {
       contourMethod: sketchContourMethod,
-      shapelyPolygonizeToleranceMultiplier,
+      gapTolerance: 100,        // maximum gap to bridge when splitting intersections
+      tolerance: 0.001
     }));
+
     const shapes = structuredShapes.length
       ? structuredShapes
           .map((shapeRecord, index) => buildStructuredPreviewShape({
@@ -851,62 +763,6 @@
       .filter(([name]) => !layerOrder.includes(name))
       .map(([name, color]) => ({ name, color }));
     const layers = [...orderedLayers, ...extraLayers];
-
-    debugDXF('Raw preview parse', {
-      entityCount: entities.length,
-      renderableEntityCount: renderableEntities.length,
-      rawPreviewShapeCount: rawPreviewShapes.length,
-      structuredShapeCount: structuredShapes.length,
-      rasterShapeCount: rasterShapes.length,
-      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
-      sketchContourMethod,
-      shapelyPolygonizeToleranceMultiplier,
-    });
-
-    debugDXF('Shape pipeline compare', {
-      rawPreviewShapeCount: rawPreviewShapes.length,
-      activePreviewShapeCount: shapes.length,
-      activePreviewShapes: shapes.map(shape => ({
-        id: shape.id,
-        entityCount: Array.isArray(shape.exportEntities) ? shape.exportEntities.length : 0,
-        polygonPointCount: Array.isArray(shape.polygonPoints) ? shape.polygonPoints.length : 0,
-        selectionPolygonPointCount: Array.isArray(shape.selectionPolygonPoints) ? shape.selectionPolygonPoints.length : 0,
-        selectionPolygonSource: shape.selectionPolygonSource || null,
-        selectionPolygonCoverage: shape.selectionPolygonCoverage || null,
-        selectionPolygonCandidates: shape.selectionPolygonCandidates || [],
-        forcedContourMethod: shape.forcedContourMethod || null,
-        forcedContourApplied: !!shape.forcedContourApplied,
-        nestingPolygonBuilderMode: shape.nestingPolygonBuilderMode || null,
-        nestingPolygonBuilderStage: shape.nestingPolygonBuilderDebug?.stage || null,
-        nestingPolygonBuilderStats: summarizeNestingBuilderDebug(shape.nestingPolygonBuilderDebug),
-        nestingPolygonCandidates: shape.nestingPolygonCandidates || [],
-      })),
-      structuredShapeCount: structuredShapes.length,
-      sketchContourMethod,
-      shapelyPolygonizeToleranceMultiplier,
-      structuredShapes: structuredShapes.map(shape => ({
-        id: shape.id,
-        parentContourType: shape.parentContour?.entity?.type || null,
-        childClosedContourCount: shape.childClosedContours?.length || 0,
-        openEntityCount: shape.openEntities?.length || 0,
-        entityCount: shape.entities?.length || 0,
-      })),
-      rasterShapeCount: rasterShapes.length,
-      nestingPolygonCount: nestingPolygons.filter(Boolean).length,
-      nestingPolygons: nestingPolygons.map((polygon, index) => ({
-        shapeId: structuredShapes[index]?.id || `shape_${index}`,
-        source: polygon?.source || null,
-        builderMode: polygon?.builderMode || null,
-        builderStage: polygon?.builderDebug?.stage || null,
-        builderStats: summarizeNestingBuilderDebug(polygon?.builderDebug),
-        polygonPointCount: Array.isArray(polygon?.polygonPoints) ? polygon.polygonPoints.length : 0,
-        coverage: summarizeCoverageMetrics(polygon?.coverage),
-        candidates: (polygon?.rankedCandidates || [])
-          .slice(0, 4)
-          .map(summarizeNestingCandidateEntry)
-          .filter(Boolean),
-      })),
-    });
 
     return { shapes, layers };
   }
@@ -967,14 +823,12 @@
         ? global.getCurrentNestingSettings()
         : {};
       const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
-      const shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
       const matchesSketchMode = file?._multiSketchDetection === !!settings.multiSketchDetection;
       const matchesContourMethod = normalizeSketchContourMethod(file?._sketchContourMethod) === sketchContourMethod;
-      const matchesShapelyTolerance = Number(file?._shapelyPolygonizeToleranceMultiplier || 1) === shapelyPolygonizeToleranceMultiplier;
       let data = null;
       let source = 'mock';
 
-      if (matchesSketchMode && matchesContourMethod && matchesShapelyTolerance && file?.shapes?.length) {
+      if (matchesSketchMode && matchesContourMethod && file?.shapes?.length) {
         data = applyPartLabelsToPreviewData(clonePreviewData({ shapes: file.shapes, layers: file.layers || [] }), filename);
         source = 'saved';
       }
@@ -990,7 +844,6 @@
               file.layers = clonePreviewData(data).layers;
               file._multiSketchDetection = !!settings.multiSketchDetection;
               file._sketchContourMethod = sketchContourMethod;
-              file._shapelyPolygonizeToleranceMultiplier = shapelyPolygonizeToleranceMultiplier;
               source = 'real';
             }
           }
@@ -1015,7 +868,6 @@
         const settings = global.getCurrentNestingSettings();
         file._multiSketchDetection = !!settings.multiSketchDetection;
         file._sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
-        file._shapelyPolygonizeToleranceMultiplier = Number(settings.shapelyPolygonizeToleranceMultiplier) || 1;
       }
       file.qty = file.shapes
         .filter(shape => shape.visible !== false)

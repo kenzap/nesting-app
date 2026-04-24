@@ -470,17 +470,17 @@
         };
       });
 
-    debugDXF('Raster envelope result', {
-      entityCount: renderableEntities.length,
-      regionCount: assignedRegions.length,
-      cellSize,
-      shapes: assignedRegions.map(region => ({
-        id: region.id,
-        entityCount: region.entities.length,
-        polygonPointCount: region.polygonPoints.length,
-        layer: region.layer,
-      })),
-    });
+    // debugDXF('Raster envelope result', {
+    //   entityCount: renderableEntities.length,
+    //   regionCount: assignedRegions.length,
+    //   cellSize,
+    //   shapes: assignedRegions.map(region => ({
+    //     id: region.id,
+    //     entityCount: region.entities.length,
+    //     polygonPointCount: region.polygonPoints.length,
+    //     layer: region.layer,
+    //   })),
+    // });
 
     return assignedRegions;
   }

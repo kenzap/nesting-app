@@ -7,6 +7,7 @@
   if (!Flatten || !geometry) {
     global.NestDxfFlattenService = {
       buildSketchGroups() { return []; },
+      extractPolygonForEntities() { return null; },
     };
     return;
   }

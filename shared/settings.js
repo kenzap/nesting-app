@@ -3,9 +3,9 @@
 (function defineNestSettings(globalScope) {
   const SKETCH_CONTOUR_METHODS = [
     'auto',
-    'parent-seed',
-    'parent-extended',
-    'shapely-polygonize',
+    'makerjs-chains',
+    'intersection',
+    'arrangement',
   ];
 
   const SETTINGS_DEFAULTS = {
@@ -20,7 +20,6 @@
     engravingLayer: '2',
     engravingStyle: 'simple',
     sketchContourMethod: 'auto',
-    shapelyPolygonizeToleranceMultiplier: 1,
   };
 
   function coerceByDefault(value, fallback) {
@@ -52,6 +51,10 @@
       normalized[key] = coerceByDefault(raw[key], SETTINGS_DEFAULTS[key]);
     });
 
+    if (normalized.sketchContourMethod === 'makerjs-outline') {
+      normalized.sketchContourMethod = 'makerjs-chains';
+    }
+
     if (!['top', 'bottom'].includes(normalized.preferredAlignment)) {
       normalized.preferredAlignment = SETTINGS_DEFAULTS.preferredAlignment;
     }
@@ -81,10 +84,6 @@
     normalized.timeLimit = Math.max(10, Number(normalized.timeLimit) || SETTINGS_DEFAULTS.timeLimit);
     normalized.partSpacing = Math.max(0, Number(normalized.partSpacing) || 0);
     normalized.sheetMargin = Math.max(0, Number(normalized.sheetMargin) || 0);
-    normalized.shapelyPolygonizeToleranceMultiplier = Math.min(
-      10,
-      Math.max(0.1, Number(normalized.shapelyPolygonizeToleranceMultiplier) || SETTINGS_DEFAULTS.shapelyPolygonizeToleranceMultiplier)
-    );
 
     return normalized;
   }
