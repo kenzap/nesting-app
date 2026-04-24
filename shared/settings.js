@@ -3,8 +3,6 @@
 (function defineNestSettings(globalScope) {
   const SKETCH_CONTOUR_METHODS = [
     'auto',
-    'makerjs-chains',
-    'intersection',
     'arrangement',
   ];
 
@@ -51,8 +49,11 @@
       normalized[key] = coerceByDefault(raw[key], SETTINGS_DEFAULTS[key]);
     });
 
-    if (normalized.sketchContourMethod === 'makerjs-outline') {
-      normalized.sketchContourMethod = 'makerjs-chains';
+    // Deprecated contour methods ('makerjs-outline', 'makerjs-chains',
+    // 'intersection') migrate to 'auto'. The validation pass below will
+    // collapse any other unknown value to the default too.
+    if (['makerjs-outline', 'makerjs-chains', 'intersection'].includes(normalized.sketchContourMethod)) {
+      normalized.sketchContourMethod = 'auto';
     }
 
     if (!['top', 'bottom'].includes(normalized.preferredAlignment)) {
