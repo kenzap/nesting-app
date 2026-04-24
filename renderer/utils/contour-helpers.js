@@ -14,6 +14,7 @@
   } = geometry;
 
   function emptyContourResult(builderMode, builderDebug = null) {
+    console.log("emptyContourResult", builderDebug);
     return {
       polygonPoints: null,
       source: null,

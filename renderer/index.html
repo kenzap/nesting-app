@@ -165,6 +165,8 @@
           <select data-setting-key="sketchContourMethod">
             <option value="auto" selected>Auto</option>
             <option value="makerjs-chains">Maker.js chains</option>
+            <option value="intersection">Intersection</option>
+            <option value="arrangement">Arrangement (JSTS)</option>
           </select>
         </div>
       </div>
@@ -533,6 +535,7 @@
 <script src="../shared/settings.js"></script>
 <script src="../node_modules/@flatten-js/core/dist/main.umd.js"></script>
 <script src="../node_modules/makerjs/dist/browser.maker.js"></script>
+<script src="../node_modules/jsts/dist/jsts.min.js"></script>
 <script src="vendor/concaveman.js"></script>
 <script src="helpers.js"></script>
 <script src="utils/dxf-color.js"></script>
@@ -548,9 +551,16 @@
 <script src="services/dxf-flatten-service.js"></script>
 <script src="utils/contour-helpers.js"></script>
 <script src="services/nesting-polygon/makerjs-helpers.js"></script>
-<script src="services/contour-detection-makerjs-service.js"></script>
-<script src="services/contour-detection-service.js"></script>
+<!-- dxf-shape-detection-service.js must load before the contour-detection
+     services because each of them captures its debugDXF export at module-load
+     time. If it loaded after, they would all silently bind the no-op stub
+     and every [DXF DEBUG] event from those services would be lost. -->
 <script src="services/dxf-shape-detection-service.js"></script>
+<script src="services/contour-detection-makerjs-service.js"></script>
+<script src="services/contour-detection-intersection-service.js"></script>
+<script src="services/contour-detection-planar-service.js"></script>
+<script src="services/contour-detection-jsts-service.js"></script>
+<script src="services/contour-detection-service.js"></script>
 <script src="services/dxf-shape-structure-service.js"></script>
 <script src="services/dxf-raster-envelope-service.js"></script>
 <script src="services/dxf-preview-service.js"></script>

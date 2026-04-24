@@ -4,7 +4,7 @@
   const geometry = global.NestDxfGeometry;
   const svg = global.NestDxfSvg;
   const { createLayerResolver, FALLBACK_PALETTE } = global.NestDxfLayerService;
-  // const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
   const {
     buildSketchGroups,
     extractPolygonForEntities,
@@ -235,9 +235,13 @@
       : [];
 
     if (normalizedForcedSource !== 'auto') {
-      return [directCandidate, ...rankedCandidates]
+      const forcedMatch = [directCandidate, ...rankedCandidates]
         .filter(Boolean)
-        .find(candidate => candidate.source === normalizedForcedSource) || null;
+        .find(candidate =>
+          candidate.source === normalizedForcedSource ||
+          nestingPolygon.builderMode === normalizedForcedSource
+        );
+      return forcedMatch || directCandidate || rankedCandidates[0] || null;
     }
 
     if (directCandidate && isValidSelectionCandidate(directCandidate)) {
@@ -724,8 +728,17 @@
     const structuredShapes = detectStructuredShapes(renderableEntities, {
       singleSketch: settings?.multiSketchDetection === false,
     });
+    debugDXF('Sketch contour method', {
+      rawSetting: settingsInput?.sketchContourMethod ?? null,
+      normalizedSetting: settings.sketchContourMethod,
+      methodPassedToDetect: sketchContourMethod,
+      shapeCount: structuredShapes.length,
+      knownMethods: SKETCH_CONTOUR_METHODS,
+    });
     const nestingPolygons = structuredShapes.map(shape => detectContour(shape, {
       contourMethod: sketchContourMethod,
+      gapTolerance: 100,        // maximum gap to bridge when splitting intersections
+      tolerance: 0.001
     }));
 
     const shapes = structuredShapes.length

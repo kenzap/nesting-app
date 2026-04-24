@@ -189,10 +189,20 @@
   }
 
   function compareScores(a, b) {
+    // Strip penalty first: a candidate with aspect ratio > 20 (e.g. a
+    // 402 x 10 bottom tab on 1161603Adaptor) must never beat a normal
+    // closed outline, even when a boundary-coincidence false positive
+    // gives it a higher closedInsideCount.
+    if (a.stripPenalty !== b.stripPenalty) return a.stripPenalty - b.stripPenalty;
+    // Coverage gate: if one candidate covers a meaningfully larger share
+    // of the group bbox than the other, take that one before falling into
+    // the inside-count tiebreakers. Guards against small interior strips
+    // winning on boundary-touch counts alone.
+    const coverageGap = b.bboxCoverage - a.bboxCoverage;
+    if (Math.abs(coverageGap) > 0.05) return coverageGap;
     if (a.closedInsideCount !== b.closedInsideCount) return b.closedInsideCount - a.closedInsideCount;
     if (a.insideCount !== b.insideCount) return b.insideCount - a.insideCount;
     if (a.touchCount !== b.touchCount) return b.touchCount - a.touchCount;
-    if (a.stripPenalty !== b.stripPenalty) return a.stripPenalty - b.stripPenalty;
     if (Math.abs(a.bboxCoverage - b.bboxCoverage) > 1e-6) return b.bboxCoverage - a.bboxCoverage;
     return b.area - a.area;
   }
@@ -204,11 +214,14 @@
     return ranked
       .filter(entry => {
         const score = entry.score;
-        return Math.abs(score.closedInsideCount - leader.score.closedInsideCount) <= 0 &&
+        // Peer-outers must match on strip penalty and bbox coverage tier,
+        // otherwise a thin strip would be treated as a peer of the real
+        // outline purely because the other counts happen to match.
+        return Math.abs(score.stripPenalty - leader.score.stripPenalty) <= 0 &&
+          Math.abs(score.bboxCoverage - leader.score.bboxCoverage) <= 0.02 &&
+          Math.abs(score.closedInsideCount - leader.score.closedInsideCount) <= 0 &&
           Math.abs(score.insideCount - leader.score.insideCount) <= 0 &&
           Math.abs(score.touchCount - leader.score.touchCount) <= 0 &&
-          Math.abs(score.stripPenalty - leader.score.stripPenalty) <= 0 &&
-          Math.abs(score.bboxCoverage - leader.score.bboxCoverage) <= 0.02 &&
           Math.abs(score.area - leader.score.area) <= Math.max(leader.score.area * 0.05, 1);
       })
       .map(entry => entry.candidate);

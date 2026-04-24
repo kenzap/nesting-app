@@ -4,6 +4,41 @@ const fs = require('fs');
 const { cleanupTempArtifacts } = require('../utils/temp-retention');
 
 function registerFileIpc({ getMainWindow }) {
+  ipcMain.on('to-planar-graph-sync', (event, payload) => {
+    try {
+      const toPlanarGraphLib = require('to-planar-graph');
+      event.returnValue = {
+        success: true,
+        data: toPlanarGraphLib.toPlanarGraph(
+          payload?.nodes || [],
+          payload?.edges || [],
+          payload?.gapTolerance
+        ),
+      };
+    } catch (err) {
+      event.returnValue = {
+        success: false,
+        error: err.message,
+      };
+    }
+  });
+
+  ipcMain.on('discover-planar-faces-sync', (event, payload) => {
+    try {
+      const planarFaceDiscoveryLib = require('planar-face-discovery');
+      const solver = new planarFaceDiscoveryLib.PlanarFaceTree();
+      event.returnValue = {
+        success: true,
+        data: solver.discover(payload?.nodes || [], payload?.edges || []),
+      };
+    } catch (err) {
+      event.returnValue = {
+        success: false,
+        error: err.message,
+      };
+    }
+  });
+
   // Parse a DXF file and return structured entity data.
   ipcMain.handle('parse-dxf', async (event, filePath) => {
     try {
@@ -112,6 +147,24 @@ function registerFileIpc({ getMainWindow }) {
       const fileName = `${safeName}.svg`;
       const filePath = path.join(debugDir, fileName);
       fs.writeFileSync(filePath, String(payload?.svg || ''), 'utf-8');
+
+      return { success: true, path: filePath, directory: debugDir };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('write-debug-json', async (event, payload) => {
+    try {
+      const safeName = String(payload?.name || 'debug-contour')
+        .replace(/[^a-z0-9-_]+/gi, '-')
+        .replace(/^-+|-+$/g, '') || 'debug-contour';
+      const debugDir = path.join(app.getAppPath(), 'etc', 'debug');
+      fs.mkdirSync(debugDir, { recursive: true });
+
+      const fileName = `${safeName}.json`;
+      const filePath = path.join(debugDir, fileName);
+      fs.writeFileSync(filePath, JSON.stringify(payload?.data ?? null, null, 2), 'utf-8');
 
       return { success: true, path: filePath, directory: debugDir };
     } catch (err) {

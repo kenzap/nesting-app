@@ -4,6 +4,8 @@
   const SKETCH_CONTOUR_METHODS = [
     'auto',
     'makerjs-chains',
+    'intersection',
+    'arrangement',
   ];
 
   const SETTINGS_DEFAULTS = {
@@ -50,9 +52,6 @@
     });
 
     if (normalized.sketchContourMethod === 'makerjs-outline') {
-      normalized.sketchContourMethod = 'makerjs-chains';
-    }
-    if (normalized.sketchContourMethod === 'shapely-polygonize' || normalized.sketchContourMethod === 'polygonize') {
       normalized.sketchContourMethod = 'makerjs-chains';
     }
 
