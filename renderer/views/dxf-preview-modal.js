@@ -225,12 +225,20 @@
       dom.modal.classList.remove('open');
     }
 
-    // Re-renders the canvas and list without re-parsing the DXF — used when a
-    // setting such as the engraving layer changes while the modal is already open.
-    function refreshDXFPreview() {
+    // Re-parses the current file when the preview-affecting settings change so
+    // toggles like multi-sketch detection take effect immediately.
+    async function refreshDXFPreview() {
       if (!dom.modal.classList.contains('open')) return;
-      renderSVG();
-      renderList();
+      if (!pv.fileId) {
+        renderSVG();
+        renderList();
+        return;
+      }
+      try {
+        await openDXFPreview(pv.fileId, pv.filename);
+      } catch (error) {
+        console.error('[DXF Preview] Failed to refresh preview:', error);
+      }
     }
 
     // Toggles between delete and restore for the selected shape depending on its

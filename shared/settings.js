@@ -18,6 +18,7 @@
     engravingLayer: '2',
     engravingStyle: 'simple',
     sketchContourMethod: 'auto',
+    multiSketchDetection: true,
   };
 
   function coerceByDefault(value, fallback) {

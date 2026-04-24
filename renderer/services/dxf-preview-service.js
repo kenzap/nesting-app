@@ -374,7 +374,14 @@
     };
   }
 
-  function buildRawPreviewShape({ entities, index, layerOrder, layerColor, resolveEntityColor }) {
+  function buildRawPreviewShape({
+    entities,
+    index,
+    layerOrder,
+    layerColor,
+    resolveEntityColor,
+    forceBoundingBoxPolygon = false,
+  }) {
     if (!Array.isArray(entities) || !entities.length) return null;
 
     let renderBBox = null;
@@ -413,9 +420,11 @@
       }
     });
 
-    const extractedPolygon = extractPolygonForEntities(entities);
-    const polygonPoints = extractedPolygon?.polygonPoints || rectPolygonFromBBox(renderBBox);
-    const polygonPath = pointsToPathData(polygonPoints, minX, maxY);
+    const extractedPolygon = forceBoundingBoxPolygon ? null : extractPolygonForEntities(entities);
+    const polygonPoints = forceBoundingBoxPolygon
+      ? rectPolygonFromBBox(renderBBox)
+      : (extractedPolygon?.polygonPoints || rectPolygonFromBBox(renderBBox));
+    const polygonPath = forceBoundingBoxPolygon ? '' : pointsToPathData(polygonPoints, minX, maxY);
     const fallbackPath = rectPath(width, height);
     const selectionPath = polygonPath || fallbackPath;
     return {
@@ -424,12 +433,14 @@
       layer: preferredLayer,
       layerColor: layerColor(preferredLayer),
       hasSyntheticOuter: true,
-      hasExtractedPolygon: !!extractedPolygon,
+      hasExtractedPolygon: !forceBoundingBoxPolygon && !!extractedPolygon,
       mixedOuterLayers: usedLayers.length > 1,
       selectionFillAllowed: false,
-      selectionPolygonSource: extractedPolygon ? 'raw-extracted' : 'bbox-fallback',
+      selectionPolygonSource: forceBoundingBoxPolygon
+        ? 'bbox-forced'
+        : (extractedPolygon ? 'raw-extracted' : 'bbox-fallback'),
       outerBoundaryItems,
-      pathData: selectionPath,
+      pathData: polygonPath,
       selectionPathData: selectionPath,
       fillRule: 'nonzero',
       polygonPoints,
@@ -700,6 +711,7 @@
   function parseDXFToShapes(dxf, raw, settingsInput = {}) {
     const settings = normalizeSettings(settingsInput);
     const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+    const singleSketchMode = settings?.multiSketchDetection === false;
     const entities = enrichEntitiesFromRaw([...(dxf.entities || [])], raw);
     const layerTable = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
     const layerOrder = Object.keys(layerTable);
@@ -711,7 +723,7 @@
     });
     if (!renderableEntities.length) return null;
 
-    const groups = settings?.multiSketchDetection === false
+    const groups = singleSketchMode
       ? [renderableEntities]
       : buildSketchGroups(renderableEntities);
     const rawPreviewShapes = groups
@@ -721,25 +733,31 @@
         layerOrder,
         layerColor,
         resolveEntityColor,
+        forceBoundingBoxPolygon: singleSketchMode,
       }))
       .filter(Boolean);
     if (!rawPreviewShapes.length) return null;
 
-    const structuredShapes = detectStructuredShapes(renderableEntities, {
-      singleSketch: settings?.multiSketchDetection === false,
-    });
+    const structuredShapes = singleSketchMode
+      ? []
+      : detectStructuredShapes(renderableEntities, {
+        singleSketch: false,
+      });
     debugDXF('Sketch contour method', {
       rawSetting: settingsInput?.sketchContourMethod ?? null,
       normalizedSetting: settings.sketchContourMethod,
       methodPassedToDetect: sketchContourMethod,
       shapeCount: structuredShapes.length,
       knownMethods: SKETCH_CONTOUR_METHODS,
+      singleSketchMode,
     });
-    const nestingPolygons = structuredShapes.map(shape => detectContour(shape, {
-      contourMethod: sketchContourMethod,
-      gapTolerance: 100,        // maximum gap to bridge when splitting intersections
-      tolerance: 0.001
-    }));
+    const nestingPolygons = singleSketchMode
+      ? []
+      : structuredShapes.map(shape => detectContour(shape, {
+        contourMethod: sketchContourMethod,
+        gapTolerance: 100,
+        tolerance: 0.001
+      }));
 
     const shapes = structuredShapes.length
       ? structuredShapes
