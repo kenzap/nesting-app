@@ -26,6 +26,31 @@ function registerExportDxfIpc() {
       }
 
       const RAD = Math.PI / 180;
+      const DEG = 180 / Math.PI;
+
+      function overwriteTextFile(targetPath, contents) {
+        const dir = path.dirname(targetPath);
+        const base = path.basename(targetPath);
+        const tempPath = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
+
+        try {
+          fs.writeFileSync(tempPath, contents, 'utf-8');
+          if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
+          fs.renameSync(tempPath, targetPath);
+
+          // Touch the replacement so downstream apps that key off modified time
+          // notice the update even when the filename stays the same.
+          const now = new Date();
+          fs.utimesSync(targetPath, now, now);
+        } catch (error) {
+          try {
+            if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true });
+          } catch {
+            // Ignore temp cleanup failures and surface the original write error.
+          }
+          throw error;
+        }
+      }
 
       function applyTransform(pts, rotation, tx, ty) {
         const cos = Math.cos(rotation * RAD);
@@ -58,6 +83,55 @@ function registerExportDxfIpc() {
           y: +(sin * x + cos * y).toFixed(4),
           z: Number.isFinite(pt?.z) ? +pt.z.toFixed(4) : 0,
         };
+      }
+
+      function normalizeDegrees(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return 0;
+        return ((numeric % 360) + 360) % 360;
+      }
+
+      function polylineClosed(entity) {
+        return !!(entity?.closed || entity?.shape || entity?.is3dPolygonMeshClosed);
+      }
+
+      function lwPolylineFlags(entity) {
+        return (polylineClosed(entity) ? 1 : 0) |
+          (entity?.hasContinuousLinetypePattern ? 128 : 0);
+      }
+
+      function polylineFlags(entity) {
+        return (polylineClosed(entity) ? 1 : 0) |
+          (entity?.includesCurveFitVertices ? 2 : 0) |
+          (entity?.includesSplineFitVertices ? 4 : 0) |
+          (entity?.is3dPolyline ? 8 : 0) |
+          (entity?.is3dPolygonMesh ? 16 : 0) |
+          (entity?.is3dPolygonMeshClosed ? 32 : 0) |
+          (entity?.isPolyfaceMesh ? 64 : 0) |
+          (entity?.hasContinuousLinetypePattern ? 128 : 0);
+      }
+
+      function polylineVertexFlags(vertex) {
+        return (vertex?.curveFittingVertex ? 1 : 0) |
+          (vertex?.curveFitTangent ? 2 : 0) |
+          (vertex?.splineVertex ? 8 : 0) |
+          (vertex?.splineControlPoint ? 16 : 0) |
+          (vertex?.threeDPolylineVertex ? 32 : 0) |
+          (vertex?.threeDPolylineMesh ? 64 : 0) |
+          (vertex?.polyfaceMeshVertex ? 128 : 0);
+      }
+
+      function normalizeClosedPolylineVertices(vertices, closed) {
+        if (!closed || !Array.isArray(vertices) || vertices.length < 2) return Array.isArray(vertices) ? vertices : [];
+        const last = vertices[vertices.length - 1];
+        if (!Number.isFinite(last?.bulge) || last.bulge === 0) return vertices;
+
+        const zeroBulgeIndex = vertices.findIndex(vertex => !Number.isFinite(vertex?.bulge) || vertex.bulge === 0);
+        if (zeroBulgeIndex < 0) return vertices;
+
+        const startIndex = (zeroBulgeIndex + 1) % vertices.length;
+        if (startIndex === 0) return vertices;
+        return vertices.slice(startIndex).concat(vertices.slice(0, startIndex));
       }
 
       function approxAciFromHex(hex) {
@@ -437,8 +511,8 @@ function registerExportDxfIpc() {
 
         if (entity.type === 'ARC' && entity.center && Number.isFinite(entity.radius)) {
           const center = transformPoint(entity.center, rotation, tx, ty);
-          const startDeg = (((Number(entity.startAngle || 0)) + rotation) % 360 + 360) % 360;
-          const endDeg = (((Number(entity.endAngle || 0)) + rotation) % 360 + 360) % 360;
+          const startDeg = normalizeDegrees((Number(entity.startAngle || 0) * DEG) + rotation);
+          const endDeg = normalizeDegrees((Number(entity.endAngle || 0) * DEG) + rotation);
           pushHeader('ARC');
           writeColor(lines, entity);
           lines.push('100', 'AcDbCircle');
@@ -451,55 +525,92 @@ function registerExportDxfIpc() {
           return true;
         }
 
-        if ((entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') && Array.isArray(entity.vertices) && entity.vertices.length >= 2) {
-          const verts = entity.vertices;
-          const count = verts.length;
-          let lineCount = 0;
-          for (let i = 0; i < count; i++) {
-            const isLast = i === count - 1;
-            if (isLast && !entity.closed) break;
-            const a = verts[i];
-            const b = verts[isLast ? 0 : i + 1];
-            const bulge = Number.isFinite(a.bulge) ? a.bulge : 0;
-            if (Math.abs(bulge) > 1e-9) {
-              const x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y;
-              const d = Math.hypot(x2 - x1, y2 - y1);
-              const r = Math.abs(d * (1 + bulge * bulge) / (4 * bulge));
-              const midX = (x1 + x2) / 2;
-              const midY = (y1 + y2) / 2;
-              const sagitta = bulge < 0 ? -r + Math.sqrt(r * r - (d / 2) * (d / 2)) : r - Math.sqrt(r * r - (d / 2) * (d / 2));
-              const normX = -(y2 - y1) / d * Math.sign(bulge);
-              const normY = (x2 - x1) / d * Math.sign(bulge);
-              const cx = midX + normX * (r - Math.abs(sagitta));
-              const cy = midY + normY * (r - Math.abs(sagitta));
-              let startAngle = Math.atan2(y1 - cy, x1 - cx) * (180 / Math.PI);
-              let endAngle = Math.atan2(y2 - cy, x2 - cx) * (180 / Math.PI);
-              if (startAngle < 0) startAngle += 360;
-              if (endAngle < 0) endAngle += 360;
-              if (bulge < 0) { const tmp = startAngle; startAngle = endAngle; endAngle = tmp; }
-              const cPt = transformPoint({ x: cx, y: cy, z: a.z || 0 }, rotation, tx, ty);
-              const startRot = ((startAngle + rotation) % 360 + 360) % 360;
-              const endRot = ((endAngle + rotation) % 360 + 360) % 360;
-              pushHeader('ARC');
-              writeColor(lines, entity);
-              lines.push('100', 'AcDbCircle');
-              lines.push('100', 'AcDbArc');
-              lines.push('10', `${cPt.x}`, '20', `${cPt.y}`, '30', `${cPt.z || 0}`);
-              lines.push('40', `${r}`);
-              lines.push('50', `${startRot}`);
-              lines.push('51', `${endRot}`);
-              if (emitDebug) emitDebug.emitted.ARC = (emitDebug.emitted.ARC || 0) + 1;
-            } else {
-              const ptA = transformPoint({ x: a.x, y: a.y, z: a.z || 0 }, rotation, tx, ty);
-              const ptB = transformPoint({ x: b.x, y: b.y, z: b.z || 0 }, rotation, tx, ty);
-              pushHeader('LINE');
-              writeColor(lines, entity);
-              lines.push('10', `${ptA.x}`, '20', `${ptA.y}`, '30', `${ptA.z || 0}`);
-              lines.push('11', `${ptB.x}`, '21', `${ptB.y}`, '31', `${ptB.z || 0}`);
-              lineCount++;
-            }
+        if (entity.type === 'LWPOLYLINE' && Array.isArray(entity.vertices) && entity.vertices.length >= 2) {
+          const closed = polylineClosed(entity);
+          const normalizedVertices = normalizeClosedPolylineVertices(entity.vertices, closed);
+          const verts = normalizedVertices.map(vertex => transformPoint({
+            x: vertex.x,
+            y: vertex.y,
+            z: Number.isFinite(vertex.z) ? vertex.z : (Number.isFinite(entity.elevation) ? entity.elevation : 0),
+          }, rotation, tx, ty));
+          const uniformWidth = Number.isFinite(entity.width) ? entity.width : 0;
+          const extrusion = {
+            x: Number.isFinite(entity.extrusionDirectionX) ? entity.extrusionDirectionX : 0,
+            y: Number.isFinite(entity.extrusionDirectionY) ? entity.extrusionDirectionY : 0,
+            z: Number.isFinite(entity.extrusionDirectionZ) ? entity.extrusionDirectionZ : 1,
+          };
+
+          pushHeader('LWPOLYLINE');
+          writeColor(lines, entity);
+          lines.push('100', 'AcDbPolyline');
+          lines.push('90', `${verts.length}`);
+          lines.push('70', `${lwPolylineFlags(entity)}`);
+          // Emit constant width explicitly, even when zero, because some DXF
+          // readers treat closed bulged LWPOLYLINEs more reliably when group
+          // code 43 is present exactly like many source files export it.
+          lines.push('43', `${uniformWidth}`);
+          if (Number.isFinite(entity.elevation) && entity.elevation !== 0) lines.push('38', `${entity.elevation}`);
+          if (Number.isFinite(entity.depth) && entity.depth !== 0) lines.push('39', `${entity.depth}`);
+          if (extrusion.x !== 0 || extrusion.y !== 0 || extrusion.z !== 1) {
+            lines.push('210', `${extrusion.x}`, '220', `${extrusion.y}`, '230', `${extrusion.z}`);
           }
-          if (emitDebug) emitDebug.emitted.LINE = (emitDebug.emitted.LINE || 0) + lineCount;
+          verts.forEach((point, index) => {
+            const source = normalizedVertices[index] || {};
+            lines.push('10', `${point.x}`, '20', `${point.y}`);
+            if (uniformWidth === 0) {
+              if (Number.isFinite(source.startWidth) && source.startWidth !== 0) lines.push('40', `${source.startWidth}`);
+              if (Number.isFinite(source.endWidth) && source.endWidth !== 0) lines.push('41', `${source.endWidth}`);
+            }
+            if (Number.isFinite(source.bulge) && source.bulge !== 0) lines.push('42', `${source.bulge}`);
+          });
+          if (emitDebug) emitDebug.emitted.LWPOLYLINE = (emitDebug.emitted.LWPOLYLINE || 0) + 1;
+          return true;
+        }
+
+        if (entity.type === 'POLYLINE' && Array.isArray(entity.vertices) && entity.vertices.length >= 2) {
+          const closed = polylineClosed(entity);
+          const normalizedVertices = normalizeClosedPolylineVertices(entity.vertices, closed);
+          const extrusion = entity.extrusionDirection || {};
+          pushHeader('POLYLINE');
+          writeColor(lines, entity);
+          lines.push('66', '1');
+          lines.push('100', 'AcDb2dPolyline');
+          lines.push('10', '0', '20', '0', '30', `${Number.isFinite(entity.elevation) ? entity.elevation : 0}`);
+          if (Number.isFinite(entity.thickness) && entity.thickness !== 0) lines.push('39', `${entity.thickness}`);
+          lines.push('70', `${polylineFlags(entity)}`);
+          if (extrusion.x || extrusion.y || Number.isFinite(extrusion.z)) {
+            lines.push(
+              '210', `${Number(extrusion.x || 0)}`,
+              '220', `${Number(extrusion.y || 0)}`,
+              '230', `${Number.isFinite(extrusion.z) ? Number(extrusion.z) : 1}`
+            );
+          }
+
+          normalizedVertices.forEach(vertex => {
+            const point = transformPoint(vertex, rotation, tx, ty);
+            lines.push('0', 'VERTEX');
+            if (nextHandle) lines.push('5', nextHandle());
+            lines.push('100', 'AcDbEntity');
+            lines.push('8', layer);
+            lines.push('100', 'AcDbVertex');
+            lines.push('100', entity.is3dPolyline ? 'AcDb3dPolylineVertex' : 'AcDb2dVertex');
+            lines.push('10', `${point.x}`, '20', `${point.y}`, '30', `${point.z || 0}`);
+            const flags = polylineVertexFlags(vertex);
+            if (flags) lines.push('70', `${flags}`);
+            if (Number.isFinite(vertex.startWidth) && vertex.startWidth !== 0) lines.push('40', `${vertex.startWidth}`);
+            if (Number.isFinite(vertex.endWidth) && vertex.endWidth !== 0) lines.push('41', `${vertex.endWidth}`);
+            if (Number.isFinite(vertex.bulge) && vertex.bulge !== 0) lines.push('42', `${vertex.bulge}`);
+            if (Number.isFinite(vertex.faceA)) lines.push('71', `${vertex.faceA}`);
+            if (Number.isFinite(vertex.faceB)) lines.push('72', `${vertex.faceB}`);
+            if (Number.isFinite(vertex.faceC)) lines.push('73', `${vertex.faceC}`);
+            if (Number.isFinite(vertex.faceD)) lines.push('74', `${vertex.faceD}`);
+          });
+
+          lines.push('0', 'SEQEND');
+          if (nextHandle) lines.push('5', nextHandle());
+          lines.push('100', 'AcDbEntity');
+          lines.push('8', layer);
+          if (emitDebug) emitDebug.emitted.POLYLINE = (emitDebug.emitted.POLYLINE || 0) + 1;
           return true;
         }
 
@@ -521,21 +632,45 @@ function registerExportDxfIpc() {
         if (entity.type === 'SPLINE' && (entity.controlPoints?.length || entity.fitPoints?.length)) {
           const controlPoints = (entity.controlPoints || []).map(point => transformPoint(point, rotation, tx, ty));
           const fitPoints = (entity.fitPoints || []).map(point => transformPoint(point, rotation, tx, ty));
+          const knotValues = Array.isArray(entity.knotValues)
+            ? entity.knotValues
+            : (Array.isArray(entity.knots) ? entity.knots : []);
+          const splineFlags =
+            (entity.closed ? 1 : 0) |
+            (entity.periodic ? 2 : 0) |
+            (entity.rational ? 4 : 0) |
+            (entity.planar ? 8 : 0) |
+            (entity.linear ? 16 : 0);
           pushHeader('SPLINE');
           writeColor(lines, entity);
           lines.push('100', 'AcDbSpline');
-          lines.push('70', entity.closed ? '1' : '0');
+          lines.push('70', `${splineFlags}`);
           lines.push('71', `${entity.degreeOfSplineCurve || 3}`);
-          lines.push('72', `${(entity.knots || []).length}`);
+          lines.push('72', `${knotValues.length}`);
           lines.push('73', `${controlPoints.length}`);
           lines.push('74', `${fitPoints.length}`);
-          (entity.knots || []).forEach(knot => lines.push('40', `${knot}`));
+          knotValues.forEach(knot => lines.push('40', `${knot}`));
           controlPoints.forEach(point => {
             lines.push('10', `${point.x}`, '20', `${point.y}`, '30', `${point.z || 0}`);
           });
           fitPoints.forEach(point => {
             lines.push('11', `${point.x}`, '21', `${point.y}`, '31', `${point.z || 0}`);
           });
+          if (entity.startTangent) {
+            const tangent = rotateVector(entity.startTangent, rotation);
+            lines.push('12', `${tangent.x}`, '22', `${tangent.y}`, '32', `${tangent.z || 0}`);
+          }
+          if (entity.endTangent) {
+            const tangent = rotateVector(entity.endTangent, rotation);
+            lines.push('13', `${tangent.x}`, '23', `${tangent.y}`, '33', `${tangent.z || 0}`);
+          }
+          if (entity.normalVector) {
+            lines.push(
+              '210', `${Number(entity.normalVector.x || 0)}`,
+              '220', `${Number(entity.normalVector.y || 0)}`,
+              '230', `${Number.isFinite(entity.normalVector.z) ? Number(entity.normalVector.z) : 1}`
+            );
+          }
           if (emitDebug) emitDebug.emitted.SPLINE = (emitDebug.emitted.SPLINE || 0) + 1;
           return true;
         }
@@ -947,10 +1082,10 @@ function registerExportDxfIpc() {
         const layerDefs = collectLayerDefs([{ placedItems }]);
         const dxf = buildDXF(sheetEntities, engravings, layerDefs, emitDebug);
         const outPath = path.join(outputDir, `${safeName}_sheet_${idx}.dxf`);
-        fs.writeFileSync(outPath, dxf, 'utf-8');
+        const debugPath = path.join(outputDir, `${safeName}_sheet_${idx}.debug.json`);
+        overwriteTextFile(outPath, dxf);
         if (isDev) {
-          const debugPath = path.join(outputDir, `${safeName}_sheet_${idx}.debug.json`);
-          fs.writeFileSync(debugPath, JSON.stringify({
+          overwriteTextFile(debugPath, JSON.stringify({
             strip_index: strip.index,
             strip_json_path: strip.json_path,
             input_path: inputPath || null,
@@ -967,7 +1102,9 @@ function registerExportDxfIpc() {
             skipped_entity_samples: emitDebug.skipped.slice(0, 40),
             layer_defs: layerDefs,
             rows: debugRows,
-          }, null, 2), 'utf-8');
+          }, null, 2));
+        } else if (fs.existsSync(debugPath)) {
+          fs.rmSync(debugPath, { force: true });
         }
         fileCount++;
       }

@@ -17,7 +17,7 @@
     exportFormat: 'dxf',
     engravingLayer: '2',
     engravingStyle: 'simple',
-    sketchContourMethod: 'auto',
+    sketchContourMethod: 'arrangement',
     multiSketchDetection: true,
   };
 
