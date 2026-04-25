@@ -2,6 +2,10 @@
   'use strict';
 
   const { f } = global.NestDxfSvg;
+  const {
+    layoutEngravingLabel,
+    DEFAULT_LAYOUT: ENGRAVING_LAYOUT_DEFAULTS = { charAdvance: 1.25 },
+  } = global.NestEngravingLayout || {};
 
   // These glyph maps intentionally stay verbose here so the preview/export
   // can use the same predictable geometry instead of depending on browser fonts.
@@ -11,8 +15,7 @@
       [[0.34,0.24],[0.66,0.24],[0.76,0.34],[0.76,0.66],[0.66,0.76],[0.34,0.76],[0.24,0.66],[0.24,0.34]],
     ],
     '1': [
-      [[0.34,0.18],[0.54,0.08],[0.66,0.08],[0.66,0.92],[0.5,0.92],[0.5,0.24],[0.36,0.32],[0.28,0.24]],
-      [[0.24,0.92],[0.76,0.92],[0.76,0.78],[0.24,0.78]],
+      [[0.24,0.26],[0.44,0.08],[0.64,0.08],[0.64,0.76],[0.78,0.76],[0.78,0.92],[0.22,0.92],[0.22,0.76],[0.46,0.76],[0.46,0.3],[0.34,0.42],[0.24,0.34]],
     ],
     '2': [
       [[0.14,0.22],[0.28,0.08],[0.78,0.08],[0.9,0.2],[0.9,0.36],[0.82,0.48],[0.28,0.76],[0.9,0.76],[0.9,0.92],[0.1,0.92],[0.1,0.76],[0.72,0.44],[0.74,0.38],[0.74,0.26],[0.68,0.22],[0.3,0.22],[0.24,0.28]],
@@ -29,7 +32,8 @@
       [[0.9,0.08],[0.18,0.08],[0.18,0.46],[0.72,0.46],[0.86,0.58],[0.86,0.8],[0.72,0.92],[0.24,0.92],[0.12,0.82],[0.24,0.72],[0.68,0.72],[0.7,0.7],[0.7,0.62],[0.66,0.6],[0.02,0.6],[0.02,0.08],[0.9,0.08]],
     ],
     '6': [
-      [[0.82,0.08],[0.28,0.08],[0.12,0.24],[0.12,0.76],[0.28,0.92],[0.76,0.92],[0.88,0.8],[0.88,0.58],[0.74,0.46],[0.28,0.46],[0.28,0.32],[0.34,0.24],[0.72,0.24],[0.82,0.32],[0.72,0.42],[0.24,0.42],[0.12,0.54],[0.12,0.82],[0.24,0.92]],
+      [[0.82,0.18],[0.7,0.08],[0.3,0.08],[0.14,0.22],[0.14,0.78],[0.28,0.92],[0.74,0.92],[0.88,0.78],[0.88,0.58],[0.74,0.44],[0.36,0.44],[0.3,0.38],[0.3,0.28],[0.36,0.22],[0.68,0.22],[0.74,0.28]],
+      [[0.34,0.56],[0.68,0.56],[0.74,0.62],[0.74,0.74],[0.68,0.8],[0.34,0.8],[0.28,0.74],[0.28,0.62]],
     ],
     '7': [
       [[0.1,0.08],[0.9,0.08],[0.9,0.24],[0.48,0.92],[0.28,0.92],[0.66,0.24],[0.1,0.24]],
@@ -95,6 +99,7 @@
     ],
     'P': [
       [[0.12,0.92],[0.12,0.08],[0.66,0.08],[0.84,0.22],[0.84,0.42],[0.66,0.56],[0.28,0.56],[0.28,0.92]],
+      [[0.36,0.22],[0.58,0.22],[0.68,0.3],[0.68,0.4],[0.6,0.44],[0.36,0.44],[0.28,0.38],[0.28,0.28]],
     ],
     'Q': [
       [[0.24,0.08],[0.76,0.08],[0.92,0.24],[0.92,0.76],[0.76,0.92],[0.24,0.92],[0.08,0.76],[0.08,0.24]],
@@ -103,6 +108,7 @@
     ],
     'R': [
       [[0.12,0.92],[0.12,0.08],[0.64,0.08],[0.84,0.22],[0.84,0.4],[0.68,0.52],[0.48,0.52],[0.88,0.92],[0.66,0.92],[0.28,0.56],[0.28,0.92]],
+      [[0.36,0.22],[0.58,0.22],[0.68,0.3],[0.68,0.4],[0.6,0.44],[0.36,0.44],[0.28,0.38],[0.28,0.28]],
     ],
     'S': [
       [[0.86,0.18],[0.72,0.08],[0.24,0.08],[0.1,0.2],[0.1,0.36],[0.24,0.48],[0.72,0.48],[0.78,0.54],[0.78,0.68],[0.7,0.76],[0.24,0.76],[0.12,0.86],[0.24,0.92],[0.76,0.92],[0.9,0.8],[0.9,0.62],[0.76,0.5],[0.28,0.5],[0.22,0.44],[0.22,0.28],[0.3,0.24],[0.74,0.24]],
@@ -178,21 +184,23 @@
   // Lays out a text label as SVG using the embedded font data above. Scales the
   // character height to fit inside the part's bounding box and switches between
   // the filled-outline style and the lightweight stroke-only style via `style`.
-  function buildPreviewLabelSvg(text, bbox, color, style) {
+  function buildPreviewLabelSvg(text, bbox, color, style, outerPolygon = null, holes = []) {
     if (!bbox || !Number.isFinite(bbox.w) || !Number.isFinite(bbox.h)) return '';
-    const raw = String(text || '').toUpperCase().replace(/[^A-Z0-9 _-]/g, ' ').trim();
-    if (!raw) return '';
-    const chars = [...raw];
-    const glyphCount = chars.length;
-    const charAdvance = 1.25;
-    const textUnitsWide = Math.max(1, glyphCount * charAdvance - 0.25);
-    const availableW = Math.max(10, bbox.w);
-    const availableH = Math.max(10, bbox.h);
-    const charH = Math.max(6, Math.min(20, Math.min(availableH * 0.18, availableW / textUnitsWide)));
-    const charW = charH * 0.7;
-    const totalW = glyphCount * charW * charAdvance - charW * 0.25;
-    const startX = (availableW - totalW) / 2;
-    const baseY = availableH * 0.58 - charH / 2;
+    const fallbackOuter = [
+      { x: 0, y: 0 },
+      { x: bbox.w, y: 0 },
+      { x: bbox.w, y: bbox.h },
+      { x: 0, y: bbox.h },
+    ];
+    const layout = typeof layoutEngravingLabel === 'function'
+      ? layoutEngravingLabel({
+        text,
+        outerPolygon: Array.isArray(outerPolygon) && outerPolygon.length >= 3 ? outerPolygon : fallbackOuter,
+        holes,
+      })
+      : null;
+    if (!layout) return '';
+    const { chars, charH, charW, startX, baseY } = layout;
     const parts = [];
 
     const lineSvg = (a, b, ox, width, opacity = 0.96) =>
@@ -205,7 +213,7 @@
     };
 
     chars.forEach((ch, index) => {
-      const ox = startX + index * charW * charAdvance;
+      const ox = startX + index * charW * ENGRAVING_LAYOUT_DEFAULTS.charAdvance;
       if (style === 'stroked') {
         const loops = LABEL_OUTLINE_FONT[ch];
         if (Array.isArray(loops) && loops.length) {

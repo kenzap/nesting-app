@@ -2,6 +2,10 @@ const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { normalizeSettings } = require('../../shared/settings');
+const {
+  layoutEngravingLabel,
+  DEFAULT_LAYOUT: ENGRAVING_LAYOUT_DEFAULTS,
+} = require('../../shared/engraving-layout');
 
 function registerExportDxfIpc() {
   const isDev = !app.isPackaged || process.argv.includes('--dev');
@@ -230,8 +234,7 @@ function registerExportDxfIpc() {
           [[0.34,0.26],[0.66,0.26],[0.74,0.34],[0.74,0.66],[0.66,0.74],[0.34,0.74],[0.26,0.66],[0.26,0.34]],
         ],
         '1': [
-          [[0.42,0.1],[0.62,0.1],[0.62,0.9],[0.42,0.9]],
-          [[0.26,0.26],[0.42,0.1],[0.42,0.28],[0.32,0.38],[0.26,0.38]],
+          [[0.24,0.26],[0.44,0.08],[0.64,0.08],[0.64,0.76],[0.78,0.76],[0.78,0.92],[0.22,0.92],[0.22,0.76],[0.46,0.76],[0.46,0.3],[0.34,0.42],[0.24,0.34]],
         ],
         '2': [
           [[0.14,0.22],[0.24,0.1],[0.76,0.1],[0.88,0.22],[0.88,0.38],[0.22,0.72],[0.22,0.78],[0.9,0.78],[0.9,0.92],[0.1,0.92],[0.1,0.7],[0.76,0.36],[0.76,0.24],[0.68,0.22],[0.24,0.22]],
@@ -248,8 +251,8 @@ function registerExportDxfIpc() {
           [[0.14,0.1],[0.88,0.1],[0.88,0.24],[0.3,0.24],[0.3,0.42],[0.74,0.42],[0.88,0.56],[0.88,0.78],[0.74,0.92],[0.24,0.92],[0.12,0.82],[0.26,0.7],[0.68,0.7],[0.74,0.64],[0.74,0.58],[0.68,0.54],[0.14,0.54]],
         ],
         '6': [
-          [[0.8,0.18],[0.68,0.08],[0.28,0.08],[0.12,0.22],[0.12,0.78],[0.26,0.92],[0.74,0.92],[0.88,0.78],[0.88,0.58],[0.74,0.44],[0.3,0.44],[0.3,0.28],[0.36,0.22],[0.68,0.22],[0.8,0.32],[0.88,0.2]],
-          [[0.3,0.58],[0.7,0.58],[0.74,0.62],[0.74,0.72],[0.68,0.78],[0.32,0.78],[0.26,0.72],[0.26,0.62]],
+          [[0.82,0.18],[0.7,0.08],[0.3,0.08],[0.14,0.22],[0.14,0.78],[0.28,0.92],[0.74,0.92],[0.88,0.78],[0.88,0.58],[0.74,0.44],[0.36,0.44],[0.3,0.38],[0.3,0.28],[0.36,0.22],[0.68,0.22],[0.74,0.28]],
+          [[0.34,0.56],[0.68,0.56],[0.74,0.62],[0.74,0.74],[0.68,0.8],[0.34,0.8],[0.28,0.74],[0.28,0.62]],
         ],
         '7': [
           [[0.1,0.1],[0.9,0.1],[0.9,0.24],[0.48,0.92],[0.26,0.92],[0.66,0.24],[0.1,0.24]],
@@ -315,6 +318,7 @@ function registerExportDxfIpc() {
         ],
         'P': [
           [[0.12,0.92],[0.12,0.08],[0.66,0.08],[0.84,0.22],[0.84,0.42],[0.66,0.56],[0.28,0.56],[0.28,0.92]],
+          [[0.36,0.22],[0.58,0.22],[0.68,0.3],[0.68,0.4],[0.6,0.44],[0.36,0.44],[0.28,0.38],[0.28,0.28]],
         ],
         'Q': [
           [[0.24,0.08],[0.76,0.08],[0.92,0.24],[0.92,0.76],[0.76,0.92],[0.24,0.92],[0.08,0.76],[0.08,0.24]],
@@ -323,6 +327,7 @@ function registerExportDxfIpc() {
         ],
         'R': [
           [[0.12,0.92],[0.12,0.08],[0.64,0.08],[0.84,0.22],[0.84,0.4],[0.68,0.52],[0.48,0.52],[0.88,0.92],[0.66,0.92],[0.28,0.56],[0.28,0.92]],
+          [[0.36,0.22],[0.58,0.22],[0.68,0.3],[0.68,0.4],[0.6,0.44],[0.36,0.44],[0.28,0.38],[0.28,0.28]],
         ],
         'S': [
           [[0.86,0.18],[0.72,0.08],[0.24,0.08],[0.1,0.2],[0.1,0.36],[0.24,0.48],[0.72,0.48],[0.78,0.54],[0.78,0.68],[0.7,0.76],[0.24,0.76],[0.12,0.86],[0.24,0.92],[0.76,0.92],[0.9,0.8],[0.9,0.62],[0.76,0.5],[0.28,0.5],[0.22,0.44],[0.22,0.28],[0.3,0.24],[0.74,0.24]],
@@ -399,23 +404,15 @@ function registerExportDxfIpc() {
         ' ': [],
       };
 
-      function buildStrokeLabelEntities(text, layerName, placedPolygon) {
-        const bbox = bboxFromPolygon(placedPolygon);
-        if (!bbox) return [];
-        const raw = String(text || '').toUpperCase().replace(/[^A-Z0-9 _-]/g, ' ').trim();
-        if (!raw) return [];
+      function buildStrokeLabelEntities(text, layerName, placedPolygon, placedHoles = []) {
+        const layout = layoutEngravingLabel({
+          text,
+          outerPolygon: placedPolygon,
+          holes: placedHoles,
+        });
+        if (!layout) return [];
 
-        const chars = [...raw];
-        const glyphCount = chars.length;
-        const charAdvance = 1.25;
-        const textUnitsWide = Math.max(1, glyphCount * charAdvance - 0.25);
-        const availableW = Math.max(10, bbox.maxX - bbox.minX);
-        const availableH = Math.max(10, bbox.maxY - bbox.minY);
-        const charH = Math.max(6, Math.min(20, Math.min(availableH * 0.18, availableW / textUnitsWide)));
-        const charW = charH * 0.7;
-        const totalW = glyphCount * charW * charAdvance - charW * 0.25;
-        const startX = bbox.minX + (availableW - totalW) / 2;
-        const baseY = bbox.minY + availableH * 0.58 - charH / 2;
+        const { chars, charH, charW, startX, baseY } = layout;
         const entities = [];
         const style = exportSettings.engravingStyle === 'simple' ? 'simple' : 'stroked';
 
@@ -434,7 +431,7 @@ function registerExportDxfIpc() {
         };
 
         chars.forEach((ch, idx) => {
-          const ox = startX + idx * charW * charAdvance;
+          const ox = startX + idx * charW * ENGRAVING_LAYOUT_DEFAULTS.charAdvance;
           const loops = style === 'stroked' ? OUTLINE_FONT[ch] : null;
           if (Array.isArray(loops) && loops.length) {
             loops.forEach(loop => pushLoop(loop, ox));
@@ -966,6 +963,7 @@ function registerExportDxfIpc() {
               engraving.label,
               engraving.engravingLayer,
               engraving.placedPolygon,
+              engraving.placedHoles || [],
             );
             labelEntities.forEach(entity => {
               writeEntity(lines, entity, 0, 0, 0, emitDebug, nextHandle);
@@ -1029,9 +1027,16 @@ function registerExportDxfIpc() {
             Math.abs(transformed[0][0] - transformed[transformed.length - 1][0]) < 0.01 &&
             Math.abs(transformed[0][1] - transformed[transformed.length - 1][1]) < 0.01
             ? transformed.slice(0, -1) : transformed;
+          const placedHoles = Array.isArray(item.export?.holes)
+            ? item.export.holes
+              .map(hole => applyTransform(hole, rotation, tx, ty)
+                .map(([x, y]) => ({ x, y })))
+              .filter(hole => hole.length >= 3)
+            : [];
           engravings.push({
             rotation,
             placedPolygon: pts,
+            placedHoles,
             engravingLayer: getEngravingLayer(item)?.name || null,
             label: labelForItem(item),
           });

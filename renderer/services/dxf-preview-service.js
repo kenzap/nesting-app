@@ -68,6 +68,17 @@
     return pathPoints.length >= 3 ? svg.pathFromPoints(pathPoints, minX, maxY, true) : '';
   }
 
+  function pointsToLocalPreviewCoords(points, minX, maxY) {
+    return Array.isArray(points)
+      ? points
+        .filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+        .map(point => ({
+          x: point.x - minX,
+          y: maxY - point.y,
+        }))
+      : [];
+  }
+
   function normalizeSketchContourMethod(method) {
     const normalized = method == null ? 'auto' : String(method);
     return SKETCH_CONTOUR_METHODS.includes(normalized) ? normalized : 'auto';
@@ -444,6 +455,8 @@
       selectionPathData: selectionPath,
       fillRule: 'nonzero',
       polygonPoints,
+      engravingPolygonPoints: pointsToLocalPreviewCoords(polygonPoints, minX, maxY),
+      engravingHoles: [],
       bbox: { w: width, h: height },
       decorSVG: [],
       decorItems: [],
@@ -550,6 +563,9 @@
     const selectionPolygonPath = selectionPolygonPoints ? pointsToPathData(selectionPolygonPoints, minX, maxY) : null;
     const fallbackPath = rectPath(width, height);
     const selectionPath = selectionPolygonPath || null;
+    const holePolygons = (shapeRecord.childClosedContours || [])
+      .map(contour => contour.polygonPoints || contour.points || [])
+      .filter(points => Array.isArray(points) && points.length >= 3);
 
     return {
       id: shapeRecord.id || `s_${index}`,
@@ -579,6 +595,8 @@
       fillRule: 'nonzero',
       polygonPoints: displayPolygonPoints,
       selectionPolygonPoints,
+      engravingPolygonPoints: pointsToLocalPreviewCoords(displayPolygonPoints, minX, maxY),
+      engravingHoles: holePolygons.map(points => pointsToLocalPreviewCoords(points, minX, maxY)),
       bbox: { w: width, h: height },
       decorSVG: [],
       decorItems: [],

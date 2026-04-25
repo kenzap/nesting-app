@@ -97,6 +97,12 @@
             layers: clonePlain(file.layers || []),
             entities: clonePlain(shape.exportEntities || []),
             polygon: points.map(point => [point.x, point.y]),
+            holes: clonePlain(
+              (shape.holes || [])
+                .map(hole => sanitizePolygonPoints(hole?.points || []))
+                .filter(holePoints => holePoints.length >= 4)
+                .map(holePoints => holePoints.map(point => [point.x, point.y]))
+            ),
           };
         });
       }

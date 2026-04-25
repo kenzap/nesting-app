@@ -97,7 +97,14 @@
         const baseStrokeWidth = isSelected ? 1.2 : 0.8;
         const previewLabel = getLayerConfig(shape);
         const previewLabelSvg = previewLabel.enabled && shape.partLabel
-          ? buildPreviewLabelSvg(String(shape.partLabel || ''), shape.bbox, previewLabel.color, previewLabel.style)
+          ? buildPreviewLabelSvg(
+            String(shape.partLabel || ''),
+            shape.bbox,
+            previewLabel.color,
+            previewLabel.style,
+            shape.engravingPolygonPoints,
+            shape.engravingHoles || []
+          )
           : '';
 
         const displayScale = shapeDisplayScale(shape);
