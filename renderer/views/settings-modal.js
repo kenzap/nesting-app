@@ -4,6 +4,9 @@
   function createSettingsModal({ state, dom, onSettingsApplied }) {
     const { SETTINGS_DEFAULTS, normalizeSettings } = globalScope.NestSettings;
     const settingsFields = dom.settingsFields;
+    const contourMethodField = settingsFields.find(field => field.dataset.settingKey === 'sketchContourMethod') || null;
+    const contourMethodRow = contourMethodField?.closest('[data-dev-only-setting="sketchContourMethod"]') || null;
+    let isDevBuild = false;
 
     // Reads the current value of a single settings field, normalising checkboxes to
     // booleans and number inputs to JS numbers so callers always get the right type.
@@ -39,6 +42,18 @@
       return { ...SETTINGS_DEFAULTS };
     }
 
+    function applyDevOnlyVisibility() {
+      if (contourMethodRow) contourMethodRow.hidden = !isDevBuild;
+    }
+
+    function normalizeDialogSettings(settings) {
+      const normalized = normalizeSettings(settings);
+      if (!isDevBuild) {
+        normalized.sketchContourMethod = SETTINGS_DEFAULTS.sketchContourMethod;
+      }
+      return normalized;
+    }
+
     // Pushes a settings object into every form field in the modal.
     // Called both on initial open (to show current values) and on reset (to restore defaults).
     function applySettingsToDialog(settings) {
@@ -54,7 +69,7 @@
     // Reads the form, normalises the values, saves them to state, and writes through to disk via Electron IPC.
     // Throws if the IPC bridge reports a failure so the caller can surface the error.
     async function persistCurrentSettings() {
-      state.settings = normalizeSettings(collectSettingsFromDialog());
+      state.settings = normalizeDialogSettings(collectSettingsFromDialog());
       if (!window.electronAPI?.saveAppSettings) return;
       const result = await window.electronAPI.saveAppSettings(state.settings);
       if (!result?.success) {
@@ -66,7 +81,17 @@
     // Falls back silently to defaults when no data is saved or the Electron bridge is unavailable.
     async function loadPersistedSettings() {
       const defaults = dialogDefaults();
-      state.settings = { ...defaults };
+      if (window.electronAPI?.getNativeEngineInfo) {
+        try {
+          const engineInfo = await window.electronAPI.getNativeEngineInfo();
+          isDevBuild = !!(engineInfo?.success && !engineInfo?.packaged);
+        } catch {
+          isDevBuild = false;
+        }
+      }
+      applyDevOnlyVisibility();
+
+      state.settings = normalizeDialogSettings(defaults);
       applySettingsToDialog(state.settings);
 
       if (!window.electronAPI?.loadAppSettings) return;
@@ -76,7 +101,7 @@
         return;
       }
 
-      state.settings = normalizeSettings(result.settings || {});
+      state.settings = normalizeDialogSettings(result.settings || {});
       applySettingsToDialog(state.settings);
     }
 
@@ -95,7 +120,7 @@
         }
       });
       dom.resetSettings.addEventListener('click', async () => {
-        state.settings = normalizeSettings(dialogDefaults());
+        state.settings = normalizeDialogSettings(dialogDefaults());
         applySettingsToDialog(state.settings);
         try {
           await persistCurrentSettings();
