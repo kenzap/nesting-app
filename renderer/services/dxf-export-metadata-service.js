@@ -21,10 +21,16 @@
   function serializeEntityForExport(ent, contourEntityToPoints) {
     if (!ent || !ent.type) return null;
 
+    const isClosedPolyline = !!(
+      ent.closed ||
+      ent.shape ||
+      ent.is3dPolygonMeshClosed
+    );
+
     const out = {
       type: ent.type,
       layer: ent.layer || '0',
-      closed: !!ent.closed,
+      closed: isClosedPolyline,
     };
 
     if (ent.handle) out.handle = ent.handle;
@@ -58,7 +64,20 @@
       out.vertices = ent.vertices
         .map(vertex => ({
           ...(serializePoint(vertex) || {}),
+          ...(Number.isFinite(vertex?.startWidth) ? { startWidth: +vertex.startWidth } : {}),
+          ...(Number.isFinite(vertex?.endWidth) ? { endWidth: +vertex.endWidth } : {}),
           ...(Number.isFinite(vertex?.bulge) ? { bulge: +vertex.bulge } : {}),
+          ...(Number.isFinite(vertex?.faceA) ? { faceA: +vertex.faceA } : {}),
+          ...(Number.isFinite(vertex?.faceB) ? { faceB: +vertex.faceB } : {}),
+          ...(Number.isFinite(vertex?.faceC) ? { faceC: +vertex.faceC } : {}),
+          ...(Number.isFinite(vertex?.faceD) ? { faceD: +vertex.faceD } : {}),
+          ...(typeof vertex?.curveFittingVertex === 'boolean' ? { curveFittingVertex: vertex.curveFittingVertex } : {}),
+          ...(typeof vertex?.curveFitTangent === 'boolean' ? { curveFitTangent: vertex.curveFitTangent } : {}),
+          ...(typeof vertex?.splineVertex === 'boolean' ? { splineVertex: vertex.splineVertex } : {}),
+          ...(typeof vertex?.splineControlPoint === 'boolean' ? { splineControlPoint: vertex.splineControlPoint } : {}),
+          ...(typeof vertex?.threeDPolylineVertex === 'boolean' ? { threeDPolylineVertex: vertex.threeDPolylineVertex } : {}),
+          ...(typeof vertex?.threeDPolylineMesh === 'boolean' ? { threeDPolylineMesh: vertex.threeDPolylineMesh } : {}),
+          ...(typeof vertex?.polyfaceMeshVertex === 'boolean' ? { polyfaceMeshVertex: vertex.polyfaceMeshVertex } : {}),
         }))
         .filter(vertex => Number.isFinite(vertex.x) && Number.isFinite(vertex.y));
     }
@@ -80,12 +99,37 @@
     if (Array.isArray(ent.controlPoints)) {
       out.controlPoints = ent.controlPoints.map(serializePoint).filter(Boolean);
     }
-    if (Array.isArray(ent.knots)) {
-      out.knots = ent.knots.filter(Number.isFinite).map(Number);
+    if (Array.isArray(ent.knotValues)) {
+      out.knotValues = ent.knotValues.filter(Number.isFinite).map(Number);
+    } else if (Array.isArray(ent.knots)) {
+      out.knotValues = ent.knots.filter(Number.isFinite).map(Number);
     }
     if (Number.isFinite(ent.degreeOfSplineCurve)) {
       out.degreeOfSplineCurve = ent.degreeOfSplineCurve;
     }
+    if (typeof ent.shape === 'boolean') out.shape = ent.shape;
+    if (typeof ent.hasContinuousLinetypePattern === 'boolean') out.hasContinuousLinetypePattern = ent.hasContinuousLinetypePattern;
+    if (Number.isFinite(ent.width)) out.width = +ent.width;
+    if (Number.isFinite(ent.elevation)) out.elevation = +ent.elevation;
+    if (Number.isFinite(ent.depth)) out.depth = +ent.depth;
+    if (Number.isFinite(ent.thickness)) out.thickness = +ent.thickness;
+    if (Number.isFinite(ent.extrusionDirectionX)) out.extrusionDirectionX = +ent.extrusionDirectionX;
+    if (Number.isFinite(ent.extrusionDirectionY)) out.extrusionDirectionY = +ent.extrusionDirectionY;
+    if (Number.isFinite(ent.extrusionDirectionZ)) out.extrusionDirectionZ = +ent.extrusionDirectionZ;
+    if (ent.extrusionDirection) out.extrusionDirection = serializePoint(ent.extrusionDirection);
+    if (typeof ent.includesCurveFitVertices === 'boolean') out.includesCurveFitVertices = ent.includesCurveFitVertices;
+    if (typeof ent.includesSplineFitVertices === 'boolean') out.includesSplineFitVertices = ent.includesSplineFitVertices;
+    if (typeof ent.is3dPolyline === 'boolean') out.is3dPolyline = ent.is3dPolyline;
+    if (typeof ent.is3dPolygonMesh === 'boolean') out.is3dPolygonMesh = ent.is3dPolygonMesh;
+    if (typeof ent.is3dPolygonMeshClosed === 'boolean') out.is3dPolygonMeshClosed = ent.is3dPolygonMeshClosed;
+    if (typeof ent.isPolyfaceMesh === 'boolean') out.isPolyfaceMesh = ent.isPolyfaceMesh;
+    if (ent.startTangent) out.startTangent = serializePoint(ent.startTangent);
+    if (ent.endTangent) out.endTangent = serializePoint(ent.endTangent);
+    if (ent.normalVector) out.normalVector = serializePoint(ent.normalVector);
+    if (typeof ent.periodic === 'boolean') out.periodic = ent.periodic;
+    if (typeof ent.rational === 'boolean') out.rational = ent.rational;
+    if (typeof ent.planar === 'boolean') out.planar = ent.planar;
+    if (typeof ent.linear === 'boolean') out.linear = ent.linear;
 
     return out;
   }
