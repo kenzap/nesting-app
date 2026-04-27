@@ -6,8 +6,15 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "dist:win": "electron-builder --win nsis",
-    "dist:win-portable": "electron-builder --win portable"
+    "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
+    "preflight:win-helpers": "node scripts/verify-win-helpers.js",
+    "verify:mas-signing": "node scripts/verify-mas-signing.js",
+    "dist:mac": "npm run preflight:mac-helpers && electron-builder --mac dmg zip",
+    "dist:mas": "npm run preflight:mac-helpers && electron-builder --mac mas",
+    "dist:mas-dev": "npm run preflight:mac-helpers && electron-builder --mac mas-dev",
+    "dist:win": "npm run preflight:win-helpers && electron-builder --win nsis",
+    "dist:win-portable": "npm run preflight:win-helpers && electron-builder --win portable",
+    "dist:appx": "npm run preflight:win-helpers && electron-builder --win appx --x64"
   },
   "devDependencies": {
     "electron": "^28.0.0",
@@ -32,22 +39,21 @@
       "package.json",
       "renderer/**/*",
       "shared/**/*",
-      "assets/**/*",
-      "native/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "native",
-        "to": "native",
-        "filter": [
-          "**/*"
-        ]
-      }
+      "assets/**/*"
     ],
     "directories": {
       "buildResources": "assets"
     },
     "win": {
+      "extraResources": [
+        {
+          "from": "native/windows",
+          "to": "native/windows",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
       "icon": "assets/icon-square.ico",
       "target": [
         "nsis",
@@ -56,7 +62,44 @@
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "mac": {
+      "extraFiles": [
+        {
+          "from": "native/macos/bin",
+          "to": "Helpers",
+          "filter": [
+            "sparrow",
+            "dxf_preprocess"
+          ]
+        }
+      ],
+      "binaries": [
+        "Contents/Helpers/sparrow",
+        "Contents/Helpers/dxf_preprocess"
+      ],
       "icon": "assets/icon-square.icns"
+    },
+    "mas": {
+      "type": "distribution",
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist"
+    },
+    "masDev": {
+      "type": "development",
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist"
+    },
+    "appx": {
+      "applicationId": "KenzapNesting",
+      "identityName": "KenzapPteLtd.KenzapNesting",
+      "publisher": "CN=8DBD4E24-DD06-4AEF-88B7-7F0C2E30B4D9",
+      "publisherDisplayName": "Kenzap Pte Ltd",
+      "displayName": "Kenzap Nesting",
+      "backgroundColor": "#111827",
+      "showNameOnTiles": false,
+      "languages": [
+        "en-US"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

@@ -2,6 +2,7 @@ const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { normalizeSettings } = require('../../shared/settings');
+const { withSecurityScopedAccess } = require('../utils/security-scoped-bookmarks');
 const {
   layoutEngravingLabel,
   DEFAULT_LAYOUT: ENGRAVING_LAYOUT_DEFAULTS,
@@ -10,8 +11,16 @@ const {
 function registerExportDxfIpc() {
   const isDev = !app.isPackaged || process.argv.includes('--dev');
   // Write one DXF per strip using placement data from the strip JSON files.
-  ipcMain.handle('export-sheets-dxf', async (event, { outputDir, jobName, inputPath, exportItems = {}, strips }) => {
+  ipcMain.handle('export-sheets-dxf', async (event, {
+    outputDir,
+    outputDirBookmark,
+    jobName,
+    inputPath,
+    exportItems = {},
+    strips,
+  }) => {
     try {
+      return await withSecurityScopedAccess(outputDirBookmark, async () => {
       fs.mkdirSync(outputDir, { recursive: true });
       const safeName = String(jobName || 'sheet')
         .replace(/[^a-z0-9-_]+/gi, '-')
@@ -1115,6 +1124,7 @@ function registerExportDxfIpc() {
       }
 
       return { success: true, fileCount, outputDir };
+      });
     } catch (err) {
       return { success: false, error: err.message };
     }

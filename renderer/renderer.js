@@ -252,20 +252,30 @@ window.refreshDXFPreview = dxfPreviewModalApi.refreshDXFPreview;
 
 // ─── Drag-and-drop helpers ────────────────────────────────────────────────────
 
-// Writes a short timestamped message to the status bar during drag events so
-// we can see exactly what the browser reported without opening DevTools.
-// Auto-clears after 5 seconds so it doesn't clutter normal use.
+// Shows lightweight, user-facing import status during drag-and-drop without
+// exposing raw browser event details in production builds.
 function showDragDebug(message, details = '') {
+  const normalized = String(message || '');
+  const previousText = dom.nestStats.textContent;
+  const previousTitle = dom.nestStats.title;
+  let userMessage = 'Drop DXF files here to import';
+  if (/^added\s+\d+/i.test(normalized)) {
+    userMessage = normalized.replace(/^added/i, 'Imported');
+  } else if (/^drop ignored:/i.test(normalized)) {
+    userMessage = 'No DXF files found in the drop';
+  }
+
+  if (details) console.debug('[DND]', normalized, details);
+  else if (normalized) console.debug('[DND]', normalized);
+
   setNestStatsTone('');
-  dom.nestStats.textContent = `[DND] ${message}`;
-  dom.nestStats.title = details || message;
+  dom.nestStats.textContent = userMessage;
+  dom.nestStats.title = '';
   if (dragDebugTimer) window.clearTimeout(dragDebugTimer);
   dragDebugTimer = window.setTimeout(() => {
-    if (dom.nestStats.textContent.startsWith('[DND]')) {
-      dom.nestStats.textContent = state.nestResult?.strips?.length
-        ? dom.nestStats.textContent
-        : 'Drag DXF files here to import';
-      dom.nestStats.title = '';
+    if (dom.nestStats.textContent === userMessage) {
+      dom.nestStats.textContent = previousText || 'Drag DXF files here to import';
+      dom.nestStats.title = previousTitle || '';
     }
   }, 5000);
 }
@@ -288,6 +298,37 @@ function normalizeDroppedFiles(fileList) {
   return files;
 }
 
+// Some Windows drag sources populate DataTransfer.items more reliably than
+// DataTransfer.files, so we normalize from both and de-duplicate by path/name.
+function extractDroppedFileObjects(dt) {
+  const files = [];
+  const seen = new Set();
+
+  const pushFile = (file) => {
+    if (!file) return;
+    const name = String(file.name || '');
+    if (!name) return;
+    const path = file.path || window.electronAPI?.getPathForDroppedFile?.(file) || '';
+    const key = `${path}::${name}::${file.size || 0}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(file);
+  };
+
+  Array.from(dt?.files || []).forEach(pushFile);
+  Array.from(dt?.items || [])
+    .filter(item => item?.kind === 'file')
+    .forEach(item => {
+      try {
+        pushFile(item.getAsFile());
+      } catch {
+        // Ignore per-item extraction failures and keep the rest of the drop.
+      }
+    });
+
+  return files;
+}
+
 // Quick guard used in drag-enter/over handlers: returns true when the
 // DataTransfer actually carries file content rather than, say, selected text.
 function dataTransferHasFiles(dt) {
@@ -304,7 +345,7 @@ function handleDroppedDataTransfer(dt) {
     `drop received: ${dt?.files?.length || 0} file${dt?.files?.length === 1 ? '' : 's'}`,
     Array.from(dt?.files || []).map(f => `${f.name} :: ${f.path || 'no-path'}`).join('\n')
   );
-  const files = normalizeDroppedFiles(dt?.files || []);
+  const files = normalizeDroppedFiles(extractDroppedFileObjects(dt));
   if (!files.length) {
     showDragDebug('drop ignored: no DXF files found');
     return false;

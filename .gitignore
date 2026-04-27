@@ -57,6 +57,7 @@ server.code-workspace
 
 dist/
 etc/
+build/
 
 build.sh
 
@@ -65,3 +66,5 @@ data/
 
 dxf-samples
 input-samples
+
+package.json

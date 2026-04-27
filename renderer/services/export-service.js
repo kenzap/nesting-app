@@ -4,6 +4,7 @@
   function createExportService({ state, dom }) {
     const { formatWidthMeters } = globalScope.NestHelpers;
     let exportFolderPath = null;
+    let exportFolderBookmark = null;
 
     // Returns true only when there's a completed (non-preview) solver result.
     // Used to gate the Export button so partial/preview runs can't be exported.
@@ -65,12 +66,29 @@
 
     // Stores the chosen folder path, updates the label, resets any success/error colour,
     // and enables the Export button so the user can immediately trigger the export.
-    function applyExportFolder(folderPath) {
+    function applyExportFolder(folderPath, bookmark = null) {
       exportFolderPath = folderPath;
+      exportFolderBookmark = bookmark || null;
       dom.exportFolderLabel.textContent = shortPath(folderPath);
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       dom.exportDXFBtn.disabled = false;
       dom.exportDXFBtn.textContent = 'Export DXF';
+    }
+
+    function normalizeStoredExportFolder(saved) {
+      if (!saved) return null;
+      if (typeof saved === 'string') {
+        return saved.trim() ? { path: saved, bookmark: null } : null;
+      }
+      if (typeof saved?.path === 'string' && saved.path.trim()) {
+        return {
+          path: saved.path,
+          bookmark: typeof saved?.bookmark === 'string' && saved.bookmark.trim()
+            ? saved.bookmark
+            : null,
+        };
+      }
+      return null;
     }
 
     // On startup, reads __lastExportFolder from the app settings file and restores it
@@ -78,15 +96,21 @@
     async function loadLastExportFolder() {
       if (!window.electronAPI?.loadAppSettings) return;
       const result = await window.electronAPI.loadAppSettings();
-      const saved = result?.settings?.__lastExportFolder;
-      if (saved) applyExportFolder(saved);
+      const saved = normalizeStoredExportFolder(result?.settings?.__lastExportFolder);
+      if (saved) applyExportFolder(saved.path, saved.bookmark);
     }
 
     // Persists the chosen folder path into app settings so it survives app restarts.
     async function saveLastExportFolder(folderPath) {
       if (!window.electronAPI?.loadAppSettings || !window.electronAPI?.saveAppSettings) return;
       const result = await window.electronAPI.loadAppSettings();
-      const settings = { ...(result?.settings || {}), __lastExportFolder: folderPath };
+      const settings = {
+        ...(result?.settings || {}),
+        __lastExportFolder: {
+          path: folderPath,
+          bookmark: exportFolderBookmark || null,
+        },
+      };
       await window.electronAPI.saveAppSettings(settings);
     }
 
@@ -96,7 +120,7 @@
       if (!window.electronAPI?.chooseExportFolder) return null;
       const result = await window.electronAPI.chooseExportFolder();
       if (result?.path) {
-        applyExportFolder(result.path);
+        applyExportFolder(result.path, result.bookmark || null);
         await saveLastExportFolder(result.path);
         return result.path;
       }
@@ -215,6 +239,7 @@
           }));
           const result = await window.electronAPI.exportSheetsDXF({
             outputDir: exportFolderPath,
+            outputDirBookmark: exportFolderBookmark || null,
             jobName: state.nestResult.name || 'nesting-job',
             inputPath: state.nestInputPath || null,
             exportItems: state.lastPlacementExportItems || {},

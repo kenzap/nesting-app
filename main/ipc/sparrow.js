@@ -23,6 +23,10 @@ function nativeExecutableName(baseName) {
 }
 
 function nativeBaseDir() {
+  if (app.isPackaged && process.platform === 'darwin') {
+    const helperDir = path.join(process.resourcesPath, '..', 'Helpers');
+    if (fs.existsSync(helperDir)) return helperDir;
+  }
   const relativeParts = ['native', nativePlatformDir(), 'bin'];
   const packagedDir = path.join(process.resourcesPath, ...relativeParts);
   if (app.isPackaged && fs.existsSync(packagedDir)) return packagedDir;
@@ -214,7 +218,44 @@ function collectSparrowArtifacts(runDir, safeName) {
   };
 }
 
+function terminateActiveSparrow({ markStopped = true, forceAfterMs = 2000 } = {}) {
+  const child = activeSparrowProcess;
+  if (!child) return false;
+
+  if (activeSparrowRun && markStopped && activeSparrowRun.status === 'running') {
+    activeSparrowRun.status = 'stopped';
+  }
+
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    try {
+      child.kill();
+    } catch {
+      return false;
+    }
+  }
+
+  if (Number.isFinite(forceAfterMs) && forceAfterMs > 0) {
+    const timer = setTimeout(() => {
+      if (activeSparrowProcess !== child) return;
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Ignore force-kill failures during shutdown.
+      }
+    }, forceAfterMs);
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+
+  return true;
+}
+
 function registerSparrowIpc() {
+  app.on('before-quit', () => {
+    terminateActiveSparrow({ markStopped: true, forceAfterMs: 1000 });
+  });
+
   ipcMain.handle('get-native-engine-info', async () => {
     try {
       const baseDir = nativeBaseDir();
@@ -344,9 +385,7 @@ function registerSparrowIpc() {
     }
 
     try {
-      if (activeSparrowRun) activeSparrowRun.status = 'stopped';
-      activeSparrowProcess.kill('SIGTERM');
-      return { success: true, stopped: true };
+      return { success: true, stopped: terminateActiveSparrow({ markStopped: true, forceAfterMs: 1000 }) };
     } catch (err) {
       return { success: false, error: err.message };
     }

@@ -119,7 +119,8 @@
         try {
           exported = await exportPlacementJSON();
           setNestStatsTone('');
-          dom.nestStats.textContent = `Placement JSON saved to ${exported.path}`;
+          dom.nestStats.textContent = 'Placement data prepared';
+          dom.nestStats.title = exported.path || '';
         } catch (err) {
           console.error('[Placement JSON] Export failed:', err);
           setStatus('error');
@@ -158,7 +159,8 @@
           }
           activeSparrowRunId = result.runId;
           setNestStatsTone('');
-          dom.nestStats.textContent = `Placement running… input saved to ${result.inputPath}`;
+          dom.nestStats.textContent = 'Placement running…';
+          dom.nestStats.title = result.inputPath || '';
 
           if (nestInterval) clearInterval(nestInterval);
           await pollSparrowRun(result.runId);

@@ -871,7 +871,7 @@
 
       if (!data && file && file.path && global.electronAPI?.parseDXF) {
         try {
-          const result = await global.electronAPI.parseDXF(file.path);
+          const result = await global.electronAPI.parseDXF(file.path, file.bookmark || null);
           if (result.success && result.data) {
             const parsed = parseDXFToShapes(result.data, result.raw, settings);
             if (parsed) {

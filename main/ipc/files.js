@@ -2,8 +2,15 @@ const { app, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { cleanupTempArtifacts } = require('../utils/temp-retention');
+const {
+  isMasBuild,
+  normalizeBookmark,
+  withSecurityScopedAccess,
+} = require('../utils/security-scoped-bookmarks');
 
 function registerFileIpc({ getMainWindow }) {
+  const isDev = !app.isPackaged || process.argv.includes('--dev');
+
   ipcMain.on('to-planar-graph-sync', (event, payload) => {
     try {
       const toPlanarGraphLib = require('to-planar-graph');
@@ -40,12 +47,24 @@ function registerFileIpc({ getMainWindow }) {
   });
 
   // Parse a DXF file and return structured entity data.
-  ipcMain.handle('parse-dxf', async (event, filePath) => {
+  ipcMain.handle('parse-dxf', async (event, payload) => {
     try {
+      const target = typeof payload === 'string' ? { filePath: payload } : (payload || {});
+      const filePath = target.filePath || '';
+      const bookmark = normalizeBookmark(target.bookmark);
+      if (!filePath) {
+        return { success: false, error: 'No DXF path provided' };
+      }
+
       const DxfParser = require('dxf-parser');
       const parser = new DxfParser();
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const dxf = parser.parseSync(content);
+      const { content, dxf } = await withSecurityScopedAccess(bookmark, async () => {
+        const text = fs.readFileSync(filePath, 'utf-8');
+        return {
+          content: text,
+          dxf: parser.parseSync(text),
+        };
+      });
       return { success: true, data: dxf, raw: content };
     } catch (err) {
       return { success: false, error: err.message };
@@ -58,12 +77,18 @@ function registerFileIpc({ getMainWindow }) {
       title: 'Select DXF Files',
       filters: [{ name: 'DXF Files', extensions: ['dxf'] }],
       properties: ['openFile', 'multiSelections'],
+      securityScopedBookmarks: isMasBuild(),
     });
     if (result.canceled) return [];
-    return result.filePaths.map((filePath) => ({
-      path: filePath,
-      name: path.basename(filePath),
-      size: fs.statSync(filePath).size,
+    return Promise.all(result.filePaths.map(async (filePath, index) => {
+      const bookmark = normalizeBookmark(result.bookmarks?.[index]);
+      const size = await withSecurityScopedAccess(bookmark, async () => fs.statSync(filePath).size);
+      return {
+        path: filePath,
+        name: path.basename(filePath),
+        size,
+        bookmark,
+      };
     }));
   });
 
@@ -138,10 +163,13 @@ function registerFileIpc({ getMainWindow }) {
 
   ipcMain.handle('write-debug-svg', async (event, payload) => {
     try {
+      if (!isDev) {
+        return { success: false, error: 'Debug SVG export is disabled in production' };
+      }
       const safeName = String(payload?.name || 'debug-contour')
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'debug-contour';
-      const debugDir = path.join(app.getAppPath(), 'etc', 'debug');
+      const debugDir = path.join(app.getPath('userData'), 'debug');
       fs.mkdirSync(debugDir, { recursive: true });
 
       const fileName = `${safeName}.svg`;
@@ -156,10 +184,13 @@ function registerFileIpc({ getMainWindow }) {
 
   ipcMain.handle('write-debug-json', async (event, payload) => {
     try {
+      if (!isDev) {
+        return { success: false, error: 'Debug JSON export is disabled in production' };
+      }
       const safeName = String(payload?.name || 'debug-contour')
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'debug-contour';
-      const debugDir = path.join(app.getAppPath(), 'etc', 'debug');
+      const debugDir = path.join(app.getPath('userData'), 'debug');
       fs.mkdirSync(debugDir, { recursive: true });
 
       const fileName = `${safeName}.json`;
@@ -177,9 +208,13 @@ function registerFileIpc({ getMainWindow }) {
     const result = await dialog.showOpenDialog(getMainWindow(), {
       title: 'Choose Export Folder',
       properties: ['openDirectory', 'createDirectory'],
+      securityScopedBookmarks: isMasBuild(),
     });
     if (result.canceled || !result.filePaths.length) return { canceled: true };
-    return { path: result.filePaths[0] };
+    return {
+      path: result.filePaths[0],
+      bookmark: normalizeBookmark(result.bookmarks?.[0]),
+    };
   });
 }
 

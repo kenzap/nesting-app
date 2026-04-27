@@ -527,7 +527,15 @@
     <div class="modal-footer">
       <span class="pvw-stats" id="pvStats"></span>
       <div style="display:flex;gap:8px">
-        <button class="btn-secondary" id="pvRemovePart">Remove Part</button>
+        <button class="btn-secondary pvw-remove-part-btn" id="pvRemovePart">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <path d="M2.2 3.1h8.6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+            <path d="M5 1.8h3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+            <path d="M3.3 3.1l.45 6.05c.05.71.64 1.25 1.35 1.25h2.8c.71 0 1.3-.54 1.35-1.25l.45-6.05" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M5.3 5.15v3.1M7.7 5.15v3.1" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+          </svg>
+          <span>Remove Part</span>
+        </button>
         <button class="btn-secondary" id="pvCancel">Cancel</button>
         <button class="btn-primary" id="pvApply">Apply to Job</button>
       </div>

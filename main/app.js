@@ -1,9 +1,11 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('path');
 const packageJson = require('../package.json');
 
 const productName = packageJson.productName || 'KENZAP NEST';
 const appDescription = packageJson.description || 'DXF nesting application';
+const WEBSITE_URL = 'https://kenzap.com/nesting/';
+const SUPPORT_URL = 'https://kenzap.com/nesting-support/';
 
 let mainWindow = null;
 
@@ -14,11 +16,28 @@ function configureAppMetadata() {
     applicationVersion: packageJson.version,
     version: packageJson.version,
     copyright: 'Copyright © Kenzap Pte Ltd',
-    credits: `${appDescription}\n\nDXF nesting desktop application with live preview, native solver integration, and production DXF export.`,
+    credits: `${appDescription}\n\nDXF nesting desktop application with live preview and production DXF export.\n\nAll nesting and preprocessing run locally using bundled helper executables. The app does not download code at runtime, does not require network access for core functionality, and terminates helper processes when quitting.`,
   });
 }
 
-function buildApplicationMenu() {
+function buildApplicationMenu({ isDevMode = false } = {}) {
+  const viewSubmenu = [
+    { role: 'resetZoom' },
+    { role: 'zoomIn' },
+    { role: 'zoomOut' },
+    { type: 'separator' },
+    { role: 'togglefullscreen' },
+  ];
+
+  if (isDevMode) {
+    viewSubmenu.unshift(
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+    );
+  }
+
   const template = [
     {
       label: productName,
@@ -54,17 +73,7 @@ function buildApplicationMenu() {
     },
     {
       label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
+      submenu: viewSubmenu,
     },
     {
       label: 'Window',
@@ -73,6 +82,19 @@ function buildApplicationMenu() {
         { role: 'zoom' },
         { type: 'separator' },
         { role: 'front' },
+      ],
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: `${productName} Website`,
+          click: () => { void shell.openExternal(WEBSITE_URL); },
+        },
+        {
+          label: 'Support',
+          click: () => { void shell.openExternal(SUPPORT_URL); },
+        },
       ],
     },
   ];
@@ -113,6 +135,9 @@ function createWindow({ isDevMode = false } = {}) {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
   if (isDevMode) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
@@ -124,7 +149,7 @@ function initializeApp({ isDevMode = false } = {}) {
   configureAppMetadata();
 
   app.whenReady().then(() => {
-    buildApplicationMenu();
+    buildApplicationMenu({ isDevMode });
     createWindow({ isDevMode });
   });
 

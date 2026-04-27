@@ -352,7 +352,7 @@ body.platform-mac .topbar-left {
   color: var(--text);
   transition: opacity .12s;
 }
-.file-item:hover .file-qty-total { opacity: 0; }
+/* .file-item:hover .file-qty-total { opacity: 0; } */
 
 .qty-control {
   display: flex;
@@ -395,14 +395,15 @@ body.platform-mac .topbar-left {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  display: flex;
+  /* display: flex; */
+  display: none;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   opacity: 0;
   transition: opacity .12s, background .12s, color .12s;
 }
-.file-item:hover .file-remove { opacity: 1; }
+/* .file-item:hover .file-remove { opacity: 1; } */
 .file-remove:hover { background: rgba(247,95,95,.15); color: var(--danger); }
 
 /* Sheet list */
@@ -869,6 +870,12 @@ body.platform-mac .topbar-left {
   border: 1px solid var(--border);
 }
 .btn-secondary:hover { background: var(--surface3); color: var(--text); }
+
+.pvw-remove-part-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 
 /* ── Progress bar ──────────────────────────────────────── */
 .progress-bar-wrap {

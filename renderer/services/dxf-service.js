@@ -26,7 +26,7 @@
         throw new Error(`No parsed shapes available for ${file.name}`);
       }
 
-      const result = await window.electronAPI.parseDXF(file.path);
+      const result = await window.electronAPI.parseDXF(file.path, file.bookmark || null);
       if (!result?.success || !result.data) {
         throw new Error(result?.error || `Failed to parse ${file.name}`);
       }

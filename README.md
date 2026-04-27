@@ -95,16 +95,41 @@ Windows installer build (running from macOS):
 npm run dist:win
 ```
 
+Windows AppX / MSIX build for Microsoft Store (https://storedeveloper.microsoft.com/) packaging:
+
+```bash
+npm run dist:appx
+```
+
+When building AppX from macOS, Electron Builder expects a Windows environment.
+Its official path for macOS is a running Windows VM, such as Parallels, that it
+can detect automatically during the build.
+
 ### macOS
 
 ```bash
 npx electron-builder
 ```
 
+Production
+
+```bash
+npm run dist:mas-dev
+npm run verify:mas-signing
+```
+
+check if signed correctly manually
+```bash
+codesign -dv --verbose=4 "dist/mas-dev/KENZAP NEST.app/Contents/Helpers/sparrow"
+codesign -d --entitlements :- "dist/mas-dev/KENZAP NEST.app/Contents/Helpers/sparrow"
+```
+
 ### Notes
 
 - The build examples above are tested on macOS M-series chips. To cross-compile from Windows to macOS, you may need to adjust some parameters.
 - Windows and macOS packages include the Electron app (UI and visualization) and bundled native binaries (nesting algorithm).
+- Microsoft Store tile assets can be added under `assets/appx/` using the standard AppX filenames documented in `assets/appx/README.md`.
+- For a real Partner Center submission, set the final AppX identity and publisher values to the exact reserved Microsoft Store values before shipping the package.
 
 ## Repository Structure
 

@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return '';
     }
   },
-  parseDXF:       (filePath) => ipcRenderer.invoke('parse-dxf', filePath),
+  parseDXF:       (filePath, bookmark = null) => ipcRenderer.invoke('parse-dxf', { filePath, bookmark }),
   savePlacementJSON: (payload) => ipcRenderer.invoke('save-placement-json', payload),
   loadAppSettings: () => ipcRenderer.invoke('load-app-settings'),
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),

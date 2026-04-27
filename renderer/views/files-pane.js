@@ -56,7 +56,14 @@
       const newlyAdded = [];
       fileObjs.forEach(f => {
         if (!state.files.find(x => x.name === f.name)) {
-          const file = { id: uid(), name: f.name, size: f.size || 0, path: f.path || null, qty: 1 };
+          const file = {
+            id: uid(),
+            name: f.name,
+            size: f.size || 0,
+            path: f.path || null,
+            bookmark: f.bookmark || null,
+            qty: 1,
+          };
           state.files.push(file);
           newlyAdded.push(file);
         }

@@ -31,6 +31,7 @@
           name: file.name,
           size: file.size || 0,
           path: file.path || null,
+          bookmark: file.bookmark || null,
           qty: effectiveFileQty(file),
           shapes: clonePlain(file.shapes || null),
           layers: clonePlain(file.layers || null),
