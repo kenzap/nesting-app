@@ -6,10 +6,16 @@ A desktop nesting application for DXF-based sheet and strip layouts, with live p
 
 ## Downloads
 
+- [Windows x64](https://apps.microsoft.com/detail/9nbr7z0phs02?hl=en-US&gl=EN)
+
+Download stable release from the official store.
+
+## Downloads (Latest releases)
+
 - [Windows x64](https://github.com/kenzap/nesting-app/releases/latest)
 - [macOS Apple Silicon](https://github.com/kenzap/nesting-app/releases/latest)
 
-Download the matching build from the latest GitHub release page to skip compilation.
+Download the matching build from the latest GitHub release page to skip compilation and test the latest version.
 
 ## How It Works
 
@@ -103,7 +109,28 @@ npm run dist:appx
 
 When building AppX from macOS, Electron Builder expects a Windows environment.
 Its official path for macOS is a running Windows VM, such as Parallels, that it
-can detect automatically during the build.
+can detect automatically during the build. This repo preflights that setup and
+fails early with a clearer message if `prlctl` is unavailable.
+
+`npm run dist:appx` also creates an `.appxupload` file next to the built package,
+which is the recommended artifact for Partner Center submissions.
+
+The AppX manifest is also patched during build to declare the
+`Microsoft.VCLibs.140.00.UWPDesktop` framework dependency required by the
+bundled native Windows binaries.
+
+For local Windows testing, trust the signing certificate from the latest package
+and install it with:
+
+```bash
+npm run install:appx-test
+```
+
+You can also pass an explicit package path:
+
+```bash
+npm run install:appx-test -- "C:\\path\\to\\KENZAP NEST-1.0.0-x64.appx"
+```
 
 ### macOS
 

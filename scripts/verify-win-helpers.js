@@ -8,11 +8,11 @@ const helpers = [
   {
     label: 'sparrow',
     file: path.join(repoRoot, 'native', 'windows', 'bin', 'sparrow.exe')
-  },
-  {
-    label: 'dxf_preprocess',
-    file: path.join(repoRoot, 'native', 'windows', 'bin', 'dxf_preprocess.exe')
   }
+  // ,{
+  //   label: 'dxf_preprocess',
+  //   file: path.join(repoRoot, 'native', 'windows', 'bin', 'dxf_preprocess.exe')
+  // }
 ];
 
 const missing = [];

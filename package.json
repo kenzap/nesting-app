@@ -1,20 +1,24 @@
 {
   "name": "nesting-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DXF Nesting Application",
+  "author": "Kenzap Pte Ltd",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:win-helpers": "node scripts/verify-win-helpers.js",
+    "preflight:appx-host": "node scripts/verify-appx-host.js",
+    "appx:upload": "node scripts/make-appxupload.js",
+    "install:appx-test": "powershell -ExecutionPolicy Bypass -File scripts/install-appx-test-package.ps1",
     "verify:mas-signing": "node scripts/verify-mas-signing.js",
     "dist:mac": "npm run preflight:mac-helpers && electron-builder --mac dmg zip",
     "dist:mas": "npm run preflight:mac-helpers && electron-builder --mac mas",
     "dist:mas-dev": "npm run preflight:mac-helpers && electron-builder --mac mas-dev",
     "dist:win": "npm run preflight:win-helpers && electron-builder --win nsis",
     "dist:win-portable": "npm run preflight:win-helpers && electron-builder --win portable",
-    "dist:appx": "npm run preflight:win-helpers && electron-builder --win appx --x64"
+    "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && electron-builder --win appx --x64 && npm run appx:upload"
   },
   "devDependencies": {
     "electron": "^28.0.0",
@@ -31,6 +35,7 @@
   },
   "build": {
     "appId": "com.kenzap.nesting",
+    "appxManifestCreated": "scripts/patch-appx-manifest.js",
     "productName": "KENZAP NEST",
     "files": [
       "main.js",
