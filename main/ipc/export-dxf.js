@@ -522,9 +522,11 @@ function registerExportDxfIpc() {
           pushHeader('ARC');
           writeColor(lines, entity);
           lines.push('100', 'AcDbCircle');
-          lines.push('100', 'AcDbArc');
           lines.push('10', `${center.x}`, '20', `${center.y}`, '30', `${center.z || 0}`);
           lines.push('40', `${entity.radius}`);
+          // ARC inherits from CIRCLE, so strict DXF readers expect the circle
+          // data to appear before the AcDbArc subclass marker.
+          lines.push('100', 'AcDbArc');
           lines.push('50', `${startDeg}`);
           lines.push('51', `${endDeg}`);
           if (emitDebug) emitDebug.emitted.ARC = (emitDebug.emitted.ARC || 0) + 1;

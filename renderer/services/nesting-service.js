@@ -16,6 +16,19 @@
     let sparrowRunAborted = false;
     let activeSparrowRunId = null;
 
+    function buildSparrowLaunchDetails(result) {
+      const launchInfo = result?.launchInfo || state.sparrowLaunchInfo || null;
+      const launchPath = result?.launchPath || state.sparrowLaunchPath || null;
+      const inputPath = result?.inputPath || launchInfo?.inputPath || state.nestInputPath || '';
+      const runDir = result?.runDir || launchInfo?.cwd || '';
+      const details = [];
+      if (launchInfo?.commandLine) details.push(`Sparrow: ${launchInfo.commandLine}`);
+      if (launchPath) details.push(`Launch JSON: ${launchPath}`);
+      if (inputPath) details.push(`Input JSON: ${inputPath}`);
+      if (runDir) details.push(`Run dir: ${runDir}`);
+      return details.join('\n');
+    }
+
     // Parses raw stdout/stderr from the solver binary into a clean one-line message.
     // Prefers explicit "error:" lines, falls back to the last non-info line, then to raw text.
     function extractSparrowErrorMessage(...chunks) {
@@ -57,6 +70,10 @@
         const previousIndex = state.activeStripIndex || 0;
         state.nestResult = result.summary;
         if (result.inputPath) state.nestInputPath = result.inputPath;
+        if (result.launchInfo) state.sparrowLaunchInfo = result.launchInfo;
+        if (result.launchPath) state.sparrowLaunchPath = result.launchPath;
+        const launchDetails = buildSparrowLaunchDetails(result);
+        if (launchDetails) dom.nestStats.title = launchDetails;
 
         // While Sparrow is still adding sheets one by one, automatically
         // follow the newest strip so the user sees the sheet currently being
@@ -72,6 +89,10 @@
       } else if (result.status === 'running') {
         setNestStatsTone('');
         dom.nestStats.textContent = 'Running placement… waiting for first preview';
+        if (result.launchInfo) state.sparrowLaunchInfo = result.launchInfo;
+        if (result.launchPath) state.sparrowLaunchPath = result.launchPath;
+        const launchDetails = buildSparrowLaunchDetails(result);
+        if (launchDetails) dom.nestStats.title = launchDetails;
       }
 
       if (result.status === 'completed') {
@@ -80,7 +101,8 @@
         activeSparrowRunId = null;
         setStatus('done');
         setNestStatsTone('');
-        dom.nestStats.title = '';
+        const launchDetails = buildSparrowLaunchDetails(result);
+        dom.nestStats.title = launchDetails || '';
         dom.startBtn.classList.remove('running');
         dom.startBtn.disabled = false;
         dom.stopBtn.disabled = true;
@@ -92,7 +114,8 @@
         clearInterval(nestInterval);
         nestInterval = null;
         activeSparrowRunId = null;
-        const combinedDetails = [result.error, result.stderr, result.stdout].filter(Boolean).join('\n');
+        const launchDetails = buildSparrowLaunchDetails(result);
+        const combinedDetails = [launchDetails, result.error, result.stderr, result.stdout].filter(Boolean).join('\n');
         const err = new Error(extractSparrowErrorMessage(result.error, result.stderr, result.stdout));
         err.sparrowDetails = combinedDetails;
         throw err;
@@ -158,9 +181,15 @@
             throw new Error(result?.error || 'Failed to start Sparrow');
           }
           activeSparrowRunId = result.runId;
+          state.sparrowLaunchInfo = result.launchInfo || null;
+          state.sparrowLaunchPath = result.launchPath || null;
+          const launchDetails = buildSparrowLaunchDetails(result);
+          if (launchDetails) {
+            console.info('[Sparrow] Launch details\n' + launchDetails);
+          }
           setNestStatsTone('');
           dom.nestStats.textContent = 'Placement running…';
-          dom.nestStats.title = result.inputPath || '';
+          dom.nestStats.title = launchDetails || result.inputPath || '';
 
           if (nestInterval) clearInterval(nestInterval);
           await pollSparrowRun(result.runId);

@@ -37,6 +37,16 @@ function resolveNativeExecutable(baseName) {
   return path.join(nativeBaseDir(), nativeExecutableName(baseName));
 }
 
+function quoteCommandArg(arg) {
+  const text = String(arg ?? '');
+  if (!text) return '""';
+  return /[\s"'\\]/.test(text) ? JSON.stringify(text) : text;
+}
+
+function formatCommandLine(commandPath, args = []) {
+  return [commandPath, ...args].map(quoteCommandArg).join(' ');
+}
+
 function readJsonIfExists(filePath) {
   if (!fs.existsSync(filePath)) return null;
   return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -323,6 +333,27 @@ function registerSparrowIpc() {
       if (options.align === 'top') args.push('--align-top');
       if (options.align === 'bottom') args.push('--align-bottom');
 
+      const launchInfo = {
+        commandPath: sparrowPath,
+        commandArgs: [...args],
+        commandLine: formatCommandLine(sparrowPath, args),
+        cwd: runDir,
+        inputPath,
+        options: {
+          globalTime: Number.isFinite(options.globalTime) && options.globalTime > 0 ? Number(options.globalTime) : null,
+          rngSeed: Number.isFinite(options.rngSeed) ? Number(options.rngSeed) : null,
+          earlyTermination: !!options.earlyTermination,
+          maxStripLength: Number.isFinite(options.maxStripLength) && options.maxStripLength > 0 ? Number(options.maxStripLength) : null,
+          stripMargin: Number.isFinite(options.stripMargin) && options.stripMargin >= 0 ? Number(options.stripMargin) : null,
+          minItemSeparation: Number.isFinite(options.minItemSeparation) && options.minItemSeparation >= 0 ? Number(options.minItemSeparation) : null,
+          align: options.align === 'bottom' ? 'bottom' : 'top',
+        },
+        createdAt: new Date().toISOString(),
+      };
+      const launchPath = path.join(runDir, 'sparrow-launch.json');
+      fs.writeFileSync(launchPath, JSON.stringify(launchInfo, null, 2), 'utf-8');
+      console.log('[Sparrow] Launch:', launchInfo.commandLine);
+
       const runId = `${safeName}-${Date.now()}`;
       const child = spawn(sparrowPath, args, { cwd: runDir });
       activeSparrowProcess = child;
@@ -336,6 +367,8 @@ function registerSparrowIpc() {
         status: 'running',
         exitCode: null,
         error: null,
+        launchInfo,
+        launchPath,
       };
 
       child.stdout.on('data', chunk => {
@@ -369,6 +402,8 @@ function registerSparrowIpc() {
         runId,
         runDir,
         inputPath,
+        launchPath,
+        launchInfo,
         stdout: '',
         stderr: '',
       };
@@ -421,6 +456,8 @@ function registerSparrowIpc() {
       status,
       runDir: activeSparrowRun.runDir,
       inputPath: activeSparrowRun.inputPath,
+      launchPath: activeSparrowRun.launchPath || null,
+      launchInfo: activeSparrowRun.launchInfo || null,
       stdout: activeSparrowRun.stdout,
       stderr: activeSparrowRun.stderr,
       exitCode: activeSparrowRun.exitCode,
