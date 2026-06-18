@@ -143,7 +143,7 @@ Watch a live nesting session: **[Demo on YouTube](https://youtu.be/b55Bph1dwPY)*
 
 ### Requirements
 
-- Node.js (latest LTS recommended) &amp; npm
+- Node.js (latest LTS recommended) &amp; [pnpm](https://pnpm.io/installation)
 - Native nesting binaries placed under:
   - `native/linux/bin/`
   - `native/macos/bin/`
@@ -154,23 +154,23 @@ The native binary is **[Sparrow](https://github.com/JeroenGar/sparrow)**. Refer 
 ### Run locally
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
-`npm run dev` opens Electron with DevTools enabled &mdash; useful for debugging renderer logic and algorithm integration.
+`pnpm run dev` opens Electron with DevTools enabled &mdash; useful for debugging renderer logic and algorithm integration.
 
 ### Build
 
 | Target | Command |
 |---|---|
-| macOS (DMG + ZIP, Developer ID signed) | `npm run dist:mac` |
-| Mac App Store (production) | `npm run dist:mas` |
-| Mac App Store (development build) | `npm run dist:mas-dev` |
-| Windows installer (NSIS) | `npm run dist:win` |
-| Windows portable | `npm run dist:win-portable` |
-| Windows AppX / MSIX (Microsoft Store) | `npm run dist:appx` |
-| Ubuntu Snap | `npm run dist:snap` |
+| macOS (DMG + ZIP, Developer ID signed) | `pnpm run dist:mac` |
+| Mac App Store (production) | `pnpm run dist:mas` |
+| Mac App Store (development build) | `pnpm run dist:mas-dev` |
+| Windows installer (NSIS) | `pnpm run dist:win` |
+| Windows portable | `pnpm run dist:win-portable` |
+| Windows AppX / MSIX (Microsoft Store) | `pnpm run dist:appx` |
+| Ubuntu Snap | `pnpm run dist:snap` |
 
 ### Notes
 

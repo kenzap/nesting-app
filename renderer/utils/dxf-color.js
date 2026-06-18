@@ -52,11 +52,64 @@
     return `#${[r, g, b].map(part => part.toString(16).padStart(2, '0')).join('')}`;
   }
 
+  // Adjusts a hex color for the active theme at render time.
+  // In light theme, neutral light colors are darkened to the text color,
+  // and saturated light colors (like cyan, yellow) are scaled down to keep
+  // their color identity while maintaining readability.
+  function adjustHexColorForTheme(hex) {
+    if (!hex) return hex;
+    const isLightTheme = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light';
+    if (!isLightTheme) return hex;
+
+    const cleanHex = hex.replace('#', '');
+    let r = 0, g = 0, b = 0;
+    if (cleanHex.length === 3) {
+      r = parseInt(cleanHex[0] + cleanHex[0], 16);
+      g = parseInt(cleanHex[1] + cleanHex[1], 16);
+      b = parseInt(cleanHex[2] + cleanHex[2], 16);
+    } else if (cleanHex.length === 6) {
+      r = parseInt(cleanHex.substring(0, 2), 16);
+      g = parseInt(cleanHex.substring(2, 4), 16);
+      b = parseInt(cleanHex.substring(4, 6), 16);
+    } else {
+      return hex;
+    }
+
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    if (luminance > 0.7) {
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      if (max - min < 30) {
+        // Neutral light color (white, light gray) -> darken to theme text color
+        return '#1a1d28';
+      } else {
+        // Saturated light color (cyan, yellow, orange) -> darken while maintaining color identity
+        const factor = 0.55;
+        const nr = Math.round(r * factor);
+        const ng = Math.round(g * factor);
+        const nb = Math.round(b * factor);
+        return `#${[nr, ng, nb].map(c => Math.min(255, Math.max(0, c)).toString(16).padStart(2, '0')).join('')}`;
+      }
+    }
+    return hex;
+  }
+
+  // Scans SVG markup string and replaces inline hex color occurrences with theme-adjusted colors.
+  function adjustSvgTextForTheme(svgText) {
+    if (!svgText) return svgText;
+    const isLightTheme = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light';
+    if (!isLightTheme) return svgText;
+
+    return svgText.replace(/#[0-9a-fA-F]{6}/g, (hex) => adjustHexColorForTheme(hex));
+  }
+
   global.NestDxfColor = {
     ACI,
     aciToHex,
     normalizeHexColor,
     normalizeAci,
     trueColorToHex,
+    adjustHexColorForTheme,
+    adjustSvgTextForTheme,
   };
 })(window);

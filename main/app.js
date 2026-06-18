@@ -30,19 +30,35 @@ function buildApplicationMenu({ isDevMode = false } = {}) {
     return;
   }
 
+  const fs = require('fs');
+  let lang = 'en';
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      if (settings && settings.language) {
+        lang = settings.language;
+      }
+    }
+  } catch (err) {
+    // default to 'en'
+  }
+
+  const isEs = lang === 'es';
+
   const viewSubmenu = [
-    { role: 'resetZoom' },
-    { role: 'zoomIn' },
-    { role: 'zoomOut' },
+    { role: 'resetZoom', label: isEs ? 'Restablecer zoom' : 'Actual Size' },
+    { role: 'zoomIn', label: isEs ? 'Acercar' : 'Zoom In' },
+    { role: 'zoomOut', label: isEs ? 'Alejar' : 'Zoom Out' },
     { type: 'separator' },
-    { role: 'togglefullscreen' },
+    { role: 'togglefullscreen', label: isEs ? 'Pantalla completa' : 'Toggle Full Screen' },
   ];
 
   if (isDevMode) {
     viewSubmenu.unshift(
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
+      { role: 'reload', label: isEs ? 'Recargar' : 'Reload' },
+      { role: 'forceReload', label: isEs ? 'Forzar recarga' : 'Force Reload' },
+      { role: 'toggleDevTools', label: isEs ? 'Herramientas de desarrollo' : 'Toggle Developer Tools' },
       { type: 'separator' },
     );
   }
@@ -51,44 +67,44 @@ function buildApplicationMenu({ isDevMode = false } = {}) {
     {
       label: productName,
       submenu: [
-        { role: 'about', label: `About ${productName}` },
+        { role: 'about', label: isEs ? `Acerca de ${productName}` : `About ${productName}` },
         { type: 'separator' },
-        { role: 'services' },
+        { role: 'services', label: isEs ? 'Servicios' : 'Services' },
         { type: 'separator' },
-        { role: 'hide', label: `Hide ${productName}` },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
+        { role: 'hide', label: isEs ? `Ocultar ${productName}` : `Hide ${productName}` },
+        { role: 'hideOthers', label: isEs ? 'Ocultar otros' : 'Hide Others' },
+        { role: 'unhide', label: isEs ? 'Mostrar todos' : 'Show All' },
         { type: 'separator' },
-        { role: 'quit', label: `Quit ${productName}` },
+        { role: 'quit', label: isEs ? `Salir de ${productName}` : `Quit ${productName}` },
       ],
     },
     {
-      label: 'File',
+      label: isEs ? 'Archivo' : 'File',
       submenu: [
-        { role: 'close' },
+        { role: 'close', label: isEs ? 'Cerrar' : 'Close' },
       ],
     },
     {
-      label: 'Edit',
+      label: isEs ? 'Editar' : 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { role: 'undo', label: isEs ? 'Deshacer' : 'Undo' },
+        { role: 'redo', label: isEs ? 'Rehacer' : 'Redo' },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        { role: 'cut', label: isEs ? 'Cortar' : 'Cut' },
+        { role: 'copy', label: isEs ? 'Copiar' : 'Copy' },
+        { role: 'paste', label: isEs ? 'Pegar' : 'Paste' },
+        { role: 'selectAll', label: isEs ? 'Seleccionar todo' : 'Select All' },
       ],
     },
     {
-      label: 'View',
+      label: isEs ? 'Ver' : 'View',
       submenu: viewSubmenu,
     },
     {
-      label: 'Window',
+      label: isEs ? 'Ventana' : 'Window',
       submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
+        { role: 'minimize', label: isEs ? 'Minimizar' : 'Minimize' },
+        { role: 'zoom', label: isEs ? 'Zoom' : 'Zoom' },
         { type: 'separator' },
         {
           label: productName,
@@ -104,22 +120,22 @@ function buildApplicationMenu({ isDevMode = false } = {}) {
           },
         },
         { type: 'separator' },
-        { role: 'front' },
+        { role: 'front', label: isEs ? 'Traer todo al frente' : 'Bring All to Front' },
       ],
     },
     {
-      label: 'Help',
+      label: isEs ? 'Ayuda' : 'Help',
       submenu: [
         {
-          label: 'Support',
+          label: isEs ? 'Soporte' : 'Support',
           click: () => { void shell.openExternal(SUPPORT_URL); },
         },
         {
-          label: 'Release Notes',
+          label: isEs ? 'Notas de versión' : 'Release Notes',
           click: () => { void shell.openExternal(RELEASES_URL); },
         },
         {
-          label: 'Reddit Community',
+          label: isEs ? 'Comunidad de Reddit' : 'Reddit Community',
           click: () => { void shell.openExternal(REDDIT_URL); },
         },
         {
@@ -127,7 +143,7 @@ function buildApplicationMenu({ isDevMode = false } = {}) {
           click: () => { void shell.openExternal(LINKEDIN_URL); },
         },
         {
-          label: `${productName} Website`,
+          label: isEs ? `Sitio web de ${productName}` : `${productName} Website`,
           click: () => { void shell.openExternal(WEBSITE_URL); },
         },
       ],
@@ -138,14 +154,14 @@ function buildApplicationMenu({ isDevMode = false } = {}) {
     template[0] = {
       label: productName,
       submenu: [
-        { role: 'about', label: `About ${productName}` },
+        { role: 'about', label: isEs ? `Acerca de ${productName}` : `About ${productName}` },
         { type: 'separator' },
-        { role: 'quit', label: `Exit ${productName}` },
+        { role: 'quit', label: isEs ? `Salir de ${productName}` : `Exit ${productName}` },
       ],
     };
     template[4].submenu = [
-      { role: 'minimize' },
-      { role: 'close' },
+      { role: 'minimize', label: isEs ? 'Minimizar' : 'Minimize' },
+      { role: 'close', label: isEs ? 'Cerrar' : 'Close' },
     ];
   }
 
@@ -291,6 +307,12 @@ function initializeApp({ isDevMode = false, minimalStartup = false } = {}) {
       buildApplicationMenu({ isDevMode });
     }
     createWindow({ isDevMode, minimalStartup });
+  });
+
+  app.on('rebuild-menu', () => {
+    if (!minimalStartup) {
+      buildApplicationMenu({ isDevMode });
+    }
   });
 
   app.on('before-quit', () => { app.isQuiting = true; });

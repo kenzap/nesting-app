@@ -23,7 +23,7 @@ if (process.platform === 'darwin') {
       [
         'electron-builder needs a Windows environment on macOS for AppX/MSIX builds.',
         'Parallels Desktop is the supported automatic path, but `prlctl` was not found on this machine.',
-        'Run `npm run dist:appx` from Windows, or install/configure Parallels with a Windows VM first.'
+        'Run `pnpm run dist:appx` from Windows, or install/configure Parallels with a Windows VM first.'
       ]
     );
   }

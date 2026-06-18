@@ -14,15 +14,15 @@
     "appx:upload": "node scripts/make-appxupload.js",
     "install:appx-test": "powershell -ExecutionPolicy Bypass -File scripts/install-appx-test-package.ps1",
     "verify:mas-signing": "node scripts/verify-mas-signing.js",
-    "dist:mac": "npm run preflight:mac-helpers && electron-builder --mac dmg zip",
-    "dist:mas-app": "npm run preflight:mac-helpers && electron-builder --mac mas --dir",
-    "dist:mas": "npm run preflight:mac-helpers && electron-builder --mac mas",
-    "dist:mas-dev-app": "npm run preflight:mac-helpers && electron-builder --mac mas-dev --dir",
-    "dist:mas-dev": "npm run preflight:mac-helpers && electron-builder --mac mas-dev",
-    "dist:snap": "npm run preflight:linux-helpers && electron-builder --linux snap",
-    "dist:win": "npm run preflight:win-helpers && electron-builder --win nsis",
-    "dist:win-portable": "npm run preflight:win-helpers && electron-builder --win portable",
-    "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && electron-builder --win appx --x64 && npm run appx:upload"
+    "dist:mac": "pnpm run preflight:mac-helpers && electron-builder --mac dmg zip",
+    "dist:mas-app": "pnpm run preflight:mac-helpers && electron-builder --mac mas --dir",
+    "dist:mas": "pnpm run preflight:mac-helpers && electron-builder --mac mas",
+    "dist:mas-dev-app": "pnpm run preflight:mac-helpers && electron-builder --mac mas-dev --dir",
+    "dist:mas-dev": "pnpm run preflight:mac-helpers && electron-builder --mac mas-dev",
+    "dist:snap": "pnpm run preflight:linux-helpers && electron-builder --linux snap",
+    "dist:win": "pnpm run preflight:win-helpers && electron-builder --win nsis",
+    "dist:win-portable": "pnpm run preflight:win-helpers && electron-builder --win portable",
+    "dist:appx": "pnpm run preflight:win-helpers && pnpm run preflight:appx-host && electron-builder --win appx --x64 && pnpm run appx:upload"
   },
   "devDependencies": {
     "electron": "^42.4.0",
@@ -42,7 +42,7 @@
     "appxManifestCreated": "scripts/patch-appx-manifest.js",
     "productName": "Kenzap Nesting",
     "files": [
-      "main.js",
+      "main.js",  
       "main/**/*",
       "preload.js",
       "package.json",
@@ -127,7 +127,7 @@
       "identityName": "KenzapPteLtd.KenzapNesting",
       "publisher": "CN=8DBD4E24-DD06-4AEF-88B7-7F0C2E30B4D9",
       "publisherDisplayName": "Kenzap Pte Ltd",
-      "displayName": "Kenzap Nesting",
+      "displayName": "ETM Nesting",
       "backgroundColor": "#111827",
       "showNameOnTiles": false,
       "languages": [

@@ -63,7 +63,7 @@ function resolveAppPath() {
     candidate.endsWith('.app')
   ));
   if (!appPath) {
-    fail('No .app bundle found. Pass a path explicitly: npm run verify:mas-signing -- /path/to/App.app');
+    fail('No .app bundle found. Pass a path explicitly: pnpm run verify:mas-signing -- /path/to/App.app');
   }
   return appPath;
 }

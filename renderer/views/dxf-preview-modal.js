@@ -2,6 +2,7 @@
   'use strict';
 
   function createDxfPreviewModal({ state }) {
+    const { t } = global.NestI18n;
     // Local preview state for the currently open file. Declared here so it
     // resets to a clean slate each time a new file is opened, with no
     // leftover selection, zoom, or layer filter from a previous session.
@@ -54,7 +55,7 @@
     function syncActions() {
       const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
       dom.removeShape.disabled = !selected;
-      dom.removeShapeLabel.textContent = selected?.visible === false ? 'Restore' : 'Remove';
+      dom.removeShapeLabel.textContent = selected?.visible === false ? t('restore') : t('remove');
     }
 
     const shapesListView = global.NestDxfPreviewShapesListView.createDxfPreviewShapesListView({
@@ -83,10 +84,11 @@
         });
         return button;
       };
-      dom.layerTabs.appendChild(makeTab('All', 'var(--text-muted)', null));
+      dom.layerTabs.appendChild(makeTab(t('all'), 'var(--text-muted)', null));
       pv.layers.forEach(layer => {
         const count = pv.shapes.filter(shape => (shape.ownerLayers || [shape.layer]).includes(layer.name) && shape.visible).length;
-        const button = makeTab(layer.name, layer.color, layer.name);
+        const dotColor = global.NestDxfColor.adjustHexColorForTheme(layer.color);
+        const button = makeTab(layer.name, dotColor, layer.name);
         const badge = document.createElement('span');
         badge.className = 'pvw-tab-count';
         badge.textContent = count;
@@ -204,7 +206,7 @@
       canvasView.showLoading();
       dom.shapesList.innerHTML = '';
       dom.layerTabs.innerHTML = '';
-      dom.fileMeta.textContent = 'Loading…';
+      dom.fileMeta.textContent = t('loading');
       dom.modal.classList.add('open');
 
       const { data, source } = await previewService.preparePreviewData({ state, fileId, filename });
@@ -212,8 +214,8 @@
       pv.layers = data.layers;
       pv.canvasWidth = canvasView.getCanvasWidth();
       pv.positions = canvasView.autoLayout(pv.shapes, pv.canvasWidth);
-      const hint = source === 'mock' ? '  · preview' : '';
-      dom.fileMeta.textContent = `${pv.shapes.length} shape${pv.shapes.length !== 1 ? 's' : ''} · ${pv.layers.length} layer${pv.layers.length !== 1 ? 's' : ''}${hint}`;
+      const hint = source === 'mock' ? `  · ${t('previewLabel')}` : '';
+      dom.fileMeta.textContent = `${pv.shapes.length} ${pv.shapes.length !== 1 ? t('shapes') : t('shape')} · ${pv.layers.length} ${pv.layers.length !== 1 ? t('layers') : t('layer')}${hint}`;
       renderTabs();
       renderSVG();
       renderList();

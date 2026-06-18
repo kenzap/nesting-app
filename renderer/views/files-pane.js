@@ -3,6 +3,7 @@
 (function defineFilesPane(globalScope) {
   function createFilesPane({ state, dom, schedulePersistJobState, hydrateFileShapesForList }) {
     const { uid, formatBytes, effectiveFileQty } = globalScope.NestHelpers;
+    const { t } = globalScope.NestI18n;
 
     // Rebuilds the DXF files sidebar so it matches current state.
     // Shows each file's shape count, size, and total qty, wires up the ✕ remove buttons,
@@ -14,7 +15,7 @@
         const shapeCount = Array.isArray(f.shapes)
           ? f.shapes.filter(shape => shape.visible !== false).length
           : 0;
-        const shapeLabel = `${shapeCount} shape${shapeCount === 1 ? '' : 's'}`;
+        const shapeLabel = `${shapeCount} ${shapeCount === 1 ? t('shape') : t('shapes')}`;
         const li = document.createElement('li');
         li.className = 'file-item';
         li.innerHTML = `

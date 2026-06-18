@@ -3,6 +3,7 @@
 (function defineExportService(globalScope) {
   function createExportService({ state, dom }) {
     const { formatWidthMeters } = globalScope.NestHelpers;
+    const { t } = globalScope.NestI18n;
     let exportFolderPath = null;
     let exportFolderBookmark = null;
 
@@ -72,7 +73,7 @@
       dom.exportFolderLabel.textContent = shortPath(folderPath);
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       dom.exportDXFBtn.disabled = false;
-      dom.exportDXFBtn.textContent = 'Export DXF';
+      dom.exportDXFBtn.textContent = t('exportDXF');
     }
 
     function normalizeStoredExportFolder(saved) {
@@ -150,7 +151,7 @@
       dom.exportSummaryLength.textContent = `${(totalMm / 1000).toFixed(2)} m`;
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       if (isPreview) {
-        dom.exportFolderLabel.textContent = 'Waiting for final Sparrow result before export';
+        dom.exportFolderLabel.textContent = t('waitingFinalResult');
       }
 
       dom.exportTableBody.innerHTML = '';
@@ -187,11 +188,11 @@
       if (exportFolderPath && canExportFinalSheets()) {
         applyExportFolder(exportFolderPath);
       } else if (!state.nestResult?.is_preview) {
-        dom.exportFolderLabel.textContent = 'No folder selected';
+        dom.exportFolderLabel.textContent = t('noFolderSelected');
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       }
       dom.exportDXFBtn.disabled = !exportFolderPath || !canExportFinalSheets();
-      dom.exportDXFBtn.textContent = state.nestResult?.is_preview ? 'Export DXF' : 'Export DXF';
+      dom.exportDXFBtn.textContent = state.nestResult?.is_preview ? t('exportDXF') : t('exportDXF');
       dom.exportModal.classList.add('open');
     }
 
@@ -223,7 +224,7 @@
           if (!chosenFolder) return;
         }
         dom.exportDXFBtn.disabled = true;
-        dom.exportDXFBtn.textContent = 'Exporting…';
+        dom.exportDXFBtn.textContent = t('exporting');
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
         try {
           const sheet = state.sheets[0] || {};
@@ -247,19 +248,19 @@
           });
           if (!result?.success) throw new Error(result?.error || 'Export failed');
 
-          dom.exportDXFBtn.textContent = '✓ Exported';
+          dom.exportDXFBtn.textContent = t('exported');
           dom.exportDXFBtn.classList.add('btn-success');
-          dom.exportFolderLabel.textContent = `${result.fileCount} file${result.fileCount !== 1 ? 's' : ''} saved to ${shortPath(result.outputDir)}`;
+          dom.exportFolderLabel.textContent = `${result.fileCount} ${result.fileCount !== 1 ? t('filesSavedTo') : t('fileSavedTo')} ${shortPath(result.outputDir)}`;
           dom.exportFolderLabel.classList.add('export-folder-success');
 
           setTimeout(() => {
-            dom.exportDXFBtn.textContent = 'Export DXF';
+            dom.exportDXFBtn.textContent = t('exportDXF');
             dom.exportDXFBtn.classList.remove('btn-success');
             dom.exportDXFBtn.disabled = false;
           }, 3000);
         } catch (err) {
           console.error('[Export DXF]', err);
-          dom.exportDXFBtn.textContent = 'Export DXF';
+          dom.exportDXFBtn.textContent = t('exportDXF');
           dom.exportDXFBtn.disabled = false;
           dom.exportFolderLabel.textContent = `Error: ${err.message}`;
           dom.exportFolderLabel.classList.add('export-folder-error');

@@ -11,6 +11,7 @@
     const { formatWidthMeters, partLabelFromName } = globalScope.NestHelpers;
     const { DEFAULT_ENGRAVING_COLOR } = globalScope.NestConstants;
     const { FALLBACK_PALETTE = [] } = globalScope.NestDxfLayerService || {};
+    const { t } = globalScope.NestI18n;
     const FIT_INSET_X = 40;
     const FIT_INSET_Y = 28;
     const SVG_PREVIEW_MARGIN_X = 80;
@@ -263,7 +264,7 @@
       for (let i = initialCount; i < stripCount; i++) {
         const btn = document.createElement('button');
         btn.className = 'canvas-tab';
-        btn.textContent = `Sheet ${i + 1}`;
+        btn.textContent = `${t('sheet')} ${i + 1}`;
         btn.addEventListener('click', () => {
           dom.canvasTabs.querySelectorAll('.canvas-tab').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
@@ -426,11 +427,11 @@
         const densityValue = displayStripDensity(strip, sheet);
         const density = Number.isFinite(densityValue) ? `${(densityValue * 100).toFixed(1)}%` : null;
         const usedWidth = formatWidthMeters(displayStripWidth(strip, sheet));
-        const previewPrefix = strip.is_preview || state.nestResult.is_preview ? 'Preview · ' : '';
+        const previewPrefix = strip.is_preview || state.nestResult.is_preview ? `${t('preview')} · ` : '';
         setNestStatsTone('');
-        const partsText = placed > 0 ? ` · ${placed} parts` : '';
-        const utilText = density ? ` · Utilization: ${density}` : '';
-        dom.nestStats.textContent = `${previewPrefix}Sheet ${sheetIndex + 1} of ${state.nestResult.strips.length}${partsText}${utilText} · Width: ${usedWidth}`;
+        const partsText = placed > 0 ? ` · ${placed} ${t('partsLabel')}` : '';
+        const utilText = density ? ` · ${t('utilization')}: ${density}` : '';
+        dom.nestStats.textContent = `${previewPrefix}${t('sheet')} ${sheetIndex + 1} ${t('sheetOf')} ${state.nestResult.strips.length}${partsText}${utilText} · ${t('width')}: ${usedWidth}`;
         // Only re-center the viewport when the SVG actually got swapped — a
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.
@@ -441,9 +442,9 @@
       if (strip) {
         state.activeStripIndex = sheetIndex;
         const totalSheets = state.nestResult?.strips?.length || state.nestResult?.strip_count || 0;
-        const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? 'Preview · ' : '';
+        const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? `${t('preview')} · ` : '';
         setNestStatsTone('');
-        dom.nestStats.textContent = `${waitingPrefix}Sheet ${sheetIndex + 1} of ${totalSheets} · Waiting for geometry`;
+        dom.nestStats.textContent = `${waitingPrefix}${t('sheet')} ${sheetIndex + 1} ${t('sheetOf')} ${totalSheets} · ${t('waitingGeometry')}`;
         return;
       }
 
@@ -456,7 +457,7 @@
       const placed = state.files.reduce((a, f) => a + f.qty, 0);
       const mockWidth = formatWidthMeters(state.sheets[sheetIndex]?.width);
       setNestStatsTone('');
-      dom.nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}% · Width: ${mockWidth}`;
+      dom.nestStats.textContent = `${t('sheet')} ${sheetIndex + 1} ${t('sheetOf')} ${state.sheets.length} · ${placed} ${t('partsPlaced')} · ${t('utilization')}: ${result.utilization}% · ${t('width')}: ${mockWidth}`;
       applyZoom(true);
     }
 

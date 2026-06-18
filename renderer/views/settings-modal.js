@@ -113,6 +113,12 @@
 
       state.settings = normalizeDialogSettings(result.settings || {});
       applySettingsToDialog(state.settings);
+
+      // Apply appearance settings on startup
+      if (globalScope.NestThemeManager) {
+        globalScope.NestThemeManager.applyTheme(state.settings.theme);
+        globalScope.NestThemeManager.applyLanguage(state.settings.language);
+      }
     }
 
     // Wires open, close, apply, and reset buttons for the settings modal.
@@ -124,6 +130,11 @@
         try {
           await persistCurrentSettings();
           dom.settingsModal.classList.remove('open');
+          // Apply theme and language changes immediately
+          if (globalScope.NestThemeManager) {
+            globalScope.NestThemeManager.applyTheme(state.settings.theme);
+            globalScope.NestThemeManager.applyLanguage(state.settings.language);
+          }
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
           console.error('[Settings] Failed to persist settings:', err);
@@ -134,6 +145,11 @@
         applySettingsToDialog(state.settings);
         try {
           await persistCurrentSettings();
+          // Apply theme and language after reset
+          if (globalScope.NestThemeManager) {
+            globalScope.NestThemeManager.applyTheme(state.settings.theme);
+            globalScope.NestThemeManager.applyLanguage(state.settings.language);
+          }
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
           console.error('[Settings] Failed to reset settings:', err);

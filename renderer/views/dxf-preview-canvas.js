@@ -3,6 +3,7 @@
 
   const { f } = global.NestDxfSvg;
   const { buildPreviewLabelSvg } = global.NestDxfEngravingPreviewService;
+  const { adjustHexColorForTheme, adjustSvgTextForTheme } = global.NestDxfColor;
 
   const DEFAULT_CANVAS_W = 560;
   const PAD = 18;
@@ -69,10 +70,15 @@
       const width = Math.max(canvasWidth, maxX, DEFAULT_CANVAS_W);
       const height = Math.max(maxY, 220);
 
-      const grid = [];
-      for (let gx = 0; gx <= width; gx += 24) grid.push(`<line x1="${gx}" y1="0" x2="${gx}" y2="${height}" stroke="#1a1d2a" stroke-width="0.5"/>`);
-      for (let gy = 0; gy <= height; gy += 24) grid.push(`<line x1="0" y1="${gy}" x2="${width}" y2="${gy}" stroke="#1a1d2a" stroke-width="0.5"/>`);
+      const isLightTheme = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light';
+      const bgFill = isLightTheme ? '#e2e4ec' : '#0d0f18';
+      const gridStroke = isLightTheme ? '#d0d4de' : '#1a1d2a';
 
+      const grid = [];
+      for (let gx = 0; gx <= width; gx += 24) grid.push(`<line x1="${gx}" y1="0" x2="${gx}" y2="${height}" stroke="${gridStroke}" stroke-width="0.5"/>`);
+      for (let gy = 0; gy <= height; gy += 24) grid.push(`<line x1="0" y1="${gy}" x2="${width}" y2="${gy}" stroke="${gridStroke}" stroke-width="0.5"/>`);
+
+      const { t } = global.NestI18n;
       const shapeEls = shapes.map((shape, index) => {
         const pos = positions[index];
         const isSelected = shape.id === selectedId;
@@ -119,24 +125,31 @@
         );
         const strokeW = f(baseStrokeWidth / displayScale);
         const selStrokeW = f(2.8 / displayScale);
-        const normBoundaryItems = visibleBoundaryItems.map(item => normaliseStrokes(item.svg));
-        const normDecorItems    = visibleDecorItems.map(item => normaliseStrokes(item.svg));
+        const normBoundaryItems = visibleBoundaryItems.map(item => adjustSvgTextForTheme(normaliseStrokes(item.svg)));
+        const normDecorItems    = visibleDecorItems.map(item => adjustSvgTextForTheme(normaliseStrokes(item.svg)));
+
+        const displayName = shape.name.startsWith('Sketch ')
+          ? shape.name.replace('Sketch ', `${t('sketch')} `)
+          : shape.name;
+
+        const dynamicColor = adjustHexColorForTheme(shape.layerColor);
+
         return `
 <g class="pvw-shape" data-id="${shape.id}"
    transform="translate(${f(pos.x)},${f(pos.y)})"
    opacity="${isDimmed ? 0.12 : 1}" style="cursor:pointer">
   <g transform="scale(${f(displayScale)})">
     ${showOuter && isSelected && allowSelectionFill && selectionPath ? `<path d="${selectionPath}" fill="white" fill-opacity="0.06" fill-rule="${shape.fillRule}" stroke="none"/>` : ''}
-    ${showOuter && isSelected && selectionPath ? `<path d="${selectionPath}" fill="none" stroke="${shape.layerColor}" stroke-width="${selStrokeW}" stroke-opacity="0.75" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
-    ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers && !isSelected ? `<path d="${shape.pathData}" fill="${shape.layerColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${shape.layerColor}" stroke-opacity="${baseStrokeOpacity}" stroke-width="${strokeW}" stroke-linejoin="round"/>` : ''}
+    ${showOuter && isSelected && selectionPath ? `<path d="${selectionPath}" fill="none" stroke="${dynamicColor}" stroke-width="${selStrokeW}" stroke-opacity="0.75" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
+    ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers && !isSelected ? `<path d="${shape.pathData}" fill="${dynamicColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${dynamicColor}" stroke-opacity="${baseStrokeOpacity}" stroke-width="${strokeW}" stroke-linejoin="round"/>` : ''}
     <g opacity="${selectedGeometryOpacity}">
       ${normBoundaryItems.join('\n')}
       ${normDecorItems.join('\n')}
     </g>
-    ${previewLabelSvg}
+    ${adjustSvgTextForTheme(previewLabelSvg)}
   </g>
-  <text x="${f(displayW / 2)}" y="${f(displayH + 11)}" text-anchor="middle" font-size="8" fill="${shape.layerColor}" opacity="0.6" font-family="monospace">${shape.name}</text>
-  <title>${shape.name} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestDxfSvg.f1(shape.bbox.w)}×${global.NestDxfSvg.f1(shape.bbox.h)} mm</title>
+  <text x="${f(displayW / 2)}" y="${f(displayH + 11)}" text-anchor="middle" font-size="8" fill="${dynamicColor}" opacity="0.6" font-family="monospace">${displayName}</text>
+  <title>${displayName} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestDxfSvg.f1(shape.bbox.w)}×${global.NestDxfSvg.f1(shape.bbox.h)} mm</title>
 </g>`;
       }).join('');
 
@@ -147,7 +160,7 @@
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <rect width="${width}" height="${height}" fill="#0d0f18"/>
+  <rect width="${width}" height="${height}" fill="${bgFill}"/>
   ${grid.join('')}
   ${shapeEls}
 </svg>`;

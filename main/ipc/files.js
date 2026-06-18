@@ -141,6 +141,7 @@ function registerFileIpc({ getMainWindow }) {
       const settingsPath = path.join(app.getPath('userData'), 'settings.json');
       fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
       fs.writeFileSync(settingsPath, JSON.stringify(settings || {}, null, 2), 'utf-8');
+      app.emit('rebuild-menu');
       return { success: true, path: settingsPath };
     } catch (err) {
       return { success: false, error: err.message };

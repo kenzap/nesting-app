@@ -12,6 +12,7 @@
     renderTabs,
       syncExportButton,
     }) {
+      const { t } = globalScope.NestI18n;
       const {
         MULTI_SHEET_STRATEGY_OPTIONS = {
           'auto': { multiStripMode: 'barriers', bucketFillWeight: null },
@@ -45,7 +46,7 @@
       setStatus('error');
       setNestStatsTone('error');
       const summary = message || 'Sparrow failed';
-      dom.nestStats.textContent = `Run failed: ${summary}`;
+      dom.nestStats.textContent = `${t('runFailed')}: ${summary}`;
       dom.nestStats.title = details || summary;
     }
 
@@ -95,7 +96,7 @@
         showNestResult(state.activeStripIndex || 0);
       } else if (result.status === 'running') {
         setNestStatsTone('');
-        dom.nestStats.textContent = 'Running placement… waiting for first preview';
+        dom.nestStats.textContent = t('runningWaitingPreview');
       }
 
       if (result.status === 'completed') {
@@ -140,15 +141,15 @@
         const hasFiles = state.files.length > 0;
         const hasSheets = state.sheets.length > 0;
         if (!hasFiles && !hasSheets) {
-          showStartRequirementsWarning('Add DXF parts and at least one sheet, then press Run.');
+          showStartRequirementsWarning(t('addPartsAndSheetsRun'));
           return;
         }
         if (!hasFiles) {
-          showStartRequirementsWarning('Add one or more DXF parts before running nesting.');
+          showStartRequirementsWarning(t('addPartsBeforeRun'));
           return;
         }
         if (!hasSheets) {
-          showStartRequirementsWarning('Add at least one sheet before running nesting.');
+          showStartRequirementsWarning(t('addSheetsBeforeRun'));
           return;
         }
 
@@ -156,13 +157,13 @@
         try {
           exported = await exportPlacementJSON();
           setNestStatsTone('');
-          dom.nestStats.textContent = 'Placement data prepared';
+          dom.nestStats.textContent = t('placementDataPrepared');
           dom.nestStats.title = exported.path || '';
         } catch (err) {
           console.error('[Placement JSON] Export failed:', err);
           setStatus('error');
           setNestStatsTone('error');
-          dom.nestStats.textContent = `Export failed: ${err.message}`;
+          dom.nestStats.textContent = `${t('exportFailed')}: ${err.message}`;
           return;
         }
 
@@ -210,7 +211,7 @@
           }
           activeSparrowRunId = result.runId;
           setNestStatsTone('');
-          dom.nestStats.textContent = 'Placement running…';
+          dom.nestStats.textContent = t('placementRunning');
           dom.nestStats.title = result.inputPath || '';
 
           if (nestInterval) clearInterval(nestInterval);
@@ -265,7 +266,7 @@
         nestInterval = null;
         setStatus('idle');
         setNestStatsTone('');
-        dom.nestStats.textContent = 'Placement stopped';
+        dom.nestStats.textContent = t('placementStopped');
         dom.nestStats.title = '';
         dom.startBtn.classList.remove('running');
         dom.startBtn.disabled = false;

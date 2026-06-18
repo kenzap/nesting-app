@@ -2,6 +2,7 @@
 
 (function defineSheetModal(globalScope) {
   function createSheetModal({ state, dom, schedulePersistJobState, renderSheets }) {
+    const { t } = globalScope.NestI18n;
     // Returns true when the current form values exactly match a preset button's dimensions.
     // Used by syncSheetPresetButtons to decide which preset (if any) should appear highlighted.
     function presetMatches(btn) {
@@ -29,7 +30,7 @@
       dom.sheetHeight.value = '1250';
       dom.sheetWidth.value = '3000';
       dom.sheetMaterial.value = '';
-      dom.confirmSheet.textContent = 'Add Sheet';
+      dom.confirmSheet.textContent = t('addSheet');
       updateSheetModeControls();
     }
 
@@ -52,7 +53,7 @@
       dom.sheetHeight.value = sheet.height ?? 1250;
       dom.sheetWidth.value = sheet.width ?? 3000;
       dom.sheetMaterial.value = sheet.material || '';
-      dom.confirmSheet.textContent = 'Save Sheet';
+      dom.confirmSheet.textContent = t('saveSheet');
       updateSheetModeControls();
       dom.sheetModal.classList.add('open');
     }
@@ -72,11 +73,11 @@
       dom.sheetWidth.disabled = unlimited;
 
       if (unlimited) {
-        dom.sheetModeHelp.textContent = 'The strip can continue without a fixed length limit.';
+        dom.sheetModeHelp.textContent = t('sheetHelpUnlimited');
       } else if (mode === 'max') {
-        dom.sheetModeHelp.textContent = 'Length is treated as a maximum. The algorithm may use less length when possible and will automatically calculate the number of sheets needed and their dimensions.';
+        dom.sheetModeHelp.textContent = t('sheetHelpMax');
       } else {
-        dom.sheetModeHelp.textContent = 'A fixed sheet size will be used. The number of sheets required is calculated automatically.';
+        dom.sheetModeHelp.textContent = t('sheetHelpFixed');
       }
 
       syncSheetPresetButtons();

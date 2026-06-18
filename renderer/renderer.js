@@ -102,8 +102,9 @@ function setStatus(status) {
   state.status = status;
   const dot = dom.statusChip.querySelector('.status-dot');
   const label = dom.statusChip.querySelector('.status-label');
+  const { t } = window.NestI18n;
   dot.className = 'status-dot ' + status;
-  const labels = { idle: 'Idle', running: 'Running…', done: 'Complete', error: 'Error' };
+  const labels = { idle: t('idle'), running: t('running'), done: t('complete'), error: t('error') };
   label.textContent = labels[status] || status;
 }
 
@@ -343,14 +344,15 @@ window.refreshDXFPreview = dxfPreviewModalApi.refreshDXFPreview;
 // Shows lightweight, user-facing import status during drag-and-drop without
 // exposing raw browser event details in production builds.
 function showDragDebug(message, details = '') {
+  const { t } = window.NestI18n;
   const normalized = String(message || '');
   const previousText = dom.nestStats.textContent;
   const previousTitle = dom.nestStats.title;
-  let userMessage = 'Drop DXF files here to import';
+  let userMessage = t('dropFilesImport');
   if (/^added\s+\d+/i.test(normalized)) {
-    userMessage = normalized.replace(/^added/i, 'Imported');
+    userMessage = normalized.replace(/^added/i, t('importedFiles'));
   } else if (/^drop ignored:/i.test(normalized)) {
-    userMessage = 'No DXF files found in the drop';
+    userMessage = t('noDxfFound');
   }
 
   if (details) console.debug('[DND]', normalized, details);
@@ -362,7 +364,7 @@ function showDragDebug(message, details = '') {
   if (dragDebugTimer) window.clearTimeout(dragDebugTimer);
   dragDebugTimer = window.setTimeout(() => {
     if (dom.nestStats.textContent === userMessage) {
-      dom.nestStats.textContent = previousText || 'Drag DXF files here to import';
+      dom.nestStats.textContent = previousText || t('dragDxfImport');
       dom.nestStats.title = previousTitle || '';
     }
   }, 5000);

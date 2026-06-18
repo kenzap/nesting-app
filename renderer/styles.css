@@ -22,6 +22,8 @@
   --sidebar-w:    240px;
   --topbar-h:     52px;
   --traffic-safe: 84px;
+  --bg-dxf-preview: #0d0f18;
+  --grid-dxf-preview: #1a1d2a;
   font-size: 13px;
 }
 
@@ -33,6 +35,53 @@ html, body {
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
+}
+
+/* ── Light theme ──────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:           #f0f2f7;
+  --surface:      #ffffff;
+  --surface2:     rgba(0, 0, 0, 0.04);
+  --surface3:     #e8eaef;
+  --border:       #d0d4de;
+  --border-light: #bcc2d0;
+  --text:         #1a1d28;
+  --text-muted:   #6b7394;
+  --text-dim:     #4a5070;
+  --accent:       #3b7de8;
+  --accent-hover: #2a6cd8;
+  --accent-glow:  rgba(59,125,232,.12);
+  --danger:       #dc4444;
+  --success:      #2da06a;
+  --warning:      #c9960a;
+  --bg-dxf-preview: #e2e4ec;
+  --grid-dxf-preview: #d0d4de;
+}
+
+[data-theme="light"] .canvas-viewport {
+  background: #e8eaef;
+}
+
+[data-theme="light"] .canvas-viewport.empty-grid {
+  background-image:
+    linear-gradient(rgba(0,0,0,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px);
+}
+
+[data-theme="light"] .pvw-canvas-wrap {
+  background: #e2e4ec;
+}
+
+[data-theme="light"] .modal-overlay {
+  background: rgba(0,0,0,.32);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #bcc2d0;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #9099b8;
 }
 
 /* ── App shell ─────────────────────────────────────────── */

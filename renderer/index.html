@@ -19,7 +19,7 @@
           <path d="M9 2v10M5 8l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M3 13v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
-        <span class="modal-title">Export Sheets</span>
+        <span class="modal-title" data-i18n="exportSheets">Export Sheets</span>
       </div>
       <button class="modal-close" id="exportClose">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -31,22 +31,22 @@
       <!-- Summary bar -->
       <div class="export-summary-bar" id="exportSummaryBar">
         <div class="export-summary-item">
-          <span class="export-summary-label">Sheets</span>
+          <span class="export-summary-label" data-i18n="sheets">Sheets</span>
           <span class="export-summary-value" id="exportSummarySheets">—</span>
         </div>
         <div class="export-summary-sep"></div>
         <div class="export-summary-item">
-          <span class="export-summary-label">Avg Utilization</span>
+          <span class="export-summary-label" data-i18n="avgUtilization">Avg Utilization</span>
           <span class="export-summary-value accent" id="exportSummaryUtil">—</span>
         </div>
         <div class="export-summary-sep"></div>
         <div class="export-summary-item">
-          <span class="export-summary-label">Total Parts</span>
+          <span class="export-summary-label" data-i18n="totalParts">Total Parts</span>
           <span class="export-summary-value" id="exportSummaryParts">—</span>
         </div>
         <div class="export-summary-sep"></div>
         <div class="export-summary-item">
-          <span class="export-summary-label">Total Length</span>
+          <span class="export-summary-label" data-i18n="totalLength">Total Length</span>
           <span class="export-summary-value" id="exportSummaryLength">—</span>
         </div>
       </div>
@@ -56,11 +56,11 @@
           <thead>
             <tr>
               <th>#</th>
-              <th>Sheet Size (mm)</th>
-              <th>Material</th>
-              <th>Parts</th>
-              <th>Utilization</th>
-              <th>Used Length</th>
+              <th data-i18n="sheetSizeMm">Sheet Size (mm)</th>
+              <th data-i18n="material">Material</th>
+              <th data-i18n="partsColumn">Parts</th>
+              <th data-i18n="utilizationColumn">Utilization</th>
+              <th data-i18n="usedLength">Used Length</th>
             </tr>
           </thead>
           <tbody id="exportTableBody"></tbody>
@@ -69,12 +69,12 @@
     </div>
     <div class="modal-footer" style="justify-content:space-between;align-items:center">
       <div class="export-folder-row">
-        <span class="export-folder-label" id="exportFolderLabel">No folder selected</span>
-        <button class="btn-secondary btn-sm" id="exportChooseFolder">Choose Folder</button>
+        <span class="export-folder-label" id="exportFolderLabel" data-i18n="noFolderSelected">No folder selected</span>
+        <button class="btn-secondary btn-sm" id="exportChooseFolder" data-i18n="chooseFolder">Choose Folder</button>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn-secondary" id="exportCancel">Cancel</button>
-        <button class="btn-primary" id="exportDXF" disabled>Export DXF</button>
+        <button class="btn-secondary" id="exportCancel" data-i18n="cancel">Cancel</button>
+        <button class="btn-primary" id="exportDXF" disabled data-i18n="exportDXF">Export DXF</button>
       </div>
     </div>
   </div>
@@ -94,7 +94,7 @@
             <rect x="1" y="9" width="5" height="12" rx="1.5" fill="#4f8ef7" opacity="0.5"/>
             <rect x="8" y="12" width="13" height="9" rx="1.5" fill="#4f8ef7" opacity="0.85"/>
           </svg>
-          <span class="app-name">Settings</span>
+          <span class="app-name" data-i18n="settings">Settings</span>
         </div>
       </span>
       <button class="modal-close" id="closeSettings">
@@ -105,16 +105,34 @@
     </div>
     <div class="modal-body">
       <div class="settings-section">
-        <div class="settings-section-title">Spacing &amp; tolerances</div>
+        <div class="settings-section-title" data-i18n="appearance">Appearance</div>
         <div class="setting-row">
-          <label>Part spacing (mm)</label>
+          <label data-i18n="language">Language</label>
+          <select data-setting-key="language" data-i18n-options>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label data-i18n="theme">Theme</label>
+          <select data-setting-key="theme" data-i18n-options>
+            <option value="dark" data-i18n="themeDark">Dark</option>
+            <option value="light" data-i18n="themeLight">Light</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title" data-i18n="spacingTolerances">Spacing &amp; tolerances</div>
+        <div class="setting-row">
+          <label data-i18n="partSpacing">Part spacing (mm)</label>
           <div class="input-with-unit">
             <input type="number" value="0" min="0" step="0.5" data-setting-key="partSpacing" />
             <span class="unit">mm</span>
           </div>
         </div>
         <div class="setting-row">
-          <label>Sheet margin (mm)</label>
+          <label data-i18n="sheetMargin">Sheet margin (mm)</label>
           <div class="input-with-unit">
             <input type="number" value="0" min="0" step="1" data-setting-key="sheetMargin" />
             <span class="unit">mm</span>
@@ -123,11 +141,11 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Rotation</div>
+        <div class="settings-section-title" data-i18n="rotation">Rotation</div>
         <div class="setting-row">
-          <label>Rotation step</label>
-          <select data-setting-key="rotationStep">
-            <option value="none">No rotation</option>
+          <label data-i18n="rotationStep">Rotation step</label>
+          <select data-setting-key="rotationStep" data-i18n-options>
+            <option value="none" data-i18n="noRotation">No rotation</option>
             <option value="90" selected>90°</option>
             <option value="45">45°</option>
             <option value="15">15°</option>
@@ -138,64 +156,64 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Algorithm</div>
+        <div class="settings-section-title" data-i18n="algorithm">Algorithm</div>
         <div class="setting-row">
-          <label>Early stopping</label>
+          <label data-i18n="earlyStopping">Early stopping</label>
           <label class="toggle">
             <input type="checkbox" checked data-setting-key="earlyStopping" />
             <span class="toggle-track"></span>
           </label>
         </div>
         <div class="setting-row">
-          <label>Preferred alignment</label>
-          <select data-setting-key="preferredAlignment">
-            <option value="top" selected>Top</option>
-            <option value="top-left">Top left</option>
-            <option value="top-right">Top right</option>
-            <option value="bottom">Bottom</option>
-            <option value="bottom-left">Bottom left</option>
-            <option value="bottom-right">Bottom right</option>
+          <label data-i18n="preferredAlignment">Preferred alignment</label>
+          <select data-setting-key="preferredAlignment" data-i18n-options>
+            <option value="top" selected data-i18n="alignTop">Top</option>
+            <option value="top-left" data-i18n="alignTopLeft">Top left</option>
+            <option value="top-right" data-i18n="alignTopRight">Top right</option>
+            <option value="bottom" data-i18n="alignBottom">Bottom</option>
+            <option value="bottom-left" data-i18n="alignBottomLeft">Bottom left</option>
+            <option value="bottom-right" data-i18n="alignBottomRight">Bottom right</option>
           </select>
         </div>
         <div class="setting-row">
-          <label>Time limit</label>
+          <label data-i18n="timeLimit">Time limit</label>
           <div class="input-with-unit">
             <input type="number" value="60" min="10" step="10" data-setting-key="timeLimit" />
-            <span class="unit">seconds</span>
+            <span class="unit" data-i18n="seconds">seconds</span>
           </div>
         </div>
         <div class="setting-row" data-dev-only-setting="rngSeed" hidden style="display: none;">
-          <label>Random seed</label>
+          <label data-i18n="randomSeed">Random seed</label>
           <div class="input-with-unit">
             <input type="number" value="42" min="0" step="1" data-setting-key="rngSeed" />
-            <span class="unit">seed</span>
+            <span class="unit" data-i18n="seed">seed</span>
           </div>
         </div>
         <div class="setting-row" data-dev-only-setting="workers" hidden style="display: none;">
-          <label>Workers</label>
+          <label data-i18n="workers">Workers</label>
           <div class="input-with-unit">
             <input type="number" value="3" min="1" step="1" data-setting-key="workers" />
-            <span class="unit">threads</span>
+            <span class="unit" data-i18n="threads">threads</span>
           </div>
         </div>
         <div class="setting-row">
-          <label title="Only applies when running placements on multiple sheets. Auto uses the unified barrier-mode packer — recommended for most jobs. The bucketed options run the legacy planner that partitions items into per-sheet buckets up-front.">Multi-sheet strategy</label>
-          <select data-setting-key="multiSheetStrategy">
-            <option value="auto" selected>Auto</option>
-            <option value="by-height">By width</option>
-            <option value="by-length">By length</option>
-            <option value="by-height-or-length">By width or length</option>
+          <label data-i18n="multiSheetStrategy">Multi-sheet strategy</label>
+          <select data-setting-key="multiSheetStrategy" data-i18n-options>
+            <option value="auto" selected data-i18n="strategyAuto">Auto</option>
+            <option value="by-height" data-i18n="strategyByWidth">By width</option>
+            <option value="by-length" data-i18n="strategyByLength">By length</option>
+            <option value="by-height-or-length" data-i18n="strategyByWidthOrLength">By width or length</option>
           </select>
         </div>
         <div class="setting-row" data-dev-only-setting="sketchContourMethod" hidden style="display: none;">
-          <label>Sketch contour method</label>
-          <select data-setting-key="sketchContourMethod">
-            <option value="auto">Auto</option>
-            <option value="arrangement" selected>Arrangement (JSTS)</option>
+          <label data-i18n="sketchContourMethod">Sketch contour method</label>
+          <select data-setting-key="sketchContourMethod" data-i18n-options>
+            <option value="auto" data-i18n="contourAuto">Auto</option>
+            <option value="arrangement" selected data-i18n="contourArrangement">Arrangement (JSTS)</option>
           </select>
         </div>
         <div class="setting-row">
-          <label>Detect multiple sketches in one DXF</label>
+          <label data-i18n="detectMultipleSketches">Detect multiple sketches in one DXF</label>
           <label class="toggle">
             <input type="checkbox" checked data-setting-key="multiSketchDetection" />
             <span class="toggle-track"></span>
@@ -204,56 +222,56 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Output</div>
+        <div class="settings-section-title" data-i18n="output">Output</div>
         <div class="setting-row">
-          <label>Export format</label>
+          <label data-i18n="exportFormat">Export format</label>
           <select data-setting-key="exportFormat">
             <option value="dxf">DXF</option>
           </select>
         </div>
         <div class="setting-row" data-dev-only-setting="exportDebug" hidden style="display: none;">
-          <label>Export debug</label>
+          <label data-i18n="exportDebug">Export debug</label>
           <label class="toggle">
             <input type="checkbox" data-setting-key="exportDebug" />
             <span class="toggle-track"></span>
           </label>
         </div>
         <div class="setting-row">
-          <label title="Best effort. Joins end-to-end LINE entities into larger polylines during DXF export to help CNC and laser software follow connected sketch linework more predictably. Does not bridge gaps or merge truly separate bodies.">Join connected linework</label>
+          <label data-i18n="joinConnectedLinework">Join connected linework</label>
           <label class="toggle">
             <input type="checkbox" data-setting-key="joinConnectedLinework" />
             <span class="toggle-track"></span>
           </label>
         </div>
         <div class="setting-row">
-          <label>Engraving layer</label>
-          <select data-setting-key="engravingLayer">
-            <option value="off">Disabled</option>
-            <option value="1">1st layer</option>
-            <option value="2" selected>2nd layer</option>
-            <option value="3">3rd layer</option>
-            <option value="4">4th layer</option>
-            <option value="5">5th layer</option>
+          <label data-i18n="engravingLayer">Engraving layer</label>
+          <select data-setting-key="engravingLayer" data-i18n-options>
+            <option value="off" data-i18n="engravingDisabled">Disabled</option>
+            <option value="1" data-i18n="engravingFirstLayer">1st layer</option>
+            <option value="2" selected data-i18n="engravingSecondLayer">2nd layer</option>
+            <option value="3" data-i18n="engravingThirdLayer">3rd layer</option>
+            <option value="4" data-i18n="engravingFourthLayer">4th layer</option>
+            <option value="5" data-i18n="engravingFifthLayer">5th layer</option>
           </select>
         </div>
         <div class="setting-row">
-          <label>Engraving style</label>
-          <select data-setting-key="engravingStyle">
-            <option value="simple" selected>Full label (single line)</option>
-            <option value="stroked">Full label (outlined)</option>
-            <option value="last-char">Last 1 character</option>
-            <option value="last-two-chars">Last 2 characters</option>
-            <option value="last-three-chars">Last 3 characters</option>
-            <option value="first-char">First 1 character</option>
-            <option value="first-two-chars">First 2 characters</option>
-            <option value="first-three-chars">First 3 characters</option>
+          <label data-i18n="engravingStyle">Engraving style</label>
+          <select data-setting-key="engravingStyle" data-i18n-options>
+            <option value="simple" selected data-i18n="fullLabelSingleLine">Full label (single line)</option>
+            <option value="stroked" data-i18n="fullLabelOutlined">Full label (outlined)</option>
+            <option value="last-char" data-i18n="lastOneChar">Last 1 character</option>
+            <option value="last-two-chars" data-i18n="lastTwoChars">Last 2 characters</option>
+            <option value="last-three-chars" data-i18n="lastThreeChars">Last 3 characters</option>
+            <option value="first-char" data-i18n="firstOneChar">First 1 character</option>
+            <option value="first-two-chars" data-i18n="firstTwoChars">First 2 characters</option>
+            <option value="first-three-chars" data-i18n="firstThreeChars">First 3 characters</option>
           </select>
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" id="resetSettings">Reset defaults</button>
-      <button class="btn-primary" id="applySettings">Apply</button>
+      <button class="btn-secondary" id="resetSettings" data-i18n="resetDefaults">Reset defaults</button>
+      <button class="btn-primary" id="applySettings" data-i18n="apply">Apply</button>
     </div>
   </div>
 </div>
@@ -272,7 +290,7 @@
             <rect x="1" y="9" width="5" height="12" rx="1.5" fill="#4f8ef7" opacity="0.5"/>
             <rect x="8" y="12" width="13" height="9" rx="1.5" fill="#4f8ef7" opacity="0.85"/>
           </svg>
-          <span class="app-name">Add Sheet</span>
+          <span class="app-name" data-i18n="addSheet">Add Sheet</span>
         </div>
       </span>
       <button class="modal-close" id="closeSheet">
@@ -283,7 +301,7 @@
     </div>
     <div class="modal-body">
       <div class="settings-section">
-        <div class="settings-section-title">Preset sizes</div>
+        <div class="settings-section-title" data-i18n="presetSizes">Preset sizes</div>
         <div class="sheet-presets">
           <button class="preset-btn" data-w="3000" data-h="1250">1250 x 3000</button>
           <button class="preset-btn" data-w="3000" data-h="1500">1500 x 3000</button>
@@ -292,18 +310,18 @@
         </div>
       </div>
       <div class="settings-section">
-        <div class="settings-section-title">Dimensions</div>
+        <div class="settings-section-title" data-i18n="dimensions">Dimensions</div>
         <div class="setting-row">
-          <label>Mode</label>
-          <select id="sheetWidthMode">
-            <option value="fixed" selected>Fixed size sheet</option>
-            <option value="max">Optimize up to max length</option>
-            <option value="unlimited">Unlimited strip length</option>
+          <label data-i18n="mode">Mode</label>
+          <select id="sheetWidthMode" data-i18n-options>
+            <option value="fixed" selected data-i18n="fixedSizeSheet">Fixed size sheet</option>
+            <option value="max" data-i18n="optimizeUpToMaxLength">Optimize up to max length</option>
+            <option value="unlimited" data-i18n="unlimitedStripLength">Unlimited strip length</option>
           </select>
         </div>
         <div class="sheet-field-head">
-          <span>Width</span>
-          <span>Length</span>
+          <span data-i18n="widthLabel">Width</span>
+          <span data-i18n="lengthLabel">Length</span>
         </div>
         <div class="sheet-dims-row">
           <div class="input-with-unit">
@@ -320,14 +338,14 @@
           The algorithm will calculate the number of sheets automatically.
         </div>
         <div class="setting-row" style="margin-top:12px;">
-          <label>Material</label>
-          <input type="text" id="sheetMaterial" placeholder="e.g. Mild Steel 3mm" style="flex:1;margin-left:12px;" />
+          <label data-i18n="material">Material</label>
+          <input type="text" id="sheetMaterial" data-i18n-placeholder="materialPlaceholder" placeholder="e.g. Mild Steel 3mm" style="flex:1;margin-left:12px;" />
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" id="cancelSheet">Cancel</button>
-      <button class="btn-primary" id="confirmSheet">Add Sheet</button>
+      <button class="btn-secondary" id="cancelSheet" data-i18n="cancel">Cancel</button>
+      <button class="btn-primary" id="confirmSheet" data-i18n="addSheet">Add Sheet</button>
     </div>
   </div>
 </div>
@@ -362,32 +380,32 @@
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M3 2l9 5-9 5V2z" fill="currentColor"/>
           </svg>
-          <span>Run</span>
+          <span data-i18n="run">Run</span>
         </button>
         <button class="run-btn stop-btn disabled" id="stopBtn" title="Stop nesting" disabled>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <rect x="1" y="1" width="10" height="10" rx="1.5" fill="currentColor"/>
           </svg>
-          <span>Stop</span>
+          <span data-i18n="stop">Stop</span>
         </button>
 
         <div class="divider-v"></div>
 
         <div class="status-chip" id="statusChip">
           <span class="status-dot idle"></span>
-          <span class="status-label">Idle</span>
+          <span class="status-label" data-i18n="idle">Idle</span>
         </div>
       </div>
     </div>
 
     <div class="topbar-right">
-      <button class="icon-btn" id="openExport" title="Export Sheets" disabled>
+      <button class="icon-btn" id="openExport" data-i18n-title="exportSheets" title="Export Sheets" disabled>
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <path d="M9 2v10M5 8l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M3 13v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
       </button>
-      <button class="icon-btn" id="openSettings" title="Settings">
+      <button class="icon-btn" id="openSettings" data-i18n-title="settings" title="Settings">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.6"/>
           <path d="M9 1v2M9 15v2M1 9h2M15 9h2M3.05 3.05l1.41 1.41M13.54 13.54l1.41 1.41M3.05 14.95l1.41-1.41M13.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -397,9 +415,9 @@
   </header>
 
   <div class="feedback-banner" id="feedbackBanner" hidden>
-    <div class="feedback-banner-copy">Leave us feedback or suggest an improvement!</div>
+    <div class="feedback-banner-copy" data-i18n="feedbackBannerCopy">Leave us feedback or suggest an improvement!</div>
     <div class="feedback-banner-actions">
-      <button class="feedback-banner-btn" id="feedbackBannerAction">Share Feedback</button>
+      <button class="feedback-banner-btn" id="feedbackBannerAction" data-i18n="shareFeedback">Share Feedback</button>
       <button class="feedback-banner-close" id="feedbackBannerClose" aria-label="Dismiss feedback banner">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M10.5 1.5L1.5 10.5M1.5 1.5l9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -415,14 +433,14 @@
     <aside class="sidebar">
       <div class="sidebar-section">
         <div class="sidebar-section-header">
-          <span class="sidebar-section-title">Parts</span>
+          <span class="sidebar-section-title" data-i18n="parts">Parts</span>
           <div class="sidebar-actions">
-            <button class="icon-btn-sm" id="clearFilesBtn" title="Remove all parts">
+            <button class="icon-btn-sm" id="clearFilesBtn" data-i18n-title="removeAllParts" title="Remove all parts">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M2.5 3.5h9M5.5 3.5V2.4c0-.5.4-.9.9-.9h1.2c.5 0 .9.4.9.9v1.1M4 5.2v5.1c0 .7.6 1.2 1.2 1.2h3.6c.7 0 1.2-.5 1.2-1.2V5.2M5.8 5.8v4M8.2 5.8v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <button class="icon-btn-sm" id="addFileBtn" title="Open DXF files">
+            <button class="icon-btn-sm" id="addFileBtn" data-i18n-title="openDxfFiles" title="Open DXF files">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
               </svg>
@@ -435,7 +453,7 @@
             <path d="M14 4v14M8 12l6-8 6 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M4 22h20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
           </svg>
-          <span>Drop DXF files here</span>
+          <span data-i18n="dropDxfFiles">Drop DXF files here</span>
         </div>
 
         <ul class="file-list" id="fileList"></ul>
@@ -443,7 +461,7 @@
 
       <div class="sidebar-section">
         <div class="sidebar-section-header">
-          <span class="sidebar-section-title">Sheets</span>
+          <span class="sidebar-section-title" data-i18n="sheets">Sheets</span>
           <button class="icon-btn-sm" id="addSheetBtn" title="Add sheet">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -488,8 +506,8 @@
             <rect x="8" y="28" width="14" height="28" rx="3" stroke="currentColor" stroke-width="2" stroke-dasharray="4 2"/>
             <rect x="26" y="34" width="30" height="22" rx="3" stroke="currentColor" stroke-width="2" stroke-dasharray="4 2"/>
           </svg>
-          <p class="empty-title">No nesting result yet</p>
-          <p class="empty-sub">Add DXF parts and sheets, then press <strong>Run</strong></p>
+          <p class="empty-title" data-i18n="noNestingResult">No nesting result yet</p>
+          <p class="empty-sub" data-i18n="addPartsAndSheets">Add DXF parts and sheets, then press <strong>Run</strong></p>
         </div>
         <div class="svg-container" id="svgContainer" style="display:none;"></div>
       </div>
@@ -572,14 +590,14 @@
       <div class="pvw-shapes-panel">
         <div class="pvw-panel-hdr">
           <div class="pvw-panel-meta">
-            <span class="pvw-panel-title">Shapes</span>
+            <span class="pvw-panel-title" data-i18n="shapes">Shapes</span>
             <span class="pvw-count-badge" id="pvShapeCount">0</span>
           </div>
           <button class="pvw-remove-selected" id="pvRemoveShape" title="Remove or restore selected shape" disabled>
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
               <path d="M9.5 1.5L1.5 9.5M1.5 1.5l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
-            <span id="pvRemoveShapeLabel">Remove</span>
+            <span id="pvRemoveShapeLabel" data-i18n="remove">Remove</span>
           </button>
         </div>
         <div class="pvw-shapes-list" id="pvShapesList"></div>
@@ -598,10 +616,10 @@
             <path d="M3.3 3.1l.45 6.05c.05.71.64 1.25 1.35 1.25h2.8c.71 0 1.3-.54 1.35-1.25l.45-6.05" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M5.3 5.15v3.1M7.7 5.15v3.1" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
           </svg>
-          <span>Remove Part</span>
+          <span data-i18n="removePart">Remove Part</span>
         </button>
-        <button class="btn-secondary" id="pvCancel">Cancel</button>
-        <button class="btn-primary" id="pvApply">Apply to Job</button>
+        <button class="btn-secondary" id="pvCancel" data-i18n="cancel">Cancel</button>
+        <button class="btn-primary" id="pvApply" data-i18n="applyToJob">Apply to Job</button>
       </div>
     </div>
 
@@ -610,6 +628,7 @@
 
 <script src="../shared/constants.js"></script>
 <script src="../shared/settings.js"></script>
+<script src="../shared/i18n.js"></script>
 <script src="../shared/engraving-layout.js"></script>
 <script src="../node_modules/@flatten-js/core/dist/main.umd.js"></script>
 <script src="../node_modules/jsts/dist/jsts.min.js"></script>
@@ -620,6 +639,7 @@
 <script src="utils/dxf-svg.js"></script>
 <script src="utils/dxf-preview-state.js"></script>
 <script src="state/store.js"></script>
+<script src="views/theme-manager.js"></script>
 <script src="views/settings-modal.js"></script>
 <script src="services/dxf-service.js"></script>
 <script src="services/dxf-layer-service.js"></script>

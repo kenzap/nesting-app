@@ -2,6 +2,7 @@
 
 (function defineSheetsPane(globalScope) {
   function createSheetsPane({ state, dom, schedulePersistJobState, getOpenSheetEditor, renderTabs }) {
+    const { t } = globalScope.NestI18n;
     // Rebuilds the sheets sidebar so it reflects current state.
     // Hides the Add Sheet button once a sheet exists (only one is supported), renders each sheet row
     // with its dimensions, material, and mode label, and calls renderTabs to keep the canvas tab row in sync.
@@ -14,13 +15,13 @@
       }
       state.sheets.forEach(s => {
         const widthLabel = s.widthMode === 'unlimited'
-          ? `${s.height} × Unlimited mm`
+          ? `${s.height} × ${t('unlimited')} mm`
           : `${s.height} × ${s.width} mm`;
         const modeLabel = s.widthMode === 'unlimited'
-          ? 'Auto sheets · continuous strip'
+          ? t('autoSheetsContinuous')
           : s.widthMode === 'max'
-            ? 'Auto sheets · length capped'
-            : 'Auto sheets · fixed size';
+            ? t('autoSheetsLengthCapped')
+            : t('autoSheetsFixedSize');
         const li = document.createElement('li');
         li.className = 'sheet-item';
         li.innerHTML = `
@@ -31,7 +32,7 @@
           </div>
           <div class="sheet-info">
             <div class="sheet-dims">${widthLabel}</div>
-            <div class="sheet-material">${s.material || 'No material'} · ${modeLabel}</div>
+            <div class="sheet-material">${s.material || t('noMaterial')} · ${modeLabel}</div>
           </div>
           <button class="file-remove" data-id="${s.id}" title="Remove">
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
