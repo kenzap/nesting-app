@@ -1216,6 +1216,14 @@ body.platform-linux .linux-menubar {
   border: 1px solid var(--border);
 }
 .btn-secondary:hover { background: var(--surface3); color: var(--text); }
+.btn-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-with-icon svg {
+  flex: 0 0 auto;
+}
 
 .pvw-remove-part-btn {
   display: inline-flex;

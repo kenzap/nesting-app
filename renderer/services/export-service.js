@@ -6,8 +6,29 @@
     let exportFolderPath = null;
     let exportFolderBookmark = null;
 
+    const PRINT_ICON = `
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M4 6V2.75C4 2.34 4.34 2 4.75 2h6.5c.41 0 .75.34.75.75V6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4.75 10H3.5A1.5 1.5 0 012 8.5v-1A1.5 1.5 0 013.5 6h9A1.5 1.5 0 0114 7.5v1a1.5 1.5 0 01-1.5 1.5h-1.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4.75 9.5h6.5V13a1 1 0 01-1 1h-4.5a1 1 0 01-1-1V9.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        <circle cx="11.5" cy="7.9" r=".7" fill="currentColor"/>
+      </svg>
+    `;
+
+    const DOWNLOAD_ICON = `
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 2v7.25M5.25 6.5L8 9.25 10.75 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 11.5V13a1 1 0 001 1h8a1 1 0 001-1v-1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+
+    function setActionButtonLabel(button, label, iconMarkup) {
+      if (!button) return;
+      button.innerHTML = `${iconMarkup}<span>${label}</span>`;
+    }
+
     // Returns true only when there's a completed (non-preview) solver result.
-    // Used to gate the Export button so partial/preview runs can't be exported.
+    // Used to gate the Print and Export actions so partial/preview runs can't be used.
     function canExportFinalSheets() {
       return !!(state.nestResult?.strips?.length && !state.nestResult?.is_preview);
     }
@@ -64,6 +85,23 @@
       return parts.slice(-2).join('/');
     }
 
+    function refreshActionButtons() {
+      const canPrint = canExportFinalSheets();
+      const canExport = canPrint && !!exportFolderPath;
+
+      if (dom.printReportBtn) {
+        dom.printReportBtn.disabled = !canPrint;
+        dom.printReportBtn.classList.remove('btn-success');
+        setActionButtonLabel(dom.printReportBtn, 'Print', PRINT_ICON);
+      }
+
+      if (dom.exportSheetsBtn) {
+        dom.exportSheetsBtn.disabled = !canExport;
+        dom.exportSheetsBtn.classList.remove('btn-success');
+        setActionButtonLabel(dom.exportSheetsBtn, 'Export', DOWNLOAD_ICON);
+      }
+    }
+
     // Stores the chosen folder path, updates the label, resets any success/error colour,
     // and enables the Export button so the user can immediately trigger the export.
     function applyExportFolder(folderPath, bookmark = null) {
@@ -71,8 +109,7 @@
       exportFolderBookmark = bookmark || null;
       dom.exportFolderLabel.textContent = shortPath(folderPath);
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
-      dom.exportDXFBtn.disabled = false;
-      dom.exportDXFBtn.textContent = 'Export DXF';
+      refreshActionButtons();
     }
 
     function normalizeStoredExportFolder(saved) {
@@ -97,7 +134,11 @@
       if (!window.electronAPI?.loadAppSettings) return;
       const result = await window.electronAPI.loadAppSettings();
       const saved = normalizeStoredExportFolder(result?.settings?.__lastExportFolder);
-      if (saved) applyExportFolder(saved.path, saved.bookmark);
+      if (saved) {
+        applyExportFolder(saved.path, saved.bookmark);
+      } else {
+        refreshActionButtons();
+      }
     }
 
     // Persists the chosen folder path into app settings so it survives app restarts.
@@ -125,6 +166,21 @@
         return result.path;
       }
       return null;
+    }
+
+    function buildExportStrips() {
+      const sheet = state.sheets[0] || {};
+      return (state.nestResult?.strips || []).map(strip => ({
+        index: strip.index,
+        json_path: strip.json_path,
+        strip_width: strip.strip_width,
+        strip_height: sheet.height || 0,
+        sheet_width: exportSheetWidthForStrip(strip, sheet),
+        sheet_width_mode: sheet.widthMode || 'fixed',
+        density: strip.density,
+        item_count: strip.item_count,
+        material: sheet.material || '',
+      }));
     }
 
     // Fills the export modal's summary bar and per-sheet table rows with live data
@@ -185,13 +241,14 @@
       if (!state.nestResult?.strips?.length) return;
       populateExportModal();
       if (exportFolderPath && canExportFinalSheets()) {
-        applyExportFolder(exportFolderPath);
+        applyExportFolder(exportFolderPath, exportFolderBookmark);
       } else if (!state.nestResult?.is_preview) {
-        dom.exportFolderLabel.textContent = 'No folder selected';
+        dom.exportFolderLabel.textContent = 'No export folder selected';
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
+        refreshActionButtons();
+      } else {
+        refreshActionButtons();
       }
-      dom.exportDXFBtn.disabled = !exportFolderPath || !canExportFinalSheets();
-      dom.exportDXFBtn.textContent = state.nestResult?.is_preview ? 'Export DXF' : 'Export DXF';
       dom.exportModal.classList.add('open');
     }
 
@@ -201,11 +258,12 @@
       if (dom.openExportBtn) {
         dom.openExportBtn.disabled = !state.nestResult?.strips?.length;
       }
+      refreshActionButtons();
     }
 
     // Wires all modal interactions: open/close/cancel/overlay-click, folder picker,
-    // and the main Export DXF button which calls exportSheetsDXF via IPC and shows
-    // a 3-second green success state on completion.
+    // a print action that opens the native print flow for the sheet report, and the
+    // main export action which writes the DXF files.
     function bind() {
       dom.openExportBtn?.addEventListener('click', openExportModal);
       dom.exportClose?.addEventListener('click', () => dom.exportModal.classList.remove('open'));
@@ -216,51 +274,70 @@
         await chooseExportFolder();
       });
 
-      dom.exportDXFBtn?.addEventListener('click', async () => {
+      dom.printReportBtn?.addEventListener('click', async () => {
+        if (!canExportFinalSheets()) return;
+        if (!window.electronAPI?.printSheetsReport) return;
+        dom.printReportBtn.disabled = true;
+        setActionButtonLabel(dom.printReportBtn, 'Opening…', PRINT_ICON);
+        dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
+        try {
+          const sheet = state.sheets[0] || {};
+          const result = await window.electronAPI.printSheetsReport({
+            jobName: state.nestResult.name || 'nesting-job',
+            sheetMaterial: sheet.material || '',
+            strips: buildExportStrips(),
+          });
+
+          if (result?.canceled) {
+            refreshActionButtons();
+            return;
+          }
+          if (!result?.success) throw new Error(result?.error || 'Print failed');
+
+          dom.printReportBtn.classList.add('btn-success');
+          setActionButtonLabel(dom.printReportBtn, 'Printed', PRINT_ICON);
+          setTimeout(() => {
+            refreshActionButtons();
+          }, 2000);
+        } catch (err) {
+          console.error('[Print Report]', err);
+          refreshActionButtons();
+          dom.exportFolderLabel.textContent = `Error: ${err.message}`;
+          dom.exportFolderLabel.classList.add('export-folder-error');
+        }
+      });
+
+      dom.exportSheetsBtn?.addEventListener('click', async () => {
         if (!canExportFinalSheets()) return;
         if (!exportFolderPath) {
           const chosenFolder = await chooseExportFolder();
           if (!chosenFolder) return;
         }
-        dom.exportDXFBtn.disabled = true;
-        dom.exportDXFBtn.textContent = 'Exporting…';
+        dom.exportSheetsBtn.disabled = true;
+        setActionButtonLabel(dom.exportSheetsBtn, 'Exporting…', DOWNLOAD_ICON);
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
         try {
-          const sheet = state.sheets[0] || {};
-          const strips = state.nestResult.strips.map(strip => ({
-            index: strip.index,
-            json_path: strip.json_path,
-            strip_width: strip.strip_width,
-            strip_height: sheet.height || 0,
-            sheet_width: exportSheetWidthForStrip(strip, sheet),
-            sheet_width_mode: sheet.widthMode || 'fixed',
-            density: strip.density,
-            item_count: strip.item_count,
-          }));
           const result = await window.electronAPI.exportSheetsDXF({
             outputDir: exportFolderPath,
             outputDirBookmark: exportFolderBookmark || null,
             jobName: state.nestResult.name || 'nesting-job',
             inputPath: state.nestInputPath || null,
             exportItems: state.lastPlacementExportItems || {},
-            strips,
+            strips: buildExportStrips(),
           });
           if (!result?.success) throw new Error(result?.error || 'Export failed');
 
-          dom.exportDXFBtn.textContent = '✓ Exported';
-          dom.exportDXFBtn.classList.add('btn-success');
+          dom.exportSheetsBtn.classList.add('btn-success');
+          setActionButtonLabel(dom.exportSheetsBtn, 'Exported', DOWNLOAD_ICON);
           dom.exportFolderLabel.textContent = `${result.fileCount} file${result.fileCount !== 1 ? 's' : ''} saved to ${shortPath(result.outputDir)}`;
           dom.exportFolderLabel.classList.add('export-folder-success');
 
           setTimeout(() => {
-            dom.exportDXFBtn.textContent = 'Export DXF';
-            dom.exportDXFBtn.classList.remove('btn-success');
-            dom.exportDXFBtn.disabled = false;
+            refreshActionButtons();
           }, 3000);
         } catch (err) {
           console.error('[Export DXF]', err);
-          dom.exportDXFBtn.textContent = 'Export DXF';
-          dom.exportDXFBtn.disabled = false;
+          refreshActionButtons();
           dom.exportFolderLabel.textContent = `Error: ${err.message}`;
           dom.exportFolderLabel.classList.add('export-folder-error');
         }

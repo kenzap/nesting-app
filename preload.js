@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pollSparrow: (runId) => ipcRenderer.invoke('poll-sparrow', runId),
   stopSparrow: () => ipcRenderer.invoke('stop-sparrow'),
   chooseExportFolder: () => ipcRenderer.invoke('choose-export-folder'),
+  printSheetsReport: (payload) => ipcRenderer.invoke('print-sheets-report', payload),
   exportSheetsDXF: (payload) => ipcRenderer.invoke('export-sheets-dxf', payload),
   toPlanarGraph: (nodes, edges, gapTolerance) => {
     const response = ipcRenderer.sendSync('to-planar-graph-sync', {
