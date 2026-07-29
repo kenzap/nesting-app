@@ -87,7 +87,7 @@
 
     function refreshActionButtons() {
       const canPrint = canExportFinalSheets();
-      const canExport = canPrint && !!exportFolderPath;
+      const canExport = canPrint;
 
       if (dom.printReportBtn) {
         dom.printReportBtn.disabled = !canPrint;
@@ -290,6 +290,8 @@
 
           if (result?.canceled) {
             refreshActionButtons();
+            dom.exportFolderLabel.textContent = 'Print canceled';
+            dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
             return;
           }
           if (!result?.success) throw new Error(result?.error || 'Print failed');

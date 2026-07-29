@@ -251,7 +251,7 @@ async function printReportHtml(html) {
           resolve({ success: true });
           return;
         }
-        if (errorType === 'cancelled') {
+        if (/cancel/i.test(String(errorType || ''))) {
           resolve({ success: true, canceled: true });
           return;
         }
