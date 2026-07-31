@@ -7,6 +7,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "dev:dxf": "electron . --dev --dxf-debug",
+    "debug:dxf-contour": "node scripts/debug-dxf-contour.js",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",
     "preflight:win-helpers": "node scripts/verify-win-helpers.js",

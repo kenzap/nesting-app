@@ -24,7 +24,7 @@ function configureAppMetadata() {
   });
 }
 
-function buildApplicationMenu({ isDevMode = false } = {}) {
+function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}) {
   if (process.platform === 'linux') {
     Menu.setApplicationMenu(null);
     return;
@@ -99,7 +99,7 @@ function buildApplicationMenu({ isDevMode = false } = {}) {
               if (!mainWindow.isVisible()) mainWindow.show();
               mainWindow.focus();
             } else {
-              createWindow({ isDevMode });
+              createWindow({ isDevMode, isDxfDebugMode });
             }
           },
         },
@@ -213,7 +213,7 @@ function registerAppMenuIpc() {
   });
 }
 
-function createWindow({ isDevMode = false, minimalStartup = false } = {}) {
+function createWindow({ isDevMode = false, isDxfDebugMode = false, minimalStartup = false } = {}) {
   const windowIcon = path.join(__dirname, '..', 'assets', 'icon-square.png');
   const windowOptions = {
     width: 1280,
@@ -271,7 +271,8 @@ function createWindow({ isDevMode = false, minimalStartup = false } = {}) {
   </body>
 </html>`)}`);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    const loadOptions = isDxfDebugMode ? { query: { dxfDebug: '1' } } : {};
+    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), loadOptions);
   }
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();
@@ -283,14 +284,14 @@ function createWindow({ isDevMode = false, minimalStartup = false } = {}) {
   return mainWindow;
 }
 
-function initializeApp({ isDevMode = false, minimalStartup = false } = {}) {
+function initializeApp({ isDevMode = false, isDxfDebugMode = false, minimalStartup = false } = {}) {
   configureAppMetadata();
 
   app.whenReady().then(() => {
     if (!minimalStartup) {
-      buildApplicationMenu({ isDevMode });
+      buildApplicationMenu({ isDevMode, isDxfDebugMode });
     }
-    createWindow({ isDevMode, minimalStartup });
+    createWindow({ isDevMode, isDxfDebugMode, minimalStartup });
   });
 
   app.on('before-quit', () => { app.isQuiting = true; });
@@ -305,7 +306,7 @@ function initializeApp({ isDevMode = false, minimalStartup = false } = {}) {
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
     } else {
-      createWindow({ isDevMode, minimalStartup });
+      createWindow({ isDevMode, isDxfDebugMode, minimalStartup });
     }
   });
 }

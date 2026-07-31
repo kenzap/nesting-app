@@ -4,7 +4,10 @@
   const geometry = global.NestDxfGeometry;
   const svg = global.NestDxfSvg;
   const { createLayerResolver, FALLBACK_PALETTE } = global.NestDxfLayerService;
-  const { debugDXF } = global.NestDxfShapeDetectionService || { debugDXF: () => {} };
+  const { DXF_DEBUG = false, debugDXF } = global.NestDxfShapeDetectionService || {
+    DXF_DEBUG: false,
+    debugDXF: () => {},
+  };
   const {
     buildSketchGroups,
     extractPolygonForEntities,
@@ -24,6 +27,7 @@
     normalizeSettings,
     SKETCH_CONTOUR_METHODS = [],
   } = global.NestSettings;
+  const { DXF_SHAPE_CACHE_VERSION = 1 } = global.NestConstants || {};
 
   const { f1, mkRng, hashStr } = svg;
   const {
@@ -555,6 +559,24 @@
       nestingPolygon,
       forcedSource: normalizedForcedContourMethod,
     });
+    if (DXF_DEBUG) {
+      debugDXF('Preview selection polygon', {
+        shapeId: shapeRecord?.id || `s_${index}`,
+        forcedContourMethod: normalizedForcedContourMethod,
+        forcedMode,
+        chosenSource: selectionChoice.source || null,
+        chosenPriority: selectionChoice.priority ?? null,
+        chosenPointCount: selectionChoice.polygonPoints?.length || 0,
+        chosenCoverage: summarizeCoverageMetrics(selectionChoice.coverage),
+        structurePolygonPointCount: structurePolygonPoints?.length || 0,
+        envelopePolygonPointCount: envelopePolygonPoints?.length || 0,
+        nestingPolygonSource: nestingPolygon?.source || null,
+        nestingPolygonPointCount: nestingPolygon?.polygonPoints?.length || 0,
+        nestingBuilderMode: nestingPolygon?.builderMode || null,
+        nestingBuilderDebug: nestingPolygon?.builderDebug || null,
+        candidates: selectionChoice.candidateSummaries || [],
+      });
+    }
     const selectionPolygonPoints = selectionChoice.polygonPoints?.length ? selectionChoice.polygonPoints : null;
     const displayPolygonPoints = forcedMode && selectionPolygonPoints?.length
       ? selectionPolygonPoints
@@ -850,6 +872,19 @@
   }
 
   function createDxfPreviewService() {
+    function preserveSavedShapeEdits(parsedShapes, savedShapes) {
+      const savedById = new Map((savedShapes || []).map(shape => [shape.id, shape]));
+      return (parsedShapes || []).map((shape, index) => {
+        const saved = savedById.get(shape.id) || savedShapes?.[index] || null;
+        if (!saved) return shape;
+        return {
+          ...shape,
+          qty: Math.max(1, Number.parseInt(saved.qty, 10) || shape.qty || 1),
+          visible: saved.visible !== false,
+        };
+      });
+    }
+
     function engravingLayerIndex(settings = (typeof global.getCurrentNestingSettings === 'function' ? global.getCurrentNestingSettings() : {})) {
       const raw = settings?.engravingLayer;
       if (raw === 'off' || raw === false || raw == null || raw === '') return null;
@@ -894,10 +929,11 @@
       const sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
       const matchesSketchMode = file?._multiSketchDetection === !!settings.multiSketchDetection;
       const matchesContourMethod = normalizeSketchContourMethod(file?._sketchContourMethod) === sketchContourMethod;
+      const matchesCacheVersion = file?._shapeCacheVersion === DXF_SHAPE_CACHE_VERSION;
       let data = null;
       let source = 'mock';
 
-      if (matchesSketchMode && matchesContourMethod && file?.shapes?.length) {
+      if (matchesSketchMode && matchesContourMethod && matchesCacheVersion && file?.shapes?.length) {
         data = applyPartLabelsToPreviewData(clonePreviewData({
           shapes: file.shapes,
           layers: synthesizeEngravingLayerSequence(file.layers || [], state, fileId, settings),
@@ -913,6 +949,7 @@
             if (parsed) {
               const enriched = {
                 ...parsed,
+                shapes: preserveSavedShapeEdits(parsed.shapes, file.shapes),
                 layers: synthesizeEngravingLayerSequence(parsed.layers || [], state, fileId, settings),
               };
               data = applyPartLabelsToPreviewData(clonePreviewData(enriched), filename);
@@ -920,6 +957,7 @@
               file.layers = clonePreviewData(data).layers;
               file._multiSketchDetection = !!settings.multiSketchDetection;
               file._sketchContourMethod = sketchContourMethod;
+              file._shapeCacheVersion = DXF_SHAPE_CACHE_VERSION;
               source = 'real';
             }
           }
@@ -944,6 +982,7 @@
         const settings = global.getCurrentNestingSettings();
         file._multiSketchDetection = !!settings.multiSketchDetection;
         file._sketchContourMethod = normalizeSketchContourMethod(settings.sketchContourMethod);
+        file._shapeCacheVersion = DXF_SHAPE_CACHE_VERSION;
       }
       file.qty = file.shapes
         .filter(shape => shape.visible !== false)

@@ -3,6 +3,7 @@
 (function defineDxfService(globalScope) {
   function createDxfService({ state, getCurrentNestingSettings }) {
     const { FALLBACK_PALETTE = [] } = globalScope.NestDxfLayerService || {};
+    const { DXF_SHAPE_CACHE_VERSION = 1 } = globalScope.NestConstants || {};
     const {
       buildAllowedOrientations,
       sanitizePolygonPoints,
@@ -56,7 +57,8 @@
       const hasUsableShapes = Array.isArray(file.shapes) && file.shapes.length;
       const hasExportMetadata = hasUsableShapes && file.shapes.every(shape => Array.isArray(shape.exportEntities));
       const hasLayerTable = Array.isArray(file.layers) && file.layers.length;
-      if (matchesSketchMode && matchesContourMethod && hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
+      const matchesCacheVersion = file._shapeCacheVersion === DXF_SHAPE_CACHE_VERSION;
+      if (matchesSketchMode && matchesContourMethod && matchesCacheVersion && hasUsableShapes && hasExportMetadata && hasLayerTable) return file.shapes;
       if (!file.path || !window.electronAPI?.parseDXF || typeof window.parseDXFToShapes !== 'function') {
         throw new Error(`No parsed shapes available for ${file.name}`);
       }
@@ -71,13 +73,19 @@
         throw new Error(`No nestable shapes found in ${file.name}`);
       }
 
-      file.shapes = parsed.shapes.map(shape => ({
-        ...shape,
-        qty: file.qty || shape.qty || 1,
-      }));
+      const savedShapesById = new Map((file.shapes || []).map(shape => [shape.id, shape]));
+      file.shapes = parsed.shapes.map((shape, index) => {
+        const saved = savedShapesById.get(shape.id) || file.shapes?.[index] || null;
+        return {
+          ...shape,
+          qty: Math.max(1, Number.parseInt(saved?.qty, 10) || file.qty || shape.qty || 1),
+          visible: saved ? saved.visible !== false : shape.visible,
+        };
+      });
       file.layers = synthesizeEngravingLayer(parsed.layers || [], settings, file.id);
       file._multiSketchDetection = !!settings.multiSketchDetection;
       file._sketchContourMethod = sketchContourMethod;
+      file._shapeCacheVersion = DXF_SHAPE_CACHE_VERSION;
       file.qty = effectiveFileQty(file);
       return file.shapes;
     }

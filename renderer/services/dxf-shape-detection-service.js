@@ -28,7 +28,7 @@
 
   const { f, pathFromPoints } = svg;
 
-  const DXF_DEBUG = true;
+  const DXF_DEBUG = /(?:^|[?&])dxfDebug=1(?:&|$)/.test(global.location?.search || '');
   const DXF_DEBUG_STORE_KEY = '__NEST_DXF_DEBUG__';
 
   function ensureDebugStore() {
@@ -85,6 +85,11 @@
     });
     console.log(`[DXF DEBUG] ${label}`, payload);
   }
+
+  debugDXF('DXF debug initialized', {
+    href: global.location?.href || null,
+    service: 'dxf-shape-detection-service',
+  });
 
   // Some DXF producers emit circles as ARC entities whose sweep is effectively
   // 360 degrees. Treating those as open edges pushes them into the alpha-shape
@@ -669,16 +674,16 @@
       loop.area = area;
     });
 
-    // debugDXF('Line loop result', {
-    //   lineCount: rawLineCount,
-    //   arcCount: rawArcCount,
-    //   splineCount: rawSplineCount,
-    //   planarEdgeCount: openEdges.length,
-    //   nodeCount: nodes.size,
-    //   componentCount: componentSeq,
-    //   inferredLoops: loops.length,
-    //   selectedLoops: loops.filter(loop => loop.isPrimary).length,
-    // });
+    debugDXF('Line loop result', {
+      lineCount: rawLineCount,
+      arcCount: rawArcCount,
+      splineCount: rawSplineCount,
+      planarEdgeCount: openEdges.length,
+      nodeCount: nodes.size,
+      componentCount: componentSeq,
+      inferredLoops: loops.length,
+      selectedLoops: loops.filter(loop => loop.isPrimary).length,
+    });
 
     return loops;
   }

@@ -390,6 +390,44 @@
     return Math.abs(Math.atan2(cross, dot));
   }
 
+  // Returns the arc endpoints plus each axis extremum crossed by its CCW
+  // sweep. Those are the only points needed for an exact axis-aligned bbox.
+  function arcExtremaPoints(ent) {
+    if (!ent?.center ||
+        !Number.isFinite(ent.center.x) ||
+        !Number.isFinite(ent.center.y) ||
+        !Number.isFinite(ent.radius) ||
+        ent.radius < 0) {
+      return [];
+    }
+
+    const start = Number.isFinite(ent.startAngle) ? ent.startAngle : 0;
+    const rawEnd = Number.isFinite(ent.endAngle) ? ent.endAngle : start;
+    const span = normalizeAngleSpan(start, rawEnd, true);
+    const sweep = span.end - span.start;
+
+    if (sweep >= TWO_PI - EPS) {
+      return [
+        { x: ent.center.x - ent.radius, y: ent.center.y },
+        { x: ent.center.x + ent.radius, y: ent.center.y },
+        { x: ent.center.x, y: ent.center.y - ent.radius },
+        { x: ent.center.x, y: ent.center.y + ent.radius },
+      ];
+    }
+
+    const angles = [span.start, span.end];
+    [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach(cardinal => {
+      let angle = cardinal;
+      while (angle < span.start - EPS) angle += TWO_PI;
+      if (angle <= span.end + EPS) angles.push(angle);
+    });
+
+    return angles.map(angle => ({
+      x: ent.center.x + ent.radius * Math.cos(angle),
+      y: ent.center.y + ent.radius * Math.sin(angle),
+    }));
+  }
+
   // Computes the bounding box of any supported DXF entity type by tessellating
   // or reading its geometry. Used for spatial indexing and layout bounds checks.
   function entityBBox(ent) {
@@ -409,9 +447,21 @@
         break;
       }
       case 'CIRCLE':
-      case 'ARC':
+        if (!ent.center ||
+            !Number.isFinite(ent.center.x) ||
+            !Number.isFinite(ent.center.y) ||
+            !Number.isFinite(ent.radius) ||
+            ent.radius < 0) {
+          return null;
+        }
         xs.push(ent.center.x - ent.radius, ent.center.x + ent.radius);
         ys.push(ent.center.y - ent.radius, ent.center.y + ent.radius);
+        break;
+      case 'ARC':
+        arcExtremaPoints(ent).forEach(point => {
+          xs.push(point.x);
+          ys.push(point.y);
+        });
         break;
       case 'ELLIPSE':
         ellipseToPoints(ent, false).forEach(point => { xs.push(point.x); ys.push(point.y); });

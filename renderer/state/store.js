@@ -37,6 +37,7 @@
           layers: clonePlain(file.layers || null),
           _multiSketchDetection: typeof file._multiSketchDetection === 'boolean' ? file._multiSketchDetection : null,
           _sketchContourMethod: file._sketchContourMethod || null,
+          _shapeCacheVersion: Number.isFinite(file._shapeCacheVersion) ? file._shapeCacheVersion : null,
         })),
         sheets: state.sheets.map(sheet => ({
           id: sheet.id,
@@ -89,6 +90,7 @@
             qty: effectiveFileQty(file),
             _multiSketchDetection: typeof file?._multiSketchDetection === 'boolean' ? file._multiSketchDetection : null,
             _sketchContourMethod: file?._sketchContourMethod || null,
+            _shapeCacheVersion: Number.isFinite(file?._shapeCacheVersion) ? file._shapeCacheVersion : null,
           }))
         : [];
       state.sheets = Array.isArray(result.state.sheets) ? result.state.sheets : [];

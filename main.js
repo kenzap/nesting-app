@@ -1,4 +1,5 @@
 const isDevMode = process.argv.includes('--dev') || process.argv.includes('--devtools');
+const isDxfDebugMode = process.argv.includes('--dxf-debug');
 const { initializeApp, getMainWindow, registerAppMenuIpc } = require('./main/app');
 const { registerFileIpc } = require('./main/ipc/files');
 const { registerSparrowIpc } = require('./main/ipc/sparrow');
@@ -11,4 +12,4 @@ registerSparrowIpc();
 registerExportDxfIpc();
 registerExportReportIpc();
 
-initializeApp({ isDevMode });
+initializeApp({ isDevMode, isDxfDebugMode });
