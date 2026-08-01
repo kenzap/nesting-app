@@ -120,6 +120,17 @@
     </div>
     <div class="modal-body">
       <div class="settings-section">
+        <div class="settings-section-title">Appearance</div>
+        <div class="setting-row">
+          <label>Theme</label>
+          <select data-setting-key="theme">
+            <option value="dark" selected>Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">Spacing &amp; tolerances</div>
         <div class="setting-row">
           <label>Part spacing (mm)</label>
@@ -636,6 +647,7 @@
 <script src="utils/dxf-svg.js"></script>
 <script src="utils/dxf-preview-state.js"></script>
 <script src="state/store.js"></script>
+<script src="views/theme-manager.js"></script>
 <script src="views/settings-modal.js"></script>
 <script src="services/dxf-service.js"></script>
 <script src="services/dxf-layer-service.js"></script>

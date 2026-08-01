@@ -86,7 +86,7 @@
       dom.layerTabs.appendChild(makeTab('All', 'var(--text-muted)', null));
       pv.layers.forEach(layer => {
         const count = pv.shapes.filter(shape => (shape.ownerLayers || [shape.layer]).includes(layer.name) && shape.visible).length;
-        const button = makeTab(layer.name, layer.color, layer.name);
+        const button = makeTab(layer.name, global.NestDxfColor.adjustHexColorForTheme(layer.color), layer.name);
         const badge = document.createElement('span');
         badge.className = 'pvw-tab-count';
         badge.textContent = count;

@@ -2,6 +2,7 @@
   'use strict';
 
   const { f, f1 } = global.NestDxfSvg;
+  const { adjustHexColorForTheme, adjustSvgTextForTheme } = global.NestDxfColor;
 
   function createDxfPreviewShapesListView({ pv, getShapesList, getShapeCount, getFileMeta, getStats, syncActions }) {
     // Rebuilds the entire shapes panel list so the UI reflects the latest shape state.
@@ -31,7 +32,7 @@
           const color = (pv.layers.find(layer => layer.name === shape.layer) || {}).color || '#888';
           const header = document.createElement('div');
           header.className = 'shapes-group-hdr';
-          header.innerHTML = `<span class="layer-dot" style="background:${color}"></span>${shape.layer}`;
+          header.innerHTML = `<span class="layer-dot" style="background:${adjustHexColorForTheme(color)}"></span>${shape.layer}`;
           listEl.appendChild(header);
         }
 
@@ -39,11 +40,12 @@
         const thumbWidth = f(shape.bbox.w * scale);
         const thumbHeight = f(shape.bbox.h * scale);
         const scaledDecor = (shape.decorSVG || []).map(svg =>
-          svg.replace(/stroke-width="([^"]+)"/g, (_, value) => `stroke-width="${f(+value / scale)}"`)).join('');
+          adjustSvgTextForTheme(svg.replace(/stroke-width="([^"]+)"/g, (_, value) => `stroke-width="${f(+value / scale)}"`))).join('');
         const scaledBoundary = (shape.outerBoundaryItems || []).map(item =>
-          item.svg.replace(/stroke-width="([^"]+)"/g, (_, value) => `stroke-width="${f(+value / scale)}"`)).join('');
+          adjustSvgTextForTheme(item.svg.replace(/stroke-width="([^"]+)"/g, (_, value) => `stroke-width="${f(+value / scale)}"`))).join('');
+        const dynamicColor = adjustHexColorForTheme(shape.layerColor);
         const thumb = `<svg viewBox="0 0 ${f(shape.bbox.w)} ${f(shape.bbox.h)}" width="${thumbWidth}" height="${thumbHeight}">
-          ${!shape.hasSyntheticOuter && !shape.mixedOuterLayers ? `<path d="${shape.pathData}" fill="${shape.layerColor}" fill-opacity="${shape.selectionFillAllowed ? (shape.mixedOuterLayers ? '1' : '0.18') : '0'}" fill-rule="${shape.fillRule}" stroke="${shape.layerColor}" stroke-width="${f(1.6 / scale)}" stroke-linejoin="round"/>` : ''}
+          ${!shape.hasSyntheticOuter && !shape.mixedOuterLayers ? `<path d="${shape.pathData}" fill="${dynamicColor}" fill-opacity="${shape.selectionFillAllowed ? (shape.mixedOuterLayers ? '1' : '0.18') : '0'}" fill-rule="${shape.fillRule}" stroke="${dynamicColor}" stroke-width="${f(1.6 / scale)}" stroke-linejoin="round"/>` : ''}
           ${scaledBoundary}
           ${scaledDecor}
         </svg>`;

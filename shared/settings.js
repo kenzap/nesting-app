@@ -72,6 +72,7 @@
     // (boolean) + `sheetWidthPriority` (dropdown) pair. Migration of stored
     // legacy values is handled in `normalizeSettings`.
     multiSheetStrategy: 'auto',
+    theme: 'dark',
   };
 
   function coerceByDefault(value, fallback) {
@@ -158,6 +159,10 @@
 
     if (!MULTI_SHEET_STRATEGIES.includes(normalized.multiSheetStrategy)) {
       normalized.multiSheetStrategy = SETTINGS_DEFAULTS.multiSheetStrategy;
+    }
+
+    if (!['dark', 'light'].includes(normalized.theme)) {
+      normalized.theme = SETTINGS_DEFAULTS.theme;
     }
 
     const engravingLayerRaw = normalized.engravingLayer;

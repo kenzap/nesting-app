@@ -84,6 +84,12 @@
       return { ...dialogDefaults(), ...state.settings };
     }
 
+    function applyAppearanceSettings() {
+      if (globalScope.NestThemeManager?.applyTheme) {
+        globalScope.NestThemeManager.applyTheme(state.settings?.theme);
+      }
+    }
+
     // Reads the form, normalises the values, saves them to state, and writes through to disk via Electron IPC.
     // Throws if the IPC bridge reports a failure so the caller can surface the error.
     async function persistCurrentSettings() {
@@ -112,6 +118,7 @@
 
       state.settings = normalizeDialogSettings(defaults);
       applySettingsToDialog(state.settings);
+      applyAppearanceSettings();
 
       if (!window.electronAPI?.loadAppSettings) return;
       const result = await window.electronAPI.loadAppSettings();
@@ -122,6 +129,7 @@
 
       state.settings = normalizeDialogSettings(result.settings || {});
       applySettingsToDialog(state.settings);
+      applyAppearanceSettings();
     }
 
     // Wires open, close, apply, and reset buttons for the settings modal.
@@ -132,6 +140,7 @@
       dom.applySettings.addEventListener('click', async () => {
         try {
           await persistCurrentSettings();
+          applyAppearanceSettings();
           closeSettingsDialog();
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
@@ -143,6 +152,7 @@
         applySettingsToDialog(state.settings);
         try {
           await persistCurrentSettings();
+          applyAppearanceSettings();
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
           console.error('[Settings] Failed to reset settings:', err);

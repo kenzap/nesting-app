@@ -52,11 +52,61 @@
     return `#${[r, g, b].map(part => part.toString(16).padStart(2, '0')).join('')}`;
   }
 
+  // Keeps bright DXF colours readable when the UI is in light mode.
+  function adjustHexColorForTheme(hex) {
+    if (!hex) return hex;
+    const isLightTheme = typeof document !== 'undefined'
+      && document.documentElement.getAttribute('data-theme') === 'light';
+    if (!isLightTheme) return hex;
+
+    const cleanHex = hex.replace('#', '');
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    if (cleanHex.length === 3) {
+      r = Number.parseInt(cleanHex[0] + cleanHex[0], 16);
+      g = Number.parseInt(cleanHex[1] + cleanHex[1], 16);
+      b = Number.parseInt(cleanHex[2] + cleanHex[2], 16);
+    } else if (cleanHex.length === 6) {
+      r = Number.parseInt(cleanHex.slice(0, 2), 16);
+      g = Number.parseInt(cleanHex.slice(2, 4), 16);
+      b = Number.parseInt(cleanHex.slice(4, 6), 16);
+    } else {
+      return hex;
+    }
+
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    if (luminance <= 0.7) return hex;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    if (max - min < 30) {
+      return '#1a1d28';
+    }
+
+    const factor = 0.55;
+    const nr = Math.round(r * factor);
+    const ng = Math.round(g * factor);
+    const nb = Math.round(b * factor);
+    return `#${[nr, ng, nb].map(part => Math.min(255, Math.max(0, part)).toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  function adjustSvgTextForTheme(svgText) {
+    if (!svgText) return svgText;
+    const isLightTheme = typeof document !== 'undefined'
+      && document.documentElement.getAttribute('data-theme') === 'light';
+    if (!isLightTheme) return svgText;
+
+    return svgText.replace(/#[0-9a-fA-F]{6}/g, hex => adjustHexColorForTheme(hex));
+  }
+
   global.NestDxfColor = {
     ACI,
     aciToHex,
     normalizeHexColor,
     normalizeAci,
     trueColorToHex,
+    adjustHexColorForTheme,
+    adjustSvgTextForTheme,
   };
 })(window);
