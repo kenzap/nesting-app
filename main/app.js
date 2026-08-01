@@ -13,6 +13,16 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/kenzap';
 let mainWindow = null;
 let appMenuIpcRegistered = false;
 
+function dispatchRendererMenuAction(action, targetWindow = mainWindow) {
+  const win = targetWindow && !targetWindow.isDestroyed() ? targetWindow : mainWindow;
+  if (!win || win.isDestroyed()) return false;
+  if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.show();
+  win.focus();
+  win.webContents.send('app-menu-command', { action: String(action || '') });
+  return true;
+}
+
 function configureAppMetadata() {
   app.setName(productName);
   app.setAboutPanelOptions({
@@ -77,6 +87,15 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
+        { type: 'separator' },
+        {
+          label: 'Settings…',
+          accelerator: 'CmdOrCtrl+,',
+          click: (_menuItem, browserWindow) => {
+            dispatchRendererMenuAction('open-settings', browserWindow || mainWindow);
+          },
+        },
+        { type: 'separator' },
         { role: 'selectAll' },
       ],
     },
@@ -202,6 +221,11 @@ function registerAppMenuIpc() {
           break;
         case 'reset-zoom':
           win?.webContents.setZoomLevel(0);
+          break;
+        case 'open-settings':
+          if (!dispatchRendererMenuAction('open-settings', win)) {
+            return { success: false, error: 'No active window to receive settings action' };
+          }
           break;
         default:
           return { success: false, error: `Unknown app menu action: ${action}` };

@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   savePlacementJSON: (payload) => ipcRenderer.invoke('save-placement-json', payload),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   appMenuAction: (action) => ipcRenderer.invoke('app-menu-action', action),
+  onAppMenuCommand: (handler) => {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('app-menu-command', listener);
+    return () => ipcRenderer.removeListener('app-menu-command', listener);
+  },
   getAppMeta: async () => {
     try {
       const result = await ipcRenderer.invoke('get-app-meta');

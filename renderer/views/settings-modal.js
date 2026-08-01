@@ -69,6 +69,15 @@
       settingsFields.forEach(field => applySettingFieldValue(field, settings[field.dataset.settingKey]));
     }
 
+    function openSettingsDialog() {
+      applySettingsToDialog(currentNestingSettings());
+      dom.settingsModal.classList.add('open');
+    }
+
+    function closeSettingsDialog() {
+      dom.settingsModal.classList.remove('open');
+    }
+
     // Returns the active nesting settings: built-in defaults merged with anything saved to state.
     // Other modules call this instead of reading state.settings directly, so defaults always fill any gaps.
     function currentNestingSettings() {
@@ -118,12 +127,12 @@
     // Wires open, close, apply, and reset buttons for the settings modal.
     // Apply persists the form values and fires onSettingsApplied so previews refresh immediately.
     function bind() {
-      dom.openSettings.addEventListener('click', () => dom.settingsModal.classList.add('open'));
-      dom.closeSettings.addEventListener('click', () => dom.settingsModal.classList.remove('open'));
+      dom.openSettings.addEventListener('click', openSettingsDialog);
+      dom.closeSettings.addEventListener('click', closeSettingsDialog);
       dom.applySettings.addEventListener('click', async () => {
         try {
           await persistCurrentSettings();
-          dom.settingsModal.classList.remove('open');
+          closeSettingsDialog();
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
           console.error('[Settings] Failed to persist settings:', err);
@@ -147,6 +156,8 @@
       loadPersistedSettings,
       persistCurrentSettings,
       applySettingsToDialog,
+      open: openSettingsDialog,
+      close: closeSettingsDialog,
       bind,
     };
   }

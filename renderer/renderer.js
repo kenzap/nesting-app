@@ -199,6 +199,9 @@ const settingsModalApi = window.NestSettingsModal.createSettingsModal({
     if (state.nestResult && state.sheets.length) canvasViewApi.showNestResult(0);
   },
 });
+window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
+  if (action === 'open-settings') settingsModalApi.open();
+});
 
 // Snapshot of the current solver settings so other modules don't have to reach
 // into the settings modal directly.

@@ -17,6 +17,9 @@
         { type: 'separator' },
         { label: 'Exit Kenzap Nesting', action: 'quit', type: 'ipc' },
       ],
+      edit: [
+        { label: 'Settings…', action: 'open-settings', type: 'ipc' },
+      ],
       window: [
         { label: 'Minimize', action: 'minimize-window', type: 'ipc' },
         { label: 'Zoom', action: 'toggle-maximize-window', type: 'ipc' },
