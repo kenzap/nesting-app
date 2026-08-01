@@ -267,6 +267,13 @@ const canvasViewApi = window.NestCanvasView.createCanvasView({
   syncViewportEmptyState,
 });
 
+window.addEventListener('nest-theme-changed', () => {
+  if (typeof window.refreshDXFPreview === 'function') window.refreshDXFPreview();
+  if (state.sheets.length) {
+    canvasViewApi.showNestResult(state.activeStripIndex || 0);
+  }
+});
+
 // Sheets pane — the list of configured sheets in the left sidebar.  Keeps the
 // tab row in sync whenever sheets are added, removed or reordered.
 let sheetModalApi = null;

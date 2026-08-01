@@ -71,8 +71,11 @@
       const height = Math.max(maxY, 220);
 
       const isLightTheme = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light';
-      const bgFill = isLightTheme ? '#e2e4ec' : '#0d0f18';
-      const gridStroke = isLightTheme ? '#d0d4de' : '#1a1d2a';
+      // Paper-on-desk convention: white sheet sits above the light-gray modal
+      // wrap (--bg-dxf-preview). Grid stroke matches the nesting preview's
+      // subtle grid for a consistent visual language across the app.
+      const bgFill = isLightTheme ? '#ffffff' : '#0d0f18';
+      const gridStroke = isLightTheme ? '#e2e4ec' : '#1a1d2a';
 
       const grid = [];
       for (let gx = 0; gx <= width; gx += 24) grid.push(`<line x1="${gx}" y1="0" x2="${gx}" y2="${height}" stroke="${gridStroke}" stroke-width="0.5"/>`);

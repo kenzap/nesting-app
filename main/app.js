@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
 const packageJson = require('../package.json');
 
@@ -12,6 +12,7 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/kenzap';
 
 let mainWindow = null;
 let appMenuIpcRegistered = false;
+let nativeThemeBridgeRegistered = false;
 
 function dispatchRendererMenuAction(action, targetWindow = mainWindow) {
   const win = targetWindow && !targetWindow.isDestroyed() ? targetWindow : mainWindow;
@@ -189,6 +190,11 @@ function registerAppMenuIpc() {
     },
   }));
 
+  ipcMain.handle('get-system-theme', async () => ({
+    success: true,
+    theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
+  }));
+
   ipcMain.handle('app-menu-action', async (event, action) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
@@ -235,6 +241,17 @@ function registerAppMenuIpc() {
       return { success: false, error: error.message };
     }
   });
+
+  if (!nativeThemeBridgeRegistered) {
+    nativeThemeBridgeRegistered = true;
+    nativeTheme.on('updated', () => {
+      const theme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (win.isDestroyed()) return;
+        win.webContents.send('system-theme-changed', { theme });
+      });
+    });
+  }
 }
 
 function createWindow({ isDevMode = false, isDxfDebugMode = false, minimalStartup = false } = {}) {

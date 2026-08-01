@@ -16,6 +16,49 @@
     const SVG_PREVIEW_MARGIN_X = 80;
     const SVG_PREVIEW_MARGIN_Y = 24;
 
+    function isLightTheme() {
+      return typeof document !== 'undefined'
+        && document.documentElement.getAttribute('data-theme') === 'light';
+    }
+
+    function previewThemeColors() {
+      if (isLightTheme()) {
+        // Light-theme palette follows the "paper on desk" convention used by
+        // Fusion 360, Illustrator, and Rhino: the sheet is pure white, sitting
+        // above the light-gray .canvas-viewport workspace. Parts use a tinted
+        // blue-200 fill so they read as clean shapes against the white sheet
+        // (ΔL* ~13, well within the 5–35 clear-separation band). The accent
+        // stroke matches the app --accent token exactly. No glow filter in
+        // light theme — the Gaussian blur softens edges on a light background
+        // instead of adding depth.
+        return {
+          background: '#ffffff',
+          gridStroke: '#e2e4ec',
+          sheetStroke: '#bcc2d0',
+          partFill: '#bfdbfe',
+          partStroke: '#3b7de8',
+          partFillOpacity: '1',
+          partFilter: '',
+          dashStroke: '#bcc2d0',
+          dashOpacity: '0.55',
+          metaText: '#4a5070',
+        };
+      }
+
+      return {
+        background: '#0d0f18',
+        gridStroke: '#1b1f2b',
+        sheetStroke: '#2e3550',
+        partFill: '#1a2744',
+        partStroke: '#4f8ef7',
+        partFillOpacity: '1',
+        partFilter: ' filter="url(#partGlow)"',
+        dashStroke: '#3a5080',
+        dashOpacity: '0.35',
+        metaText: '#3a4566',
+      };
+    }
+
     // Same logic as renderer.js — returns the 1-based engraving layer number,
     // or null if engraving is turned off. Kept here so the canvas view is self-contained.
     function engravingLayerIndex(settings = getCurrentNestingSettings()) {
@@ -190,10 +233,9 @@
       return String(hash);
     }
 
-    // Main SVG post-processor — applies the dark colour scheme to the raw solver output.
-    // Injects a grid background, recolours part fills to navy with a blue glow, tightens
-    // the sheet border style, strips solver stat labels, and calls adjustSvgForFixedWidth
-    // when the sheet is in fixed-width mode.
+    // Main SVG post-processor for the raw solver output.
+    // Injects the preview grid, applies the active theme palette, strips solver
+    // stat labels, and normalises the frame when the sheet is in fixed-width mode.
     function styleStripSVG(svg, strip = null) {
       if (!svg) return '';
 
@@ -211,11 +253,12 @@
       const vb = viewBoxMatch
         ? { x: Number(viewBoxMatch[1]), y: Number(viewBoxMatch[2]), w: Number(viewBoxMatch[3]), h: Number(viewBoxMatch[4]) }
         : { x: 0, y: 0, w: 3000, h: 1250 };
+      const colors = previewThemeColors();
 
       const bgMarkup = `
 <defs>
 <pattern id="nestGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-<path d="M40 0 L0 0 0 40" fill="none" stroke="#1b1f2b" stroke-width="0.8"/>
+<path d="M40 0 L0 0 0 40" fill="none" stroke="${colors.gridStroke}" stroke-width="0.8"/>
 </pattern>
 <filter id="partGlow" x="-4%" y="-4%" width="108%" height="108%">
 <feGaussianBlur stdDeviation="${vb.w * 0.0015}" result="blur"/>
@@ -224,13 +267,19 @@
 </defs>`;
 
       styled = styled.replace(/<svg([^>]*)>/i, `<svg$1>\n${bgMarkup}`);
-      styled = styled.replace(/fill="#D3D3D3"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi, (_, sw) => `fill="url(#nestGrid)" stroke="#2e3550" stroke-width="${sw}"`);
-      styled = styled.replace(/fill="#7A7A7A"\s+fill-opacity="0\.5"\s+fill-rule="nonzero"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi, (_, sw) => `fill="#1a2744" fill-opacity="1" fill-rule="nonzero" stroke="#4f8ef7" stroke-width="${(sw * 0.7).toFixed(4)}" filter="url(#partGlow)"`);
+      styled = styled.replace(
+        /fill="#D3D3D3"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi,
+        (_, sw) => `fill="url(#nestGrid)" stroke="${colors.sheetStroke}" stroke-width="${sw}"`
+      );
+      styled = styled.replace(
+        /fill="#7A7A7A"\s+fill-opacity="0\.5"\s+fill-rule="nonzero"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi,
+        (_, sw) => `fill="${colors.partFill}" fill-opacity="${colors.partFillOpacity}" fill-rule="nonzero" stroke="${colors.partStroke}" stroke-width="${(sw * 0.7).toFixed(4)}"${colors.partFilter}`
+      );
       styled = styled.replace(
         /fill="none"\s+stroke="black"\s+stroke-dasharray="([^"]+)"\s+stroke-linecap="([^"]+)"\s+stroke-linejoin="([^"]+)"\s+stroke-opacity="0\.3"\s+stroke-width="([\d.]+)"/gi,
-        (_, da, lc, lj, sw) => `fill="none" stroke="#3a5080" stroke-dasharray="${da}" stroke-linecap="${lc}" stroke-linejoin="${lj}" stroke-opacity="0.35" stroke-width="${(sw * 0.6).toFixed(4)}"`
+        (_, da, lc, lj, sw) => `fill="none" stroke="${colors.dashStroke}" stroke-dasharray="${da}" stroke-linecap="${lc}" stroke-linejoin="${lj}" stroke-opacity="${colors.dashOpacity}" stroke-width="${(sw * 0.6).toFixed(4)}"`
       );
-      styled = styled.replace(/stroke="black"/gi, 'stroke="#2e3550"');
+      styled = styled.replace(/stroke="black"/gi, `stroke="${colors.sheetStroke}"`);
       styled = styled.replace(/<text[^>]*>[\s\S]*?h:[\s\S]*?<\/text>/gi, '');
       return styled;
     }
@@ -299,11 +348,11 @@
     function generateMockNestSVG(sheetIndex) {
       const sheet = state.sheets[sheetIndex];
       if (!sheet) return null;
+      const colors = previewThemeColors();
 
       const previewWidth = sheet.widthMode === 'unlimited' ? 3000 : (sheet.width || 3000);
       const W = 800;
       const H = Math.round(800 * sheet.height / previewWidth);
-      const colors = ['#4f8ef7', '#4fcf8e', '#f7c34f', '#f77f4f', '#cf4ff7', '#4ff7e8'];
       const shapes = [];
       const placed = [];
 
@@ -330,7 +379,6 @@
           else if (type === 2) shape = { w: 100 * scale, h: 60 * scale, type: 'notch', name: f.name };
           else shape = { w: 70 * scale, h: 80 * scale, type: 'T', name: f.name };
 
-          shape.color = colors[fi % colors.length];
           shape.id = fi;
           if (tryPlace(shape, 80)) { placed.push(shape); shapes.push(shape); }
         }
@@ -339,7 +387,7 @@
       const defs = `
         <defs>
           <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
-            <path d="M 16 0 L 0 0 0 16" fill="none" stroke="#1a1d2a" stroke-width="0.5"/>
+            <path d="M 16 0 L 0 0 0 16" fill="none" stroke="${colors.gridStroke}" stroke-width="0.5"/>
           </pattern>
           <filter id="partGlow" x="-6%" y="-6%" width="112%" height="112%">
             <feGaussianBlur stdDeviation="1.5" result="blur"/>
@@ -349,24 +397,24 @@
 
       const shapesSVG = shapes.map(s => {
         const { x, y, w, h, type } = s;
-        const fill = '#1a2744';
-        const stroke = '#4f8ef7';
+        const fill = colors.partFill;
+        const stroke = colors.partStroke;
         const strokeOpacity = '0.75';
         let path = '';
 
         if (type === 'rect') {
-          path = `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" filter="url(#partGlow)"/>`;
+          path = `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2"${colors.partFilter}/>`;
         } else if (type === 'L') {
           const hw = (w * 0.45).toFixed(1), hh = (h * 0.45).toFixed(1);
-          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${hh} h${-hw} v${(h - parseFloat(hh)).toFixed(1)} h${-(w - parseFloat(hw)).toFixed(1)} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" filter="url(#partGlow)"/>`;
+          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${hh} h${-hw} v${(h - parseFloat(hh)).toFixed(1)} h${-(w - parseFloat(hw)).toFixed(1)} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2"${colors.partFilter}/>`;
         } else if (type === 'notch') {
           const nw = (w * 0.25).toFixed(1), nh = (h * 0.35).toFixed(1);
           const nx = (x + w / 2 - parseFloat(nw) / 2).toFixed(1);
-          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${h.toFixed(1)} h${-w.toFixed(1)} Z M${nx},${y.toFixed(1)} h${nw} v${nh} h${-nw} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" fill-rule="evenodd" filter="url(#partGlow)"/>`;
+          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${h.toFixed(1)} h${-w.toFixed(1)} Z M${nx},${y.toFixed(1)} h${nw} v${nh} h${-nw} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" fill-rule="evenodd"${colors.partFilter}/>`;
         } else {
           const tw = (w * 0.4).toFixed(1);
           const stemH = (h * 0.55).toFixed(1);
-          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${(h - parseFloat(stemH)).toFixed(1)} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} v${stemH} h${-parseFloat(tw).toFixed(1)} v${-stemH} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" filter="url(#partGlow)"/>`;
+          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${(h - parseFloat(stemH)).toFixed(1)} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} v${stemH} h${-parseFloat(tw).toFixed(1)} v${-stemH} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2"${colors.partFilter}/>`;
         }
 
         const labelText = engravingLayerIndex() !== null ? partLabelFromName(s.name) : '';
@@ -382,10 +430,10 @@
       return {
         svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
           ${defs}
-          <rect width="${W}" height="${H}" fill="#0d0f18"/>
-          <rect x="8" y="8" width="${W - 16}" height="${H - 16}" rx="3" fill="none" stroke="#2e3550" stroke-width="1" stroke-dasharray="6 4"/>
+          <rect width="${W}" height="${H}" fill="${colors.background}"/>
+          <rect x="8" y="8" width="${W - 16}" height="${H - 16}" rx="3" fill="none" stroke="${colors.sheetStroke}" stroke-width="1" stroke-dasharray="6 4"/>
           ${shapesSVG}
-          <text x="${W / 2}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#3a4566" font-family="monospace">
+          <text x="${W / 2}" y="${H - 8}" text-anchor="middle" font-size="9" fill="${colors.metaText}" font-family="monospace">
             ${sheet.width} × ${sheet.height} mm · Preview · ${utilization}% utilization
           </text>
         </svg>`,

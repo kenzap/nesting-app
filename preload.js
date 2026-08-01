@@ -49,6 +49,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       },
     };
   },
+  getSystemTheme: () => ipcRenderer.invoke('get-system-theme'),
+  onSystemThemeChanged: (handler) => {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('system-theme-changed', listener);
+    return () => ipcRenderer.removeListener('system-theme-changed', listener);
+  },
   loadAppSettings: () => ipcRenderer.invoke('load-app-settings'),
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
   loadJobState: () => ipcRenderer.invoke('load-job-state'),

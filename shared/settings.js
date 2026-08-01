@@ -72,7 +72,7 @@
     // (boolean) + `sheetWidthPriority` (dropdown) pair. Migration of stored
     // legacy values is handled in `normalizeSettings`.
     multiSheetStrategy: 'auto',
-    theme: 'dark',
+    theme: 'system',
   };
 
   function coerceByDefault(value, fallback) {
@@ -161,7 +161,7 @@
       normalized.multiSheetStrategy = SETTINGS_DEFAULTS.multiSheetStrategy;
     }
 
-    if (!['dark', 'light'].includes(normalized.theme)) {
+    if (!['system', 'dark', 'light'].includes(normalized.theme)) {
       normalized.theme = SETTINGS_DEFAULTS.theme;
     }
 
