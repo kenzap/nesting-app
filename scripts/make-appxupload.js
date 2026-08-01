@@ -20,7 +20,7 @@ function fail(message) {
 function findLatestPackage() {
   if (!fs.existsSync(distDir)) return null;
   const candidates = fs.readdirSync(distDir)
-    .map(name => path.join(distDir, name))
+    .map(name => distDir + path.sep + name)
     .filter(file => {
       try {
         return fs.statSync(file).isFile() && PACKAGE_EXTENSIONS.includes(path.extname(file).toLowerCase());
@@ -59,6 +59,9 @@ function createArchive(outputPath, files) {
   if (result.status !== 0) fail(`zip command exited with code ${result.status}.`);
 }
 
+if (explicitTarget && !explicitTarget.startsWith(distDir + path.sep)) {
+  fail(`Explicit target path must be inside the dist directory: ${distDir}`);
+}
 const packagePath = explicitTarget || findLatestPackage();
 if (!packagePath) fail('No .appx/.msix package found in dist. Pass a package path explicitly if needed.');
 if (!fs.existsSync(packagePath)) fail(`Package not found: ${packagePath}`);
