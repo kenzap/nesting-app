@@ -3,11 +3,6 @@
 const os = require('os');
 const { spawnSync } = require('child_process');
 
-function hasCommand(command, args = ['--version']) {
-  const result = spawnSync(command, args, { stdio: 'ignore' });
-  return !result.error && result.status === 0;
-}
-
 function fail(message, details = []) {
   console.error(message);
   for (const line of details) {
@@ -17,7 +12,8 @@ function fail(message, details = []) {
 }
 
 if (process.platform === 'darwin') {
-  if (!hasCommand('prlctl', ['list'])) {
+  const prlctlResult = spawnSync('prlctl', ['list'], { stdio: 'ignore' });
+  if (prlctlResult.error || prlctlResult.status !== 0) {
     fail(
       'AppX build host preflight failed.',
       [
