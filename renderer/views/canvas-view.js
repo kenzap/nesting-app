@@ -23,6 +23,64 @@
         && document.documentElement.getAttribute('data-theme') === 'light';
     }
 
+    // Per-source part palettes. Each source DXF gets one entry; if more than 8
+    // sources are loaded the palette wraps. Ordering alternates warm/cool so
+    // consecutive sources stay perceptually distinct. Blue (index 0) matches
+    // the app accent so single-file jobs look identical to the pre-coloring
+    // behavior.
+    const PART_PALETTE_LIGHT = Object.freeze([
+      { fill: '#bfdbfe', stroke: '#3b7de8' },
+      { fill: '#fde68a', stroke: '#f59e0b' },
+      { fill: '#a7f3d0', stroke: '#10b981' },
+      { fill: '#fecdd3', stroke: '#f43f5e' },
+      { fill: '#ddd6fe', stroke: '#8b5cf6' },
+      { fill: '#fed7aa', stroke: '#f97316' },
+      { fill: '#bae6fd', stroke: '#0ea5e9' },
+      { fill: '#cbd5e1', stroke: '#64748b' },
+    ]);
+    const PART_PALETTE_DARK = Object.freeze([
+      { fill: '#1a2744', stroke: '#4f8ef7' },
+      { fill: '#3a2c0d', stroke: '#fbbf24' },
+      { fill: '#12332a', stroke: '#34d399' },
+      { fill: '#3a1e26', stroke: '#fb7185' },
+      { fill: '#241f3a', stroke: '#a78bfa' },
+      { fill: '#3a2617', stroke: '#fb923c' },
+      { fill: '#0f2b3a', stroke: '#38bdf8' },
+      { fill: '#252c37', stroke: '#94a3b8' },
+    ]);
+
+    // Assigns a palette entry to each item_id based on its source DXF.
+    // Items sharing a source file share a color; new sources cycle through
+    // the palette in the order they first appear. Returns Map<itemId, color>.
+    // Returns null when the Appearance → "Color parts by source" toggle is off
+    // so callers fall back to the theme default (single color for all parts).
+    function buildItemColorMap() {
+      const settings = getCurrentNestingSettings();
+      if (settings?.colorPartsBySource === false) return null;
+      const items = state.lastPlacementExportItems;
+      if (!items || typeof items !== 'object') return null;
+      const ids = Object.keys(items).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+      if (!ids.length) return null;
+
+      const palette = isLightTheme() ? PART_PALETTE_LIGHT : PART_PALETTE_DARK;
+      const sourceColor = new Map();
+      const itemColor = new Map();
+      let nextIndex = 0;
+
+      ids.forEach(id => {
+        const src = items[id]?.source_file || items[id]?.source_name || `__id_${id}`;
+        let color = sourceColor.get(src);
+        if (!color) {
+          color = palette[nextIndex % palette.length];
+          sourceColor.set(src, color);
+          nextIndex += 1;
+        }
+        itemColor.set(id, color);
+      });
+
+      return itemColor;
+    }
+
     function previewThemeColors() {
       if (isLightTheme()) {
         // Light-theme palette follows the "paper on desk" convention used by
@@ -441,6 +499,23 @@
       );
       styled = styled.replace(/stroke="black"/gi, `stroke="${colors.sheetStroke}"`);
       styled = styled.replace(/<text[^>]*>[\s\S]*?h:[\s\S]*?<\/text>/gi, '');
+      // Per-source coloring: each item_id maps to a source DXF; items sharing
+      // a source share a color. This runs after the general color pass so any
+      // item without a mapping falls back to the theme default set above.
+      const itemColorMap = buildItemColorMap();
+      if (itemColorMap && itemColorMap.size > 0) {
+        styled = styled.replace(
+          /<g id="item_(\d+)">\s*<path([^>]*)\/>/g,
+          (match, idStr, attrs) => {
+            const color = itemColorMap.get(Number(idStr));
+            if (!color) return match;
+            const newAttrs = attrs
+              .replace(/fill="[^"]*"/, `fill="${color.fill}"`)
+              .replace(/stroke="[^"]*"/, `stroke="${color.stroke}"`);
+            return `<g id="item_${idStr}"><path${newAttrs}/>`;
+          }
+        );
+      }
       // Apply the vertical flip last so it is guaranteed to survive every
       // preceding regex pass and cannot be defeated by any DOM round-trip.
       styled = flipSolverSvgVertically(styled);

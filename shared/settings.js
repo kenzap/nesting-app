@@ -73,6 +73,7 @@
     // legacy values is handled in `normalizeSettings`.
     multiSheetStrategy: 'auto',
     theme: 'system',
+    colorPartsBySource: true,
   };
 
   function coerceByDefault(value, fallback) {
