@@ -230,6 +230,39 @@ function registerExportDxfIpc() {
         };
       }
 
+      function arcEndpoints(entity) {
+        if (!entity || entity.type !== 'ARC' || !entity.center || !Number.isFinite(entity.radius)) return null;
+        const startAngle = Number(entity.startAngle);
+        const endAngle = Number(entity.endAngle);
+        const radius = Number(entity.radius);
+        if (!Number.isFinite(startAngle) || !Number.isFinite(endAngle) || radius <= 0) return null;
+
+        const fullTurn = Math.PI * 2;
+        const sweep = ((endAngle - startAngle) % fullTurn + fullTurn) % fullTurn;
+        if (sweep <= Number.EPSILON || sweep >= fullTurn - Number.EPSILON) return null;
+
+        const center = clonePoint(entity.center);
+        return {
+          start: {
+            x: center.x + (radius * Math.cos(startAngle)),
+            y: center.y + (radius * Math.sin(startAngle)),
+            z: center.z,
+          },
+          end: {
+            x: center.x + (radius * Math.cos(endAngle)),
+            y: center.y + (radius * Math.sin(endAngle)),
+            z: center.z,
+          },
+          bulge: Math.tan(sweep / 4),
+        };
+      }
+
+      function lineworkEndpoints(entity) {
+        const endpoints = lineEndpoints(entity);
+        if (endpoints) return { ...endpoints, bulge: 0 };
+        return arcEndpoints(entity);
+      }
+
       function lineworkJoinSignature(entity) {
         const color = entityColorCodes(entity);
         return JSON.stringify({
@@ -239,7 +272,7 @@ function registerExportDxfIpc() {
         });
       }
 
-      function orientedLineEntity(record, reverse = false) {
+      function orientedLineworkEntity(record, reverse = false) {
         if (!reverse) {
           return {
             entity: record.entity,
@@ -247,19 +280,49 @@ function registerExportDxfIpc() {
             end: record.end,
             startKey: record.startKey,
             endKey: record.endKey,
+            bulge: record.bulge,
           };
         }
         return {
-          entity: {
-            ...record.entity,
-            start: clonePoint(record.end),
-            end: clonePoint(record.start),
-          },
+          entity: record.entity,
           start: record.end,
           end: record.start,
           startKey: record.endKey,
           endKey: record.startKey,
+          bulge: -record.bulge,
         };
+      }
+
+      function joinedVertex(point, bulge) {
+        const vertex = clonePoint(point);
+        if (Number.isFinite(bulge) && Math.abs(bulge) > Number.EPSILON) vertex.bulge = bulge;
+        return vertex;
+      }
+
+      function sharedLineworkPoint(previous, current) {
+        // Keep curved segment endpoints exact; tiny source gaps are absorbed by
+        // the neighboring straight segment when the polyline is made continuous.
+        if (previous?.entity?.type === 'ARC') return previous.end;
+        if (current?.entity?.type === 'ARC') return current.start;
+        return current?.start || previous?.end;
+      }
+
+      function joinedLineworkVertices(chain, closed) {
+        if (closed) {
+          return chain.map((segment, index) => {
+            const previous = chain[(index - 1 + chain.length) % chain.length];
+            return joinedVertex(sharedLineworkPoint(previous, segment), segment.bulge);
+          });
+        }
+
+        const vertices = chain.map((segment, index) => {
+          const point = index === 0
+            ? segment.start
+            : sharedLineworkPoint(chain[index - 1], segment);
+          return joinedVertex(point, segment.bulge);
+        });
+        vertices.push(joinedVertex(chain[chain.length - 1].end, 0));
+        return vertices;
       }
 
       function joinConnectedLineworkEntities(entities) {
@@ -269,11 +332,11 @@ function registerExportDxfIpc() {
         const groups = new Map();
 
         entities.forEach(entity => {
-          if (entity?.type !== 'LINE') {
+          if (entity?.type !== 'LINE' && entity?.type !== 'ARC') {
             passthrough.push(entity);
             return;
           }
-          const endpoints = lineEndpoints(entity);
+          const endpoints = lineworkEndpoints(entity);
           if (!endpoints) {
             passthrough.push(entity);
             return;
@@ -286,6 +349,7 @@ function registerExportDxfIpc() {
             end: endpoints.end,
             startKey: pointKey(endpoints.start),
             endKey: pointKey(endpoints.end),
+            bulge: endpoints.bulge,
           };
           if (!groups.has(signature)) groups.set(signature, []);
           groups.get(signature).push(record);
@@ -316,7 +380,7 @@ function registerExportDxfIpc() {
             const seedId = unused.values().next().value;
             const seed = byId.get(seedId);
             unused.delete(seedId);
-            const chain = [orientedLineEntity(seed, false)];
+            const chain = [orientedLineworkEntity(seed, false)];
 
             let cursorKey = seed.endKey;
             while (degreeOf(cursorKey) === 2) {
@@ -324,7 +388,7 @@ function registerExportDxfIpc() {
               if (candidates.length !== 1) break;
               const nextRecord = byId.get(candidates[0]);
               const reverse = nextRecord.endKey === cursorKey;
-              const oriented = orientedLineEntity(nextRecord, reverse);
+              const oriented = orientedLineworkEntity(nextRecord, reverse);
               chain.push(oriented);
               unused.delete(nextRecord.id);
               cursorKey = oriented.endKey;
@@ -336,7 +400,7 @@ function registerExportDxfIpc() {
               if (candidates.length !== 1) break;
               const nextRecord = byId.get(candidates[0]);
               const reverse = nextRecord.startKey === cursorKey;
-              const oriented = orientedLineEntity(nextRecord, reverse);
+              const oriented = orientedLineworkEntity(nextRecord, reverse);
               chain.unshift(oriented);
               unused.delete(nextRecord.id);
               cursorKey = oriented.startKey;
@@ -347,10 +411,8 @@ function registerExportDxfIpc() {
               continue;
             }
 
-            const vertices = [clonePoint(chain[0].start)];
-            chain.forEach(segment => vertices.push(clonePoint(segment.end)));
-            const closed = pointsAlmostEqual(vertices[0], vertices[vertices.length - 1]);
-            if (closed) vertices.pop();
+            const closed = pointsAlmostEqual(chain[0].start, chain[chain.length - 1].end);
+            const vertices = joinedLineworkVertices(chain, closed);
 
             merged.push({
               ...chain[0].entity,
