@@ -292,21 +292,14 @@ function collectSparrowArtifacts(runDir, safeName) {
   if (finalDir) {
     const summaryPath = path.join(finalDir, 'summary.json');
     const summary = readJsonIfExists(summaryPath);
-    const singleStripFinalSvgPath = path.join(outputDir, `final_${safeName}.svg`);
-    const useSingleStripFinalSvg = !!(
-      summary?.strips?.length === 1
-      && fs.existsSync(singleStripFinalSvgPath)
-    );
 
     if (summary?.strips?.length) {
       return {
         summaryPath,
         summary: {
           ...summary,
-          strips: summary.strips.map((strip, index) => {
-            const svgPath = useSingleStripFinalSvg && index === 0
-              ? singleStripFinalSvgPath
-              : path.resolve(runDir, strip.svg_path);
+          strips: summary.strips.map(strip => {
+            const svgPath = path.resolve(runDir, strip.svg_path);
             const jsonPath = path.resolve(runDir, strip.json_path);
             return {
               ...strip,
