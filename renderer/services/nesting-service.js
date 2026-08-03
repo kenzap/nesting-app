@@ -225,13 +225,22 @@
           const strategy = MULTI_SHEET_STRATEGY_OPTIONS[strategyKey]
             || MULTI_SHEET_STRATEGY_OPTIONS['auto'];
           const { multiStripMode, bucketFillWeight } = strategy;
+          const sheetMargin = Math.max(0, Number(settings.sheetMargin) || 0);
+          const configuredSheetLength = Number(primarySheet.width);
+          const fixedUsableLength = configuredSheetLength - (sheetMargin * 2);
+          if (primarySheet.widthMode === 'fixed' &&
+              (!Number.isFinite(fixedUsableLength) || fixedUsableLength <= 0)) {
+            throw new Error('Sheet margin must be less than half the fixed sheet length.');
+          }
           const sparrowOptions = {
             globalTime: Number(settings.timeLimit) || 60,
             rngSeed: Number.isFinite(Number(settings.rngSeed)) ? Math.trunc(Number(settings.rngSeed)) : 42,
             workers: Number.isFinite(Number(settings.workers)) ? Math.max(1, Math.trunc(Number(settings.workers))) : 3,
             earlyTermination: !!settings.earlyStopping,
-            maxStripLength: primarySheet.widthMode === 'unlimited' ? null : Number(primarySheet.width) || null,
-            stripMargin: Number(settings.sheetMargin) || 0,
+            maxStripLength: primarySheet.widthMode === 'unlimited'
+              ? null
+              : (primarySheet.widthMode === 'fixed' ? fixedUsableLength : configuredSheetLength || null),
+            stripMargin: sheetMargin,
             minItemSeparation: partSpacing,
             exactCoedge: partSpacing === 0,
             align: String(settings.preferredAlignment || 'top'),

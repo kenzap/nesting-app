@@ -94,36 +94,60 @@
       return state.sheets[0] || {};
     }
 
-    // When the sheet is in fixed-width mode the solver still reports its own strip width,
-    // so we override the display value with the user's configured width instead.
-    function displayStripWidth(strip, sheet = currentSheetConfig()) {
-      if (sheet?.widthMode === 'fixed') {
-        const configuredWidth = Number(sheet?.width);
-        if (Number.isFinite(configuredWidth) && configuredWidth > 0) return configuredWidth;
-      }
-      return Number(strip?.strip_width) || 0;
+    function stripSheetConfig(strip, fallbackSheet = currentSheetConfig()) {
+      const runMode = String(strip?.sheet_width_mode || '').trim();
+      const fallbackMode = String(fallbackSheet?.widthMode || 'fixed');
+      const runWidth = Number(strip?.sheet_width);
+      const fallbackWidth = Number(fallbackSheet?.width);
+      const runHeight = Number(strip?.strip_height);
+      const fallbackHeight = Number(fallbackSheet?.height);
+      const runMargin = Number(strip?.sheet_margin);
+      const currentMargin = Number(getCurrentNestingSettings()?.sheetMargin);
+
+      return {
+        widthMode: runMode || fallbackMode,
+        width: Number.isFinite(runWidth) && runWidth > 0 ? runWidth : fallbackWidth,
+        height: Number.isFinite(runHeight) && runHeight > 0 ? runHeight : fallbackHeight,
+        margin: Math.max(0, Number.isFinite(runMargin) ? runMargin : (currentMargin || 0)),
+      };
     }
 
-    // The solver calculates density against its own strip width, not the user's target width.
-    // In fixed-width mode we re-derive utilisation so the status bar reflects the correct percentage.
+    // Sparrow reports the usable strip width. Auto-sized sheets need the left
+    // and right sheet margins added back; fixed sheets use their configured
+    // outer width.
+    function displayStripWidth(strip, sheet = currentSheetConfig()) {
+      const config = stripSheetConfig(strip, sheet);
+      if (config.widthMode === 'fixed') {
+        const configuredWidth = Number(config.width);
+        if (Number.isFinite(configuredWidth) && configuredWidth > 0) return configuredWidth;
+      }
+      const stripWidth = Number(strip?.strip_width) || 0;
+      return stripWidth > 0 ? stripWidth + (config.margin * 2) : 0;
+    }
+
+    // Re-derive utilisation against the visible outer sheet whenever fixed
+    // dimensions or sheet margins make it larger than Sparrow's usable area.
     function displayStripDensity(strip, sheet = currentSheetConfig()) {
       if (!strip) return null;
       const rawDensity = Number(strip?.density);
       if (!Number.isFinite(rawDensity)) return null;
 
+      const config = stripSheetConfig(strip, sheet);
       const rawWidth = Number(strip?.strip_width);
-      const rawHeight = Number(strip?.strip_height) || Number(sheet?.height);
+      const outerHeight = Number(config.height);
+      const rawHeight = outerHeight - (config.margin * 2);
       const targetWidth = displayStripWidth(strip, sheet);
 
-      if (!Number.isFinite(rawWidth) || rawWidth <= 0 || !Number.isFinite(rawHeight) || rawHeight <= 0) {
+      if (!Number.isFinite(rawWidth) || rawWidth <= 0 || !Number.isFinite(rawHeight) || rawHeight <= 0 ||
+          !Number.isFinite(outerHeight) || outerHeight <= 0) {
         return rawDensity;
       }
-      if (sheet?.widthMode !== 'fixed') return rawDensity;
+      if (config.widthMode !== 'fixed' && config.margin === 0) return rawDensity;
 
       const usedArea = rawDensity * rawWidth * rawHeight;
-      const fixedArea = targetWidth * rawHeight;
-      if (!Number.isFinite(fixedArea) || fixedArea <= 0) return rawDensity;
-      return usedArea / fixedArea;
+      const outerArea = targetWidth * outerHeight;
+      if (!Number.isFinite(outerArea) || outerArea <= 0) return rawDensity;
+      return usedArea / outerArea;
     }
 
     // The Sparrow solver encodes sheet container frames as a strict 4-point path string.
@@ -149,33 +173,65 @@
       return `M${x},${y} L${x + width},${y} L${x + width},${y + height} L${x},${y + height} z`;
     }
 
-    function parseTranslateRotate(transformText) {
-      const match = /^\s*translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)\s*,?\s*rotate\(\s*([-\d.]+)\s*\)\s*$/i.exec((transformText || '').trim());
-      if (!match) return null;
-      return {
-        tx: Number(match[1]),
-        ty: Number(match[2] || 0),
-        rotation: Number(match[3]),
-      };
+    function placementTranslateBounds(root) {
+      let minTx = Infinity;
+      let minTy = Infinity;
+      let maxTx = -Infinity;
+      let maxTy = -Infinity;
+      let count = 0;
+
+      Array.from(root?.querySelectorAll('#items > use') || []).forEach(node => {
+        const match = /translate\(\s*([-\d.]+)[\s,]+([-\d.]+)\s*\)/i.exec(node.getAttribute('transform') || '');
+        if (!match) return;
+        const tx = Number(match[1]);
+        const ty = Number(match[2]);
+        if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
+        minTx = Math.min(minTx, tx);
+        minTy = Math.min(minTy, ty);
+        maxTx = Math.max(maxTx, tx);
+        maxTy = Math.max(maxTy, ty);
+        count += 1;
+      });
+
+      return count ? { minTx, minTy, maxTx, maxTy } : null;
     }
 
-    function formatTranslateRotate(tx, ty, rotation) {
-      const x = Number.isFinite(tx) ? Number(tx.toFixed(6)) : 0;
-      const y = Number.isFinite(ty) ? Number(ty.toFixed(6)) : 0;
-      const angle = Number.isFinite(rotation) ? Number(rotation.toFixed(6)) : 0;
-      return `translate(${x} ${y}), rotate(${angle})`;
+    function ensureTranslatedChildWrapper(group, childSelector, tx, ty, markerName) {
+      if (!group || (!tx && !ty)) return false;
+
+      let wrapper = Array.from(group.children)
+        .find(node => node.getAttribute?.(markerName) === '1');
+      if (!wrapper) {
+        const children = Array.from(group.children)
+          .filter(node => node.matches?.(childSelector));
+        if (!children.length) return false;
+        wrapper = group.ownerDocument.createElementNS(rootSvgNamespace(group), 'g');
+        wrapper.setAttribute(markerName, '1');
+        wrapper.setAttribute('transform', `translate(${Number(tx.toFixed(6))} ${Number(ty.toFixed(6))})`);
+        group.insertBefore(wrapper, children[0]);
+        children.forEach(node => wrapper.appendChild(node));
+      } else {
+        wrapper.setAttribute('transform', `translate(${Number(tx.toFixed(6))} ${Number(ty.toFixed(6))})`);
+      }
+      return true;
     }
 
-    // In fixed-width mode the solver's viewBox and frame rectangles are sized to the solver's
-    // strip width, not the user's target. This rewrites those elements in-place and re-serialises
-    // the SVG so that what gets rendered matches the configured sheet width.
-    function adjustSvgForFixedWidth(svg, strip, targetWidth) {
-      if (!svg || !Number.isFinite(targetWidth) || targetWidth <= 0) return svg;
+    function rootSvgNamespace(node) {
+      return node?.ownerSVGElement?.namespaceURI || node?.namespaceURI || 'http://www.w3.org/2000/svg';
+    }
+
+    // Per-sheet SVGs contain only Sparrow's usable nesting area. Rebuild the
+    // visible outer sheet and restore the margin removed by --strip-margin.
+    function adjustSvgForSheet(svg, strip) {
+      if (!svg) return svg;
 
       const parser = new DOMParser();
-      const doc = parser.parseFromString(svg, 'image/svg+xml');
-      const root = doc.documentElement;
-      if (!root || root.nodeName.toLowerCase() !== 'svg') return svg;
+      // Sparrow's generated markup is browser-renderable but some multi-strip
+      // files are rejected by Chromium's strict XML parser. Parse it through
+      // the browser's SVG-aware HTML path so frame normalization is not skipped.
+      const doc = parser.parseFromString(svg, 'text/html');
+      const root = doc.querySelector('svg');
+      if (!root) return svg;
 
       const viewBoxParts = (root.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
       const vb = {
@@ -186,15 +242,40 @@
       };
       if (!Number.isFinite(vb.w) || vb.w <= 0) return svg;
 
-      const sheet = currentSheetConfig();
-      const settings = getCurrentNestingSettings();
-      const isFixedSheet = sheet?.widthMode === 'fixed'
-        && Number.isFinite(Number(sheet?.width)) && Number(sheet.width) > 0
-        && Number.isFinite(Number(sheet?.height)) && Number(sheet.height) > 0;
-      const targetHeight = isFixedSheet ? Number(sheet.height) : vb.h;
-      const sheetMargin = isFixedSheet ? Math.max(0, Number(settings?.sheetMargin) || 0) : 0;
+      const config = stripSheetConfig(strip);
+      const configuredHeight = Number(config.height);
+      const configuredWidth = Number(config.width);
+      const sheetMargin = config.margin;
+      const firstFramePath = root.querySelector('g[id^="container_"] path');
+      const firstFrameRect = parseRectPathData(firstFramePath?.getAttribute('d'));
+      const rawFrameWidth = firstFrameRect ? firstFrameRect.x1 - firstFrameRect.x0 : Number(strip?.strip_width);
+      const rawFrameHeight = firstFrameRect ? firstFrameRect.y2 - firstFrameRect.y1 : vb.h;
+      const expectedUsableHeight = configuredHeight - (sheetMargin * 2);
+      const heightTolerance = Math.max(1, sheetMargin * 0.05);
+      const marginNeedsRestoring = sheetMargin > 0
+        && Number.isFinite(configuredHeight)
+        && configuredHeight > 0
+        && Number.isFinite(rawFrameHeight)
+        && Math.abs(rawFrameHeight - expectedUsableHeight) <= heightTolerance;
+      const placementBounds = placementTranslateBounds(root);
+      const placementsAlreadyUseOuterCoordinates = marginNeedsRestoring && placementBounds && (
+        placementBounds.maxTx > rawFrameWidth + heightTolerance ||
+        placementBounds.maxTy > rawFrameHeight + heightTolerance ||
+        (placementBounds.minTx >= sheetMargin * 0.75 && placementBounds.minTy >= sheetMargin * 0.75)
+      );
+      const isFixedSheet = config.widthMode === 'fixed'
+        && Number.isFinite(configuredWidth) && configuredWidth > 0;
+      const targetWidth = isFixedSheet
+        ? configuredWidth
+        : rawFrameWidth + (marginNeedsRestoring ? sheetMargin * 2 : 0);
+      const targetHeight = Number.isFinite(configuredHeight) && configuredHeight > 0
+        ? configuredHeight
+        : rawFrameHeight + (marginNeedsRestoring ? sheetMargin * 2 : 0);
+      if (!Number.isFinite(targetWidth) || targetWidth <= 0 || !Number.isFinite(targetHeight) || targetHeight <= 0) {
+        return svg;
+      }
       const previewMinX = -SVG_PREVIEW_MARGIN_X;
-      const previewMinY = isFixedSheet ? -SVG_PREVIEW_MARGIN_Y : vb.y - SVG_PREVIEW_MARGIN_Y;
+      const previewMinY = -SVG_PREVIEW_MARGIN_Y;
       const previewWidth = targetWidth + (SVG_PREVIEW_MARGIN_X * 2);
       const previewHeight = targetHeight + (SVG_PREVIEW_MARGIN_Y * 2);
 
@@ -203,7 +284,7 @@
       root.setAttribute('height', `${previewHeight}`);
 
       const frameOriginX = 0;
-      const frameOriginY = isFixedSheet ? 0 : vb.y;
+      const frameOriginY = 0;
       const frameGroups = Array.from(root.querySelectorAll('g[id^="container_"]'));
       let normalizedAnyFrame = false;
       frameGroups.forEach(group => {
@@ -214,11 +295,9 @@
         const width = rect.x1 - rect.x0;
         const height = rect.y2 - rect.y1;
         if (!Number.isFinite(width) || !Number.isFinite(height)) return;
-        const nextFrameHeight = isFixedSheet && Number.isFinite(targetHeight) && targetHeight > 0
-          ? targetHeight
-          : height;
-        const nextFrameY = isFixedSheet ? frameOriginY : rect.y0;
-        framePath.setAttribute('d', formatRectPathData(frameOriginX, nextFrameY, targetWidth, nextFrameHeight));
+        const nextFrameHeight = targetHeight;
+        const nextFrameY = frameOriginY;
+        framePath.setAttribute('d', formatRectPathData(frameOriginX, nextFrameY, targetWidth, targetHeight));
         normalizedAnyFrame = true;
 
         const title = group.querySelector('title');
@@ -237,31 +316,14 @@
           const width = rect.x1 - rect.x0;
           const height = rect.y2 - rect.y1;
           if (Number.isFinite(width) && Number.isFinite(height) && normalizedAnyFrame) {
-            const nextFrameHeight = isFixedSheet && Number.isFinite(targetHeight) && targetHeight > 0
-              ? targetHeight
-              : height;
-            const nextFrameY = isFixedSheet ? frameOriginY : rect.y0;
-            dashedOutline.setAttribute('d', formatRectPathData(0, nextFrameY, targetWidth, nextFrameHeight));
+            dashedOutline.setAttribute('d', formatRectPathData(0, frameOriginY, targetWidth, targetHeight));
           }
         }
       }
 
-      if (sheetMargin > 0) {
-        Array.from(root.querySelectorAll('#items > use, #highlight_cd_shapes > use')).forEach(node => {
-          const parsed = parseTranslateRotate(node.getAttribute('transform'));
-          if (!parsed) return;
-          const shiftedTx = parsed.tx + sheetMargin;
-          const shiftedTy = parsed.ty + sheetMargin;
-          node.setAttribute('transform', formatTranslateRotate(shiftedTx, shiftedTy, parsed.rotation));
-
-          const title = node.querySelector('title');
-          if (title) {
-            title.textContent = title.textContent.replace(
-              /t:\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/i,
-              `t: (${shiftedTx.toFixed(3)}, ${shiftedTy.toFixed(3)})`
-            );
-          }
-        });
+      if (marginNeedsRestoring && !placementsAlreadyUseOuterCoordinates) {
+        ensureTranslatedChildWrapper(root.querySelector('#items'), 'use', sheetMargin, sheetMargin, 'data-preview-sheet-margin');
+        ensureTranslatedChildWrapper(root.querySelector('#highlight_cd_shapes'), 'use', sheetMargin, sheetMargin, 'data-preview-sheet-margin');
       }
 
       const serializer = new XMLSerializer();
@@ -336,10 +398,8 @@
       // diagnostics, but they clutter the end-user preview and can flash
       // prominently during live updates. Remove them from the in-app SVG only.
       styled = styled.replace(/<g\b[^>]*id="collision_lines"[^>]*>[\s\S]*?<\/g>/gi, '');
-      const sheet = currentSheetConfig();
-      const targetWidth = strip ? displayStripWidth(strip, sheet) : null;
-      if (targetWidth) {
-        styled = adjustSvgForFixedWidth(styled, strip, targetWidth);
+      if (strip) {
+        styled = adjustSvgForSheet(styled, strip);
       }
       const viewBoxMatch = styled.match(/viewBox="([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)"/i);
       const vb = viewBoxMatch

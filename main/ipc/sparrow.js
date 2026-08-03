@@ -363,6 +363,34 @@ function markArtifactsAsPreview(artifacts) {
   };
 }
 
+function attachRunSheetMetadata(artifacts, runDir, safeName) {
+  if (!artifacts?.summary) return artifacts;
+
+  const input = readJsonIfExists(path.join(runDir, `${safeName}.json`));
+  const sheet = Array.isArray(input?.sheets) ? input.sheets[0] : null;
+  const sheetMargin = Math.max(0, Number(input?.settings?.sheetMargin) || 0);
+  const sheetWidth = Number(sheet?.width);
+  const sheetHeight = Number(sheet?.height ?? input?.strip_height);
+  const sheetWidthMode = String(sheet?.width_mode || 'fixed');
+  const metadata = {
+    sheet_width_mode: sheetWidthMode,
+    sheet_width: Number.isFinite(sheetWidth) && sheetWidth > 0 ? sheetWidth : null,
+    strip_height: Number.isFinite(sheetHeight) && sheetHeight > 0 ? sheetHeight : null,
+    sheet_margin: sheetMargin,
+  };
+
+  return {
+    ...artifacts,
+    summary: {
+      ...metadata,
+      ...artifacts.summary,
+      strips: Array.isArray(artifacts.summary.strips)
+        ? artifacts.summary.strips.map(strip => ({ ...metadata, ...strip }))
+        : [],
+    },
+  };
+}
+
 function collectRunningSparrowArtifacts(runDir, safeName) {
   try {
     const liveArtifacts = collectLiveArtifacts(runDir, safeName);
@@ -525,12 +553,18 @@ function registerSparrowIpc() {
       if (options.multiStripMode === 'barriers' || options.multiStripMode === 'prebucket') {
         args.push('--multi-strip-mode', options.multiStripMode);
       }
-      if (options.align === 'top') args.push('--align-top');
-      if (options.align === 'top-left') args.push('--align-top-left');
-      if (options.align === 'top-right') args.push('--align-top-right');
-      if (options.align === 'bottom') args.push('--align-bottom');
-      if (options.align === 'bottom-left') args.push('--align-bottom-left');
-      if (options.align === 'bottom-right') args.push('--align-bottom-right');
+      // Sparrow uses its native Y-up coordinates, while the app presents the
+      // normalized Y-down sheet orientation. Swap the vertical preference at
+      // the engine boundary so the setting label matches what users see.
+      const sparrowAlignment = {
+        top: 'bottom',
+        'top-left': 'bottom-left',
+        'top-right': 'bottom-right',
+        bottom: 'top',
+        'bottom-left': 'top-left',
+        'bottom-right': 'top-right',
+      }[options.align];
+      if (sparrowAlignment) args.push(`--align-${sparrowAlignment}`);
 
       if (isDevMode()) {
         const cargoCommand = buildCargoRunCommand(args);
@@ -619,9 +653,10 @@ function registerSparrowIpc() {
     }
 
     const status = run.status;
-    const artifacts = status === 'running'
+    const rawArtifacts = status === 'running'
       ? collectRunningSparrowArtifacts(run.runDir, run.safeName)
       : collectSparrowArtifacts(run.runDir, run.safeName);
+    const artifacts = attachRunSheetMetadata(rawArtifacts, run.runDir, run.safeName);
     const error = status === 'error'
       ? (run.stderr.trim() || run.stdout.trim() || run.error || 'Sparrow failed')
       : null;
