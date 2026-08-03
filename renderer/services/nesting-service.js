@@ -23,6 +23,8 @@
       let nestInterval = null;
       let sparrowRunAborted = false;
       let activeSparrowRunId = null;
+      let completedFinalizationPolls = 0;
+      const MAX_COMPLETED_FINALIZATION_POLLS = 8;
 
     // Parses raw stdout/stderr from the solver binary into a clean one-line message.
     // Prefers explicit "error:" lines, falls back to the last non-info line, then to raw text.
@@ -58,6 +60,17 @@
       dom.nestStats.title = '';
     }
 
+    function stripSvgBasename(strip) {
+      return String(strip?.svg_path || '').split(/[\\/]/).pop() || '';
+    }
+
+    function isCanonicalFinalSummary(summary) {
+      if (!summary?.strips?.length || summary.is_preview) return false;
+      return summary.strips.every(strip => (
+        !strip?.is_preview && /^strip_\d+\.svg$/i.test(stripSvgBasename(strip))
+      ));
+    }
+
     // Called on a 500ms interval while the solver is running to fetch the latest result.
     // Updates state and re-renders the canvas whenever new strips arrive, and cleans up
     // the interval on completion, error, or stop.
@@ -67,6 +80,10 @@
       const result = await window.electronAPI.pollSparrow(runId);
       if (!result?.success) {
         throw new Error(result?.error || 'Failed to poll Sparrow run');
+      }
+
+      if (result.status !== 'completed') {
+        completedFinalizationPolls = 0;
       }
 
       if (result.summary?.strips?.length) {
@@ -99,6 +116,16 @@
       }
 
       if (result.status === 'completed') {
+        const finalSummaryReady = isCanonicalFinalSummary(result.summary);
+        if (!finalSummaryReady && completedFinalizationPolls < MAX_COMPLETED_FINALIZATION_POLLS) {
+          completedFinalizationPolls += 1;
+          setStatus('running');
+          setNestStatsTone('');
+          dom.nestStats.title = '';
+          return;
+        }
+
+        completedFinalizationPolls = 0;
         clearInterval(nestInterval);
         nestInterval = null;
         activeSparrowRunId = null;
@@ -176,6 +203,14 @@
         dom.stopBtn.classList.add('active');
         state.nestResult = null;
         state.activeStripIndex = 0;
+        completedFinalizationPolls = 0;
+        if (dom.svgContainer) {
+          delete dom.svgContainer.dataset.activeIndex;
+          delete dom.svgContainer.dataset.svgLen;
+          delete dom.svgContainer.dataset.svgHash;
+          delete dom.svgContainer.dataset.svgSource;
+          delete dom.svgContainer.dataset.svgPreview;
+        }
         syncExportButton();
 
         try {

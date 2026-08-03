@@ -288,54 +288,63 @@ function latestSvgPerStrip(runDir, safeName) {
 
 function collectSparrowArtifacts(runDir, safeName) {
   const outputDir = path.join(runDir, 'output');
+  const finalDir = resolveOutputSubdir(runDir, `final_${safeName}`, 'final_');
+  if (finalDir) {
+    const summaryPath = path.join(finalDir, 'summary.json');
+    const summary = readJsonIfExists(summaryPath);
+    const singleStripFinalSvgPath = path.join(outputDir, `final_${safeName}.svg`);
+    const useSingleStripFinalSvg = !!(
+      summary?.strips?.length === 1
+      && fs.existsSync(singleStripFinalSvgPath)
+    );
+
+    if (summary?.strips?.length) {
+      return {
+        summaryPath,
+        summary: {
+          ...summary,
+          strips: summary.strips.map((strip, index) => {
+            const svgPath = useSingleStripFinalSvg && index === 0
+              ? singleStripFinalSvgPath
+              : path.resolve(runDir, strip.svg_path);
+            const jsonPath = path.resolve(runDir, strip.json_path);
+            return {
+              ...strip,
+              svg_path: svgPath,
+              json_path: jsonPath,
+              svg: fs.existsSync(svgPath) ? fs.readFileSync(svgPath, 'utf-8') : '',
+              is_preview: false,
+            };
+          }),
+        },
+      };
+    }
+
+    const strips = collectStripSvgsFromDir(finalDir, { isPreview: false });
+    if (strips.length) {
+      return {
+        summaryPath,
+        summary: {
+          name: safeName,
+          strip_count: strips.length,
+          strips,
+          is_preview: false,
+        },
+      };
+    }
+  }
+
   const continuousFinal = collectContinuousFinalArtifacts(outputDir, safeName);
   if (continuousFinal) return continuousFinal;
 
-  const finalDir = resolveOutputSubdir(runDir, `final_${safeName}`, 'final_');
-  if (!finalDir) {
-    const strips = latestSvgPerStrip(runDir, safeName);
-    return {
-      summaryPath: null,
-      summary: strips.length ? {
-        name: safeName,
-        strip_count: strips.length,
-        strips,
-        is_preview: true,
-      } : null,
-    };
-  }
-
-  const summaryPath = path.join(finalDir, 'summary.json');
-  const summary = readJsonIfExists(summaryPath);
-
-  if (summary?.strips?.length) {
-    return {
-      summaryPath,
-      summary: {
-        ...summary,
-        strips: summary.strips.map(strip => {
-          const svgPath = path.resolve(runDir, strip.svg_path);
-          const jsonPath = path.resolve(runDir, strip.json_path);
-          return {
-            ...strip,
-            svg_path: svgPath,
-            json_path: jsonPath,
-            svg: fs.existsSync(svgPath) ? fs.readFileSync(svgPath, 'utf-8') : '',
-            is_preview: false,
-          };
-        }),
-      },
-    };
-  }
-
-  const strips = collectStripSvgsFromDir(finalDir, { isPreview: false });
+  const strips = latestSvgPerStrip(runDir, safeName);
   return {
-    summaryPath,
+    summaryPath: null,
     summary: strips.length ? {
       name: safeName,
       strip_count: strips.length,
       strips,
-      is_preview: false,
+      is_preview: true,
     } : null,
   };
 }

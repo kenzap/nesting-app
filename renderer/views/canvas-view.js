@@ -149,6 +149,23 @@
       return `M${x},${y} L${x + width},${y} L${x + width},${y + height} L${x},${y + height} z`;
     }
 
+    function parseTranslateRotate(transformText) {
+      const match = /^\s*translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)\s*,?\s*rotate\(\s*([-\d.]+)\s*\)\s*$/i.exec((transformText || '').trim());
+      if (!match) return null;
+      return {
+        tx: Number(match[1]),
+        ty: Number(match[2] || 0),
+        rotation: Number(match[3]),
+      };
+    }
+
+    function formatTranslateRotate(tx, ty, rotation) {
+      const x = Number.isFinite(tx) ? Number(tx.toFixed(6)) : 0;
+      const y = Number.isFinite(ty) ? Number(ty.toFixed(6)) : 0;
+      const angle = Number.isFinite(rotation) ? Number(rotation.toFixed(6)) : 0;
+      return `translate(${x} ${y}), rotate(${angle})`;
+    }
+
     // In fixed-width mode the solver's viewBox and frame rectangles are sized to the solver's
     // strip width, not the user's target. This rewrites those elements in-place and re-serialises
     // the SVG so that what gets rendered matches the configured sheet width.
@@ -169,16 +186,24 @@
       };
       if (!Number.isFinite(vb.w) || vb.w <= 0) return svg;
 
+      const sheet = currentSheetConfig();
+      const settings = getCurrentNestingSettings();
+      const isFixedSheet = sheet?.widthMode === 'fixed'
+        && Number.isFinite(Number(sheet?.width)) && Number(sheet.width) > 0
+        && Number.isFinite(Number(sheet?.height)) && Number(sheet.height) > 0;
+      const targetHeight = isFixedSheet ? Number(sheet.height) : vb.h;
+      const sheetMargin = isFixedSheet ? Math.max(0, Number(settings?.sheetMargin) || 0) : 0;
       const previewMinX = -SVG_PREVIEW_MARGIN_X;
-      const previewMinY = vb.y - SVG_PREVIEW_MARGIN_Y;
+      const previewMinY = isFixedSheet ? -SVG_PREVIEW_MARGIN_Y : vb.y - SVG_PREVIEW_MARGIN_Y;
       const previewWidth = targetWidth + (SVG_PREVIEW_MARGIN_X * 2);
-      const previewHeight = vb.h + (SVG_PREVIEW_MARGIN_Y * 2);
+      const previewHeight = targetHeight + (SVG_PREVIEW_MARGIN_Y * 2);
 
       root.setAttribute('viewBox', `${previewMinX} ${previewMinY} ${previewWidth} ${previewHeight}`);
       root.setAttribute('width', `${previewWidth}`);
+      root.setAttribute('height', `${previewHeight}`);
 
-      const sourceWidth = Number(strip?.strip_width) || vb.w;
       const frameOriginX = 0;
+      const frameOriginY = isFixedSheet ? 0 : vb.y;
       const frameGroups = Array.from(root.querySelectorAll('g[id^="container_"]'));
       let normalizedAnyFrame = false;
       frameGroups.forEach(group => {
@@ -189,15 +214,18 @@
         const width = rect.x1 - rect.x0;
         const height = rect.y2 - rect.y1;
         if (!Number.isFinite(width) || !Number.isFinite(height)) return;
-        if (Math.abs(width - sourceWidth) > 0.1) return;
-        framePath.setAttribute('d', formatRectPathData(frameOriginX, rect.y0, targetWidth, height));
+        const nextFrameHeight = isFixedSheet && Number.isFinite(targetHeight) && targetHeight > 0
+          ? targetHeight
+          : height;
+        const nextFrameY = isFixedSheet ? frameOriginY : rect.y0;
+        framePath.setAttribute('d', formatRectPathData(frameOriginX, nextFrameY, targetWidth, nextFrameHeight));
         normalizedAnyFrame = true;
 
         const title = group.querySelector('title');
         if (title) {
           title.textContent = title.textContent.replace(
             /bbox:\s*\[x_min:\s*[-\d.]+,\s*y_min:\s*[-\d.]+,\s*x_max:\s*[-\d.]+,\s*y_max:\s*[-\d.]+\]/i,
-            `bbox: [x_min: ${frameOriginX.toFixed(3)}, y_min: ${rect.y0.toFixed(3)}, x_max: ${(frameOriginX + targetWidth).toFixed(3)}, y_max: ${(rect.y0 + height).toFixed(3)}]`
+            `bbox: [x_min: ${frameOriginX.toFixed(3)}, y_min: ${nextFrameY.toFixed(3)}, x_max: ${(frameOriginX + targetWidth).toFixed(3)}, y_max: ${(nextFrameY + nextFrameHeight).toFixed(3)}]`
           );
         }
       });
@@ -208,14 +236,78 @@
         if (rect) {
           const width = rect.x1 - rect.x0;
           const height = rect.y2 - rect.y1;
-          if (Number.isFinite(width) && Number.isFinite(height) && (Math.abs(width - sourceWidth) <= 0.1 || normalizedAnyFrame)) {
-            dashedOutline.setAttribute('d', formatRectPathData(0, rect.y0, targetWidth, height));
+          if (Number.isFinite(width) && Number.isFinite(height) && normalizedAnyFrame) {
+            const nextFrameHeight = isFixedSheet && Number.isFinite(targetHeight) && targetHeight > 0
+              ? targetHeight
+              : height;
+            const nextFrameY = isFixedSheet ? frameOriginY : rect.y0;
+            dashedOutline.setAttribute('d', formatRectPathData(0, nextFrameY, targetWidth, nextFrameHeight));
           }
         }
       }
 
+      if (sheetMargin > 0) {
+        Array.from(root.querySelectorAll('#items > use, #highlight_cd_shapes > use')).forEach(node => {
+          const parsed = parseTranslateRotate(node.getAttribute('transform'));
+          if (!parsed) return;
+          const shiftedTx = parsed.tx + sheetMargin;
+          const shiftedTy = parsed.ty + sheetMargin;
+          node.setAttribute('transform', formatTranslateRotate(shiftedTx, shiftedTy, parsed.rotation));
+
+          const title = node.querySelector('title');
+          if (title) {
+            title.textContent = title.textContent.replace(
+              /t:\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/i,
+              `t: (${shiftedTx.toFixed(3)}, ${shiftedTy.toFixed(3)})`
+            );
+          }
+        });
+      }
+
       const serializer = new XMLSerializer();
       return serializer.serializeToString(root);
+    }
+
+    // Sparrow works in the same Y-up math convention as DXF (why the DXF export
+    // path is correct without any Y-flip). When it renders layouts to SVG for
+    // the live/final previews it dumps Y-up coordinates straight into the SVG
+    // without a compensating transform — and SVG's default rendering is Y-down,
+    // so every shape appears vertically flipped. That's what reads as "mirrored"
+    // or "as if looking from behind" in the preview.
+    //
+    // We wrap all inner SVG markup in a <g> whose matrix reflects Y around the
+    // viewBox horizontal midline. The matrix (1 0 0 -1 0 D) maps (x, y) →
+    // (x, D - y); choosing D = 2*vbY + vbH lands the reflected content inside
+    // the same viewBox.
+    //
+    // This is done as a pure string replacement (rather than DOMParser round-trip)
+    // for two reasons: (1) so it survives whatever attribute-order or whitespace
+    // changes downstream style regexes rely on, and (2) so it can't be defeated
+    // by nested <defs>/namespace/namespace-URI edge cases in Chromium's parser.
+    // The <!--pf--> HTML comment marker at the wrapper start makes the flip
+    // idempotent — a second call on already-flipped output is a no-op.
+    function flipSolverSvgVertically(svg) {
+      if (!svg) return '';
+      if (svg.includes('<!--pf-->')) return svg;
+
+      const svgOpenMatch = svg.match(/<svg\b[^>]*>/i);
+      if (!svgOpenMatch) return svg;
+
+      const svgOpen = svgOpenMatch[0];
+      const viewBoxMatch = svgOpen.match(/viewBox="([-\d.eE]+)\s+([-\d.eE]+)\s+([-\d.eE]+)\s+([-\d.eE]+)"/i);
+      if (!viewBoxMatch) return svg;
+      const vbY = Number(viewBoxMatch[2]);
+      const vbH = Number(viewBoxMatch[4]);
+      if (!Number.isFinite(vbY) || !Number.isFinite(vbH) || vbH <= 0) return svg;
+      const flipTy = 2 * vbY + vbH;
+
+      const svgOpenEnd = svgOpenMatch.index + svgOpen.length;
+      const svgCloseIdx = svg.lastIndexOf('</svg>');
+      if (svgCloseIdx < svgOpenEnd) return svg;
+
+      const inner = svg.slice(svgOpenEnd, svgCloseIdx);
+      const wrapper = `<!--pf--><g transform="matrix(1 0 0 -1 0 ${Number(flipTy.toFixed(6))})" data-preview-flip="1">${inner}</g>`;
+      return svg.slice(0, svgOpenEnd) + wrapper + svg.slice(svgCloseIdx);
     }
 
     // Cheap stable signature for an SVG string used to detect "same content"
@@ -281,6 +373,9 @@
       );
       styled = styled.replace(/stroke="black"/gi, `stroke="${colors.sheetStroke}"`);
       styled = styled.replace(/<text[^>]*>[\s\S]*?h:[\s\S]*?<\/text>/gi, '');
+      // Apply the vertical flip last so it is guaranteed to survive every
+      // preceding regex pass and cannot be defeated by any DOM round-trip.
+      styled = flipSolverSvgVertically(styled);
       return styled;
     }
 
@@ -459,13 +554,20 @@
         const styled = styleStripSVG(strip.svg, strip);
         const previousIndex = dom.svgContainer.dataset.activeIndex;
         const sameStrip = previousIndex === String(sheetIndex);
+        const sourcePath = String(strip.svg_path || '');
+        const sourcePreviewState = String(!!(strip.is_preview || state.nestResult.is_preview));
         const sameSvg = sameStrip && dom.svgContainer.dataset.svgLen === String(styled.length)
           && dom.svgContainer.dataset.svgHash === quickSvgHash(styled);
-        if (!sameSvg) {
+        const sameSource = sameStrip
+          && dom.svgContainer.dataset.svgSource === sourcePath
+          && dom.svgContainer.dataset.svgPreview === sourcePreviewState;
+        if (!(sameSvg && sameSource)) {
           dom.svgContainer.innerHTML = styled;
           dom.svgContainer.dataset.activeIndex = String(sheetIndex);
           dom.svgContainer.dataset.svgLen = String(styled.length);
           dom.svgContainer.dataset.svgHash = quickSvgHash(styled);
+          dom.svgContainer.dataset.svgSource = sourcePath;
+          dom.svgContainer.dataset.svgPreview = sourcePreviewState;
         }
         dom.svgContainer.style.display = 'grid';
         dom.emptyState.style.display = 'none';
@@ -498,6 +600,11 @@
       const result = generateMockNestSVG(sheetIndex);
       if (!result) return;
       dom.svgContainer.innerHTML = result.svg;
+      dom.svgContainer.dataset.activeIndex = String(sheetIndex);
+      dom.svgContainer.dataset.svgLen = String(result.svg.length);
+      dom.svgContainer.dataset.svgHash = quickSvgHash(result.svg);
+      dom.svgContainer.dataset.svgSource = 'mock-preview';
+      dom.svgContainer.dataset.svgPreview = 'false';
       dom.svgContainer.style.display = 'grid';
       dom.emptyState.style.display = 'none';
       syncViewportEmptyState(false);

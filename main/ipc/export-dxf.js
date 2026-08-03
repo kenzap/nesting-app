@@ -1281,6 +1281,9 @@ function registerExportDxfIpc() {
         const emitDebug = { emitted: {}, skipped: [] };
         const fixedSheetWidth = Number(strip.sheet_width);
         const fixedSheetHeight = Number(strip.strip_height);
+        const fixedSheetMargin = strip.sheet_width_mode === 'fixed'
+          ? Math.max(0, Number(exportSettings.sheetMargin) || 0)
+          : 0;
         const forcedFrame = strip.sheet_width_mode === 'fixed' &&
           Number.isFinite(fixedSheetWidth) && fixedSheetWidth > 0 &&
           Number.isFinite(fixedSheetHeight) && fixedSheetHeight > 0
@@ -1299,7 +1302,11 @@ function registerExportDxfIpc() {
             export: exportItem,
           };
           if (!item?.shape?.data) return;
-          const { rotation, translation: [tx, ty] } = placement.transformation;
+          const rotation = Number(placement.transformation?.rotation) || 0;
+          const rawTx = Number(placement.transformation?.translation?.[0]) || 0;
+          const rawTy = Number(placement.transformation?.translation?.[1]) || 0;
+          const tx = rawTx + fixedSheetMargin;
+          const ty = rawTy + fixedSheetMargin;
           const sourcePolygon = item.export?.polygon || item.shape.data;
           const transformed = applyTransform(sourcePolygon, rotation, tx, ty);
           const pts = transformed[0] && transformed[transformed.length - 1] &&
@@ -1363,6 +1370,8 @@ function registerExportDxfIpc() {
             engraving_layer: getEngravingLayer(item)?.name || null,
             label: labelForItem(item),
             rotation,
+            raw_translation: [rawTx, rawTy],
+            translation_offset: [fixedSheetMargin, fixedSheetMargin],
             translation: [tx, ty],
           });
         });
