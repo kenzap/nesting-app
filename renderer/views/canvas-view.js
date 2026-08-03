@@ -14,7 +14,9 @@
     const FIT_INSET_X = 40;
     const FIT_INSET_Y = 28;
     const SVG_PREVIEW_MARGIN_X = 80;
-    const SVG_PREVIEW_MARGIN_Y = 24;
+    const SVG_PREVIEW_MARGIN_Y = 44;
+    const SHEET_LABEL_FONT_SIZE = 22;
+    const SHEET_LABEL_OFFSET_Y = 8;
 
     function isLightTheme() {
       return typeof document !== 'undefined'
@@ -42,6 +44,9 @@
           dashStroke: '#bcc2d0',
           dashOpacity: '0.55',
           metaText: '#4a5070',
+          labelText: '#64748b',
+          labelChipFill: '#ffffff',
+          labelChipOpacity: '0.85',
         };
       }
 
@@ -56,6 +61,9 @@
         dashStroke: '#3a5080',
         dashOpacity: '0.35',
         metaText: '#3a4566',
+        labelText: '#8a97b3',
+        labelChipFill: '#0d0f18',
+        labelChipOpacity: '0.75',
       };
     }
 
@@ -436,7 +444,41 @@
       // Apply the vertical flip last so it is guaranteed to survive every
       // preceding regex pass and cannot be defeated by any DOM round-trip.
       styled = flipSolverSvgVertically(styled);
+      // Sheet dimension label. Rendered at SVG root (outside the flip wrapper)
+      // so text sits upright. Positioned in the top-right corner above the
+      // sheet, with a soft chip backdrop so a part touching the top edge
+      // doesn't reduce legibility. Only shown when we have concrete
+      // dimensions — `unlimited` mode has no width to state.
+      styled = styled.replace(/<\/svg>\s*$/i, `${buildSheetDimensionLabel(colors)}</svg>`);
       return styled;
+    }
+
+    // Builds the SVG markup for the sheet dimension chip. Reads sheet
+    // dimensions from the current config; returns an empty string when the
+    // sheet has no fixed width (unlimited mode) so we don't emit "auto × H".
+    function buildSheetDimensionLabel(colors) {
+      const sheet = currentSheetConfig();
+      const sheetW = Number(sheet?.width);
+      const sheetH = Number(sheet?.height);
+      if (!Number.isFinite(sheetW) || !Number.isFinite(sheetH) || sheetW <= 0 || sheetH <= 0) return '';
+      if (sheet?.widthMode !== 'fixed' && sheet?.widthMode !== 'max') return '';
+
+      const label = `${Math.round(sheetW)} × ${Math.round(sheetH)} mm`;
+      const fontSize = SHEET_LABEL_FONT_SIZE;
+      // Reasonable chip dimensions based on approximate glyph width (0.6em for
+      // monospace) + horizontal padding.
+      const chipPadX = fontSize * 0.6;
+      const chipHeight = fontSize * 1.5;
+      const chipWidth = fontSize * 0.6 * label.length + chipPadX * 2;
+      // baseline offset so the text sits inside the chip
+      const baselineY = -SHEET_LABEL_OFFSET_Y - (chipHeight - fontSize) / 2 - fontSize * 0.15;
+      const chipY = -SHEET_LABEL_OFFSET_Y - chipHeight;
+      const chipX = sheetW - chipWidth;
+
+      return `<g class="pf-sheet-dim-label" pointer-events="none">
+  <rect x="${chipX.toFixed(2)}" y="${chipY.toFixed(2)}" width="${chipWidth.toFixed(2)}" height="${chipHeight.toFixed(2)}" rx="${(chipHeight / 2).toFixed(2)}" fill="${colors.labelChipFill}" fill-opacity="${colors.labelChipOpacity}"/>
+  <text x="${(sheetW - chipPadX).toFixed(2)}" y="${baselineY.toFixed(2)}" text-anchor="end" dominant-baseline="alphabetic" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="${fontSize}" font-weight="500" fill="${colors.labelText}">${label}</text>
+</g>`;
     }
 
     // Reconciles the sheet tab row with the current solver result.
