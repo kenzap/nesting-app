@@ -169,11 +169,17 @@
    */
   function effectiveFileQty(file) {
     if (Array.isArray(file?.shapes) && file.shapes.length) {
-      const visibleTotal = file.shapes
+      // Once shapes are parsed we report the honest sum of visible-shape
+      // quantities. If the user has hidden every shape, this is 0 — no clamp,
+      // because the file legitimately contributes zero parts to the nest and
+      // the sidebar count should reflect that.
+      return file.shapes
         .filter(shape => shape.visible !== false)
         .reduce((sum, shape) => sum + Math.max(1, parseInt(shape.qty || 1, 10)), 0);
-      return Math.max(1, visibleTotal || 0);
     }
+    // Pre-parse fallback: no shapes array yet, so show the file-level qty and
+    // clamp to 1 so a freshly-added file doesn't briefly display "0" while
+    // the async DXF parse is still in flight.
     return Math.max(1, parseInt(file?.qty || 1, 10));
   }
 

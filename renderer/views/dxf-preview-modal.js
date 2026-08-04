@@ -48,13 +48,13 @@
       getLayerConfig: () => (typeof global.getPartLabelConfig === 'function' ? global.getPartLabelConfig(pv.layers) : { enabled: false, color: '#4488FF', style: 'stroked' }),
     });
 
-    // Keeps the Remove/Restore button in sync with the current selection:
+    // Keeps the Hide/Restore button in sync with the current selection:
     // disabled when nothing is selected, and labelled "Restore" when the
     // selected shape has already been hidden.
     function syncActions() {
       const selected = pv.shapes.find(shape => shape.id === pv.selectedId);
       dom.removeShape.disabled = !selected;
-      dom.removeShapeLabel.textContent = selected?.visible === false ? 'Restore' : 'Remove';
+      dom.removeShapeLabel.textContent = selected?.visible === false ? 'Restore' : 'Hide';
     }
 
     const shapesListView = global.NestDxfPreviewShapesListView.createDxfPreviewShapesListView({
