@@ -39,6 +39,7 @@ const dom = {
   viewport: document.getElementById('viewport'),
   svgContainer: document.getElementById('svgContainer'),
   canvasTabs: document.getElementById('canvasTabs'),
+  canvasZoom: document.getElementById('canvasZoom'),
   zoomLabel: document.getElementById('zoomLabel'),
   nestStats: document.getElementById('nestStats'),
   canvasStatusbar: document.getElementById('canvasStatusbar'),
@@ -202,7 +203,24 @@ const settingsModalApi = window.NestSettingsModal.createSettingsModal({
 });
 window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
   if (action === 'open-settings') settingsModalApi.open();
+  else if (action === 'toggle-measure') measureToolApi.toggle();
+  else if (action === 'toggle-cursor-coords') toggleShowCursorCoords();
 });
+
+// View → Live Coordinates. Flips state.settings.showCursorCoords, persists it
+// so the choice survives restart, and syncs the measure tool immediately so
+// the chip appears / disappears without waiting for a redraw.
+async function toggleShowCursorCoords() {
+  if (!state.settings) return;
+  const next = !state.settings.showCursorCoords;
+  state.settings.showCursorCoords = next;
+  measureToolApi?.setShowCursorCoords(next);
+  try {
+    await window.electronAPI?.saveAppSettings?.(state.settings);
+  } catch (err) {
+    console.error('[Settings] Failed to persist showCursorCoords toggle:', err);
+  }
+}
 
 // Snapshot of the current solver settings so other modules don't have to reach
 // into the settings modal directly.
@@ -343,6 +361,15 @@ const nestingServiceApi = window.NestNestingService.createNestingService({
 const dxfPreviewModalApi = window.NestDxfPreviewModalView.createDxfPreviewModal({
   state,
 });
+
+// Measure tool — bottom-left coord readout (always on) + click-to-measure
+// mode toggled by the ruler button in the canvas toolbar or by the
+// View → Measure menu item.
+const measureToolApi = window.NestMeasureTool.createMeasureTool({
+  state,
+  dom,
+});
+measureToolApi.init();
 
 // ─── Global surface ───────────────────────────────────────────────────────────
 // A handful of functions need to be reachable from other script files (notably
@@ -584,6 +611,7 @@ function bindOverlayClose() {
   linuxAppMenuApi?.bind?.();
 
   await settingsModalApi.loadPersistedSettings();
+  measureToolApi?.setShowCursorCoords(state.settings?.showCursorCoords !== false);
   exportServiceApi.loadLastExportFolder();
   sheetModalApi.updateSheetModeControls();
   syncViewportEmptyState(true);

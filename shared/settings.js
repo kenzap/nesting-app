@@ -74,6 +74,7 @@
     multiSheetStrategy: 'auto',
     theme: 'system',
     colorPartsBySource: true,
+    showCursorCoords: true,
   };
 
   function coerceByDefault(value, fallback) {

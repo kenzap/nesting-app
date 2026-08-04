@@ -46,6 +46,19 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
     { role: 'zoomIn' },
     { role: 'zoomOut' },
     { type: 'separator' },
+    {
+      label: 'Measure',
+      click: (_menuItem, browserWindow) => {
+        dispatchRendererMenuAction('toggle-measure', browserWindow || mainWindow);
+      },
+    },
+    {
+      label: 'Live Coordinates',
+      click: (_menuItem, browserWindow) => {
+        dispatchRendererMenuAction('toggle-cursor-coords', browserWindow || mainWindow);
+      },
+    },
+    { type: 'separator' },
     { role: 'togglefullscreen' },
   ];
 

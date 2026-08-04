@@ -682,6 +682,78 @@ body.platform-linux .linux-menubar {
 .parts-history-link:hover { background: var(--surface3); color: var(--text); }
 .parts-history-link.danger:hover { color: var(--danger); background: color-mix(in oklab, var(--danger) 8%, transparent); }
 
+/* ── Measure tool — ruler button, coord chip, mode chip, overlay ────── */
+
+.measure-btn { position: relative; }
+.measure-btn.active {
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+/* Ambient coordinate readout (Tier A). Bottom-left of the viewport. */
+.measure-coord-chip {
+  position: absolute;
+  bottom: 12px; left: 14px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--text-dim);
+  font: 500 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  pointer-events: none;
+  z-index: 20;
+  user-select: none;
+}
+
+/* Measure mode indicator (Tier B). Top-left of the viewport with a close × */
+.measure-mode-chip[hidden],
+.measure-coord-chip[hidden] { display: none; }
+.measure-mode-chip {
+  position: absolute;
+  top: 12px; left: 14px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 11px/1 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  z-index: 20;
+  user-select: none;
+}
+.measure-mode-chip::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); margin-right: 4px;
+}
+.measure-mode-chip .measure-mode-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: transparent; border: none; padding: 0;
+  color: var(--text-muted); cursor: pointer;
+  transition: background 100ms, color 100ms;
+}
+.measure-mode-chip .measure-mode-close:hover {
+  background: var(--surface3); color: var(--text);
+}
+
+/* Overlay SVG for the measurement line/circles/distance chip. Sits above the
+   nesting SVG and matches the viewport's pixel dimensions. */
+.measure-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 15;
+  pointer-events: none;
+}
+
+/* Crosshair cursor while measure mode is active. Applied to the viewport
+   so it covers scrollable/panning regions consistently. */
+.canvas-viewport.measure-active { cursor: crosshair; }
+.canvas-viewport.measure-active .svg-container,
+.canvas-viewport.measure-active .svg-container * { cursor: crosshair; }
+
 /* Drop zone */
 .drop-zone {
   margin: 0 12px 8px;
@@ -935,6 +1007,16 @@ body.platform-linux .linux-menubar {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+/* Vertical divider used to separate the zoom group from the measure toggle.
+   Injected by measure-tool.js right before the ruler button. */
+.canvas-zoom .toolbar-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+  opacity: 0.7;
 }
 .zoom-level {
   font-size: 11.5px;
