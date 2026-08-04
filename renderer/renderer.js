@@ -33,6 +33,7 @@ const dom = {
   dropZone: document.getElementById('dropZone'),
   clearFilesBtn: document.getElementById('clearFilesBtn'),
   addFileBtn: document.getElementById('addFileBtn'),
+  sidebarActions: document.getElementById('partsSidebarActions'),
   addSheetBtn: document.getElementById('addSheetBtn'),
   emptyState: document.getElementById('emptyState'),
   viewport: document.getElementById('viewport'),
@@ -301,6 +302,27 @@ const exportServiceApi = window.NestExportService.createExportService({
   dom,
 });
 
+// Files pane — the list of loaded DXF files in the left sidebar with per-shape
+// quantity controls and the sketch-preview button.
+const filesPaneApi = window.NestFilesPane.createFilesPane({
+  state,
+  dom,
+  schedulePersistJobState,
+  hydrateFileShapesForList: dxfServiceApi.hydrateFileShapesForList,
+});
+
+// Parts history — session-scoped snapshot stack that powers the revert popover
+// in the Parts header. Snapshots only fire when a nesting run starts, so this
+// needs the files pane (for renderFiles) but must exist before the nesting
+// service (which triggers the snapshot).
+const partsHistoryApi = window.NestPartsHistory.createPartsHistory({
+  state,
+  dom,
+  renderFiles: filesPaneApi.renderFiles,
+  schedulePersistJobState,
+});
+partsHistoryApi.init();
+
 // Nesting service — kicks off and monitors a solver run, polls for results, and
 // hands the finished placement data to the canvas view.
 const nestingServiceApi = window.NestNestingService.createNestingService({
@@ -313,15 +335,7 @@ const nestingServiceApi = window.NestNestingService.createNestingService({
   showNestResult: canvasViewApi.showNestResult,
   renderTabs: canvasViewApi.renderTabs,
   syncExportButton: exportServiceApi.syncExportButton,
-});
-
-// Files pane — the list of loaded DXF files in the left sidebar with per-shape
-// quantity controls and the sketch-preview button.
-const filesPaneApi = window.NestFilesPane.createFilesPane({
-  state,
-  dom,
-  schedulePersistJobState,
-  hydrateFileShapesForList: dxfServiceApi.hydrateFileShapesForList,
+  partsHistory: partsHistoryApi,
 });
 
 // DXF preview modal — opens the shape-selection overlay where users can pick

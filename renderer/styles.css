@@ -552,6 +552,136 @@ body.platform-linux .linux-menubar {
 
 .sidebar-actions { display: flex; gap: 4px; }
 
+/* ── Parts history — button + popover ──────────────────── */
+.parts-history-btn { position: relative; }
+.parts-history-btn:disabled { opacity: 0.35; pointer-events: none; }
+.parts-history-btn.active { background: var(--accent-glow); color: var(--accent); }
+.parts-history-btn .parts-history-dot {
+  position: absolute; top: 4px; right: 4px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  border: 1.5px solid var(--surface);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.parts-history-btn.has-history .parts-history-dot { opacity: 1; }
+
+.parts-history-popover {
+  position: fixed;
+  width: 288px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.15);
+  padding: 6px 4px;
+  z-index: 1200;
+  user-select: none;
+  animation: partsHistoryPop 140ms ease-out;
+}
+[data-theme="light"] .parts-history-popover {
+  box-shadow: 0 10px 32px rgba(15,23,42,0.14), 0 2px 6px rgba(15,23,42,0.08);
+}
+@keyframes partsHistoryPop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.parts-history-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px 8px;
+  font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.parts-history-count {
+  font: 500 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: none; letter-spacing: 0;
+  padding: 2px 6px; border-radius: 999px;
+  background: var(--surface3); color: var(--text-muted);
+}
+
+.parts-history-list {
+  list-style: none; padding: 0; margin: 0;
+  max-height: 260px; overflow-y: auto; position: relative;
+}
+.parts-history-list::before {
+  content: ""; position: absolute;
+  left: 15.25px; top: 14px; bottom: 14px;
+  width: 1.5px; background: var(--border);
+  pointer-events: none;
+}
+.parts-history-item {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 8px; align-items: center;
+  padding: 8px 10px; border-radius: 6px;
+  cursor: pointer;
+  transition: background 100ms;
+  position: relative;
+}
+.parts-history-item:hover { background: var(--accent-glow); }
+.parts-history-item.current { background: color-mix(in oklab, var(--accent) 8%, transparent); cursor: default; }
+.parts-history-item.current::after {
+  content: "current";
+  font: 500 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  position: absolute; top: 10px; right: 12px;
+}
+.parts-history-dot-marker {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border);
+  border: 1.5px solid var(--surface);
+  outline: 1px solid var(--border);
+  justify-self: center;
+}
+.parts-history-item:hover .parts-history-dot-marker,
+.parts-history-item.newest .parts-history-dot-marker {
+  background: var(--accent); outline-color: var(--accent);
+}
+.parts-history-badge {
+  position: absolute; top: 10px; right: 12px;
+  font: 500 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 6px; border-radius: 999px;
+}
+.parts-history-badge.current {
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+.parts-history-badge.modified {
+  color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 14%, transparent);
+}
+.parts-history-action {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-right: 60px;
+}
+.parts-history-action strong {
+  font: 500 12.5px/1.2 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.parts-history-action span {
+  font: 500 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-muted);
+}
+
+.parts-history-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 10px 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.parts-history-link {
+  font: 500 11.5px/1 -apple-system, system-ui, sans-serif;
+  color: var(--text-muted);
+  background: transparent; border: none; padding: 4px 8px;
+  border-radius: 4px; cursor: pointer;
+}
+.parts-history-link:hover { background: var(--surface3); color: var(--text); }
+.parts-history-link.danger:hover { color: var(--danger); background: color-mix(in oklab, var(--danger) 8%, transparent); }
+
 /* Drop zone */
 .drop-zone {
   margin: 0 12px 8px;

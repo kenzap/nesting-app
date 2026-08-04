@@ -11,6 +11,7 @@
     showNestResult,
     renderTabs,
       syncExportButton,
+      partsHistory = null,
     }) {
       const {
         MULTI_SHEET_STRATEGY_OPTIONS = {
@@ -26,19 +27,57 @@
       let completedFinalizationPolls = 0;
       const MAX_COMPLETED_FINALIZATION_POLLS = 8;
 
+    // Translates the raw Sparrow / Rust error into a plain-language sentence
+    // the operator can act on. Anything unrecognised passes through unchanged
+    // so we never hide detail the user might still need.
+    function translateSparrowError(raw) {
+      const text = String(raw || '').trim();
+      if (!text) return 'Sparrow failed';
+
+      // Rust panic: "strip-width is running away (>N), item N does not seem to fit into the strip"
+      // Triggered when a single part is larger than the sheet's usable area —
+      // typically wrong DXF units (drawn in metres/inches interpreted as mm)
+      // or a sheet that's smaller than the biggest part.
+      if (/strip[-\s]?width is running away/i.test(text) && /does not seem to fit/i.test(text)) {
+        return 'A part is larger than the sheet. Check the DXF units, or increase the sheet size in the sheet dialog.';
+      }
+
+      // "requires strip length X exceeding the configured maximum"
+      // Triggered when the total placement exceeds the sheet's configured max length.
+      if (/requires strip length .* exceeding the configured maximum/i.test(text)) {
+        return 'The nested parts don\'t fit within the sheet\'s maximum length. Lower the quantities or widen the sheet.';
+      }
+
+      return text;
+    }
+
     // Parses raw stdout/stderr from the solver binary into a clean one-line message.
-    // Prefers explicit "error:" lines, falls back to the last non-info line, then to raw text.
+    // Priority order: Rust panic reason → explicit "error:" line → known strip-length
+    // pattern → the last line that isn't an [info]/[warn] log tag. Every candidate
+    // goes through translateSparrowError so recognised failure modes become
+    // action-oriented sentences instead of solver jargon.
     function extractSparrowErrorMessage(...chunks) {
       const text = chunks.map(chunk => String(chunk || '')).filter(Boolean).join('\n').trim();
       if (!text) return 'Sparrow failed';
 
       const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+
+      // Rust panic: the reason is on the line immediately after
+      // "thread '…' panicked at path/to/file.rs:N:N:".
+      const panicIdx = lines.findIndex(line => /^thread\s+'[^']*'.*panicked at/i.test(line));
+      if (panicIdx >= 0 && panicIdx + 1 < lines.length) {
+        return translateSparrowError(lines[panicIdx + 1]);
+      }
+
       const explicitError = [...lines].reverse().find(line => /^error:/i.test(line));
-      if (explicitError) return explicitError.replace(/^error:\s*/i, '').trim();
+      if (explicitError) return translateSparrowError(explicitError.replace(/^error:\s*/i, '').trim());
+
       const stripLength = [...lines].reverse().find(line => /requires strip length .* exceeding the configured maximum/i.test(line));
-      if (stripLength) return stripLength;
-      const lastMeaningful = [...lines].reverse().find(line => !/^\[info\]/i.test(line));
-      return lastMeaningful || lines[lines.length - 1] || 'Sparrow failed';
+      if (stripLength) return translateSparrowError(stripLength);
+
+      // Skip both info and warn tag lines — neither is an error signal on its own.
+      const lastMeaningful = [...lines].reverse().find(line => !/^\[(info|warn)\]/i.test(line));
+      return translateSparrowError(lastMeaningful || lines[lines.length - 1] || 'Sparrow failed');
     }
 
     // Sets the status chip to error, tints the status bar red, and writes the error
@@ -178,6 +217,11 @@
           showStartRequirementsWarning('Add at least one sheet before running nesting.');
           return;
         }
+
+        // Snapshot the parts list into the run-history stack before starting.
+        // No-op if the list hasn't changed since the previous run, so back-to-back
+        // runs on the same configuration don't add duplicate entries.
+        partsHistory?.recordRunStart();
 
         let exported;
         try {

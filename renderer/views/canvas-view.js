@@ -239,29 +239,6 @@
       return `M${x},${y} L${x + width},${y} L${x + width},${y + height} L${x},${y + height} z`;
     }
 
-    function placementTranslateBounds(root) {
-      let minTx = Infinity;
-      let minTy = Infinity;
-      let maxTx = -Infinity;
-      let maxTy = -Infinity;
-      let count = 0;
-
-      Array.from(root?.querySelectorAll('#items > use') || []).forEach(node => {
-        const match = /translate\(\s*([-\d.]+)[\s,]+([-\d.]+)\s*\)/i.exec(node.getAttribute('transform') || '');
-        if (!match) return;
-        const tx = Number(match[1]);
-        const ty = Number(match[2]);
-        if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
-        minTx = Math.min(minTx, tx);
-        minTy = Math.min(minTy, ty);
-        maxTx = Math.max(maxTx, tx);
-        maxTy = Math.max(maxTy, ty);
-        count += 1;
-      });
-
-      return count ? { minTx, minTy, maxTx, maxTy } : null;
-    }
-
     function ensureTranslatedChildWrapper(group, childSelector, tx, ty, markerName) {
       if (!group || (!tx && !ty)) return false;
 
@@ -316,27 +293,23 @@
       const firstFrameRect = parseRectPathData(firstFramePath?.getAttribute('d'));
       const rawFrameWidth = firstFrameRect ? firstFrameRect.x1 - firstFrameRect.x0 : Number(strip?.strip_width);
       const rawFrameHeight = firstFrameRect ? firstFrameRect.y2 - firstFrameRect.y1 : vb.h;
-      const expectedUsableHeight = configuredHeight - (sheetMargin * 2);
-      const heightTolerance = Math.max(1, sheetMargin * 0.05);
-      const marginNeedsRestoring = sheetMargin > 0
-        && Number.isFinite(configuredHeight)
-        && configuredHeight > 0
-        && Number.isFinite(rawFrameHeight)
-        && Math.abs(rawFrameHeight - expectedUsableHeight) <= heightTolerance;
-      const placementBounds = placementTranslateBounds(root);
-      const placementsAlreadyUseOuterCoordinates = marginNeedsRestoring && placementBounds && (
-        placementBounds.maxTx > rawFrameWidth + heightTolerance ||
-        placementBounds.maxTy > rawFrameHeight + heightTolerance ||
-        (placementBounds.minTx >= sheetMargin * 0.75 && placementBounds.minTy >= sheetMargin * 0.75)
-      );
+      // Preview mirrors the DXF export's shift rule: in `fixed` mode with a
+      // non-zero sheet margin, Sparrow returns placements relative to the
+      // usable-only frame, and both the export and this preview add the margin
+      // back so the parts render inside a visible border. Any other mode leaves
+      // the geometry alone. This replaces an older heuristic that tried to
+      // auto-detect whether Sparrow's frame already accounted for the margin
+      // — that check silently failed on some outputs and left the preview
+      // without any margin band even when the export had one.
       const isFixedSheet = config.widthMode === 'fixed'
         && Number.isFinite(configuredWidth) && configuredWidth > 0;
+      const shouldShiftForMargin = isFixedSheet && sheetMargin > 0;
       const targetWidth = isFixedSheet
         ? configuredWidth
-        : rawFrameWidth + (marginNeedsRestoring ? sheetMargin * 2 : 0);
+        : rawFrameWidth;
       const targetHeight = Number.isFinite(configuredHeight) && configuredHeight > 0
         ? configuredHeight
-        : rawFrameHeight + (marginNeedsRestoring ? sheetMargin * 2 : 0);
+        : rawFrameHeight;
       if (!Number.isFinite(targetWidth) || targetWidth <= 0 || !Number.isFinite(targetHeight) || targetHeight <= 0) {
         return svg;
       }
@@ -387,7 +360,7 @@
         }
       }
 
-      if (marginNeedsRestoring && !placementsAlreadyUseOuterCoordinates) {
+      if (shouldShiftForMargin) {
         ensureTranslatedChildWrapper(root.querySelector('#items'), 'use', sheetMargin, sheetMargin, 'data-preview-sheet-margin');
         ensureTranslatedChildWrapper(root.querySelector('#highlight_cd_shapes'), 'use', sheetMargin, sheetMargin, 'data-preview-sheet-margin');
       }
