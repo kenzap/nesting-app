@@ -21,7 +21,7 @@
         </svg>
         <span class="modal-title">Export Sheets</span>
       </div>
-      <button class="modal-close" id="exportClose">
+      <button class="modal-close" id="exportClose" type="button" aria-label="Close export sheets">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M11 1L1 11M1 1l10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
@@ -112,7 +112,7 @@
           <span class="app-name">Settings</span>
         </div>
       </span>
-      <button class="modal-close" id="closeSettings">
+      <button class="modal-close" id="closeSettings" type="button" aria-label="Close settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
@@ -260,6 +260,13 @@
           </label>
         </div>
         <div class="setting-row">
+          <label title="Adds the physical sheet boundary as a closed polyline on the SHEET_BOUNDARY layer. Leave disabled unless your CAD or CAM workflow requires a stock outline.">Include sheet outline</label>
+          <label class="toggle">
+            <input type="checkbox" data-setting-key="includeSheetOutline" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-row">
           <label>Engraving layer</label>
           <select data-setting-key="engravingLayer">
             <option value="off">Disabled</option>
@@ -309,7 +316,7 @@
           <span class="app-name">Add Sheet</span>
         </div>
       </span>
-      <button class="modal-close" id="closeSheet">
+      <button class="modal-close" id="closeSheet" type="button" aria-label="Close sheet settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
@@ -558,7 +565,7 @@
           <div class="pvw-file-meta" id="pvFileMeta">0 shapes · 0 layers</div>
         </div>
       </div>
-      <button class="modal-close" id="pvClose">
+      <button class="modal-close" id="pvClose" type="button" aria-label="Close DXF preview">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>

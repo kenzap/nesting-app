@@ -1171,18 +1171,26 @@ body.platform-linux .linux-menubar {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+  -webkit-app-region: no-drag;
 }
 .modal-title { font-size: 14px; font-weight: 600; }
 .modal-close {
-  width: 28px; height: 28px;
+  width: 32px; height: 32px;
+  min-width: 32px;
+  padding: 0;
   border-radius: 5px;
   border: none;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  flex: 0 0 32px;
+  position: relative;
+  z-index: 1;
   display: flex; align-items: center; justify-content: center;
+  -webkit-app-region: no-drag;
   transition: background .12s, color .12s;
 }
+.modal-close svg { display: block; pointer-events: none; }
 .modal-close:hover { background: var(--surface3); color: var(--text); }
 
 .modal-body {

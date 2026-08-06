@@ -318,6 +318,7 @@ sheetModalApi = window.NestSheetModal.createSheetModal({
 const exportServiceApi = window.NestExportService.createExportService({
   state,
   dom,
+  getCurrentNestingSettings: currentNestingSettings,
 });
 
 // Files pane — the list of loaded DXF files in the left sidebar with per-shape
@@ -370,6 +371,10 @@ const measureToolApi = window.NestMeasureTool.createMeasureTool({
   dom,
 });
 measureToolApi.init();
+// Exposed globally so canvas-view (defined earlier) can reset the measurement
+// when the user switches sheet tabs — otherwise a ruler drawn against one
+// sheet lingers on top of another sheet's parts.
+window.measureToolApi = measureToolApi;
 
 // ─── Global surface ───────────────────────────────────────────────────────────
 // A handful of functions need to be reachable from other script files (notably

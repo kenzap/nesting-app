@@ -79,9 +79,16 @@
       };
     }
 
-    // Sheet-space mm → viewport-local pixel coordinates (relative to the
-    // .canvas-viewport element, since overlays are absolutely positioned in
-    // that container).
+    // Sheet-space mm → overlay-local pixel coordinates. Referenced against
+    // the OVERLAY's own bounding rect (not the viewport's) because the
+    // overlay's rendered top-left is what the SVG viewBox pins to — any
+    // horizontal gap between the viewport's border-edge and the overlay's
+    // padding-edge (scrollbar-gutter reserves one on some platforms, and
+    // scroll compensation applies a transform to the overlay) would cause
+    // marks to drift off the cursor by that gap. The symptom is subtle:
+    // horizontal-edge snap looks fine because the foot moves along the
+    // edge anyway, but vertical-edge snap visibly slides sideways off the
+    // edge by the exact gap width.
     function sheetToViewportPx(sheetPt) {
       const svg = activeSvgEl();
       if (!svg || !sheetPt || typeof svg.getScreenCTM !== 'function') return null;
@@ -93,31 +100,43 @@
       pt.x = sheetPt.x;
       pt.y = sheetHeight - sheetPt.y;
       const screenPt = pt.matrixTransform(ctm);
-      const viewportRect = dom.viewport.getBoundingClientRect();
+      const originRect = (overlaySvgEl || dom.viewport).getBoundingClientRect();
       return {
-        x: screenPt.x - viewportRect.left,
-        y: screenPt.y - viewportRect.top,
+        x: screenPt.x - originRect.left,
+        y: screenPt.y - originRect.top,
       };
     }
 
     // ── snap targets ─────────────────────────────────────────────────────
 
-    // Extracts every segment endpoint from an SVG path `d` string — the
-    // sharp corners a user would actually want to snap to. Handles the
-    // command set Sparrow (and typical DXF→SVG converters) emit: M/m, L/l,
-    // H/h, V/v, C/c, S/s, Q/q, T/t, A/a, Z/z. Skips Bezier control points
-    // and arc parameters — only endpoints qualify as "vertices". After an
-    // M, additional coordinate pairs behave as implicit L (SVG spec §8.3.2).
+    // Extracts vertices AND edges from an SVG path `d` string. Vertices are
+    // segment endpoints (the sharp corners a user snaps to); edges are the
+    // straight segments between consecutive vertices within a subpath (used
+    // for edge-snap so the cursor can lock onto the closest point along a
+    // side, not just its corners). Handles M/L/H/V/C/S/Q/T/A/Z (abs + rel);
+    // curves are approximated as their chord (endpoint-to-endpoint straight
+    // line) for edge-snap purposes — Sparrow's output is polygonal anyway.
+    // After an M, additional coordinate pairs behave as implicit L per
+    // SVG spec §8.3.2, so those still form edges.
     function parsePathVertices(d) {
-      const verts = [];
-      if (!d) return verts;
+      const vertices = [];
+      const edges = [];
+      if (!d) return { vertices, edges };
       const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|-?\d*\.?\d+(?:[eE][+-]?\d+)?/g);
-      if (!tokens) return verts;
+      if (!tokens) return { vertices, edges };
       let cmd = null;
       let x = 0, y = 0;
       let startX = 0, startY = 0;
+      let subStart = null;
+      let prev = null;
       let i = 0;
       const num = () => Number(tokens[i++]);
+      const emit = () => {
+        const cur = { x, y };
+        vertices.push(cur);
+        if (prev) edges.push([prev, cur]);
+        prev = cur;
+      };
       while (i < tokens.length) {
         const t = tokens[i];
         if (/^[a-zA-Z]$/.test(t)) {
@@ -126,11 +145,19 @@
             const nx = cmd === 'M' ? num() : x + num();
             const ny = cmd === 'M' ? num() : y + num();
             x = nx; y = ny; startX = x; startY = y;
-            verts.push({ x, y });
-            // Implicit L (or l) for subsequent coord pairs on this command.
+            const cur = { x, y };
+            vertices.push(cur);
+            subStart = cur;
+            prev = cur;
+            // Implicit L (or l) for subsequent coord pairs on this command
+            // — so a `M x,y x2,y2 x3,y3` polyline produces edges.
             cmd = cmd === 'M' ? 'L' : 'l';
           } else if (cmd === 'Z' || cmd === 'z') {
+            if (subStart && prev && (prev.x !== subStart.x || prev.y !== subStart.y)) {
+              edges.push([prev, subStart]);
+            }
             x = startX; y = startY;
+            prev = subStart;
           }
           continue;
         }
@@ -138,33 +165,33 @@
         if (cmd === 'L' || cmd === 'l' || cmd === 'T' || cmd === 't') {
           x = rel ? x + num() : num();
           y = rel ? y + num() : num();
-          verts.push({ x, y });
+          emit();
         } else if (cmd === 'H' || cmd === 'h') {
           x = rel ? x + num() : num();
-          verts.push({ x, y });
+          emit();
         } else if (cmd === 'V' || cmd === 'v') {
           y = rel ? y + num() : num();
-          verts.push({ x, y });
+          emit();
         } else if (cmd === 'C' || cmd === 'c') {
-          num(); num(); num(); num(); // two control points
+          num(); num(); num(); num();
           x = rel ? x + num() : num();
           y = rel ? y + num() : num();
-          verts.push({ x, y });
+          emit();
         } else if (cmd === 'S' || cmd === 's' || cmd === 'Q' || cmd === 'q') {
-          num(); num(); // one control point
+          num(); num();
           x = rel ? x + num() : num();
           y = rel ? y + num() : num();
-          verts.push({ x, y });
+          emit();
         } else if (cmd === 'A' || cmd === 'a') {
-          num(); num(); num(); num(); num(); // rx ry x-rot large sweep
+          num(); num(); num(); num(); num();
           x = rel ? x + num() : num();
           y = rel ? y + num() : num();
-          verts.push({ x, y });
+          emit();
         } else {
-          i++; // unknown token — skip to stay unstuck
+          i++;
         }
       }
-      return verts;
+      return { vertices, edges };
     }
 
     // Parses Sparrow's `<use>` transform: "translate(tx ty), rotate(θ_deg)".
@@ -184,9 +211,25 @@
       return { tx, ty, cos, sin };
     }
 
-    // Enumerates snap targets in sheet-coord space:
-    //   • the four corners of the sheet
-    //   • every path-segment endpoint of every placed part
+    // Robust href lookup for <use> — Sparrow emits plain `href`, but SVG1
+    // markup can also carry `xlink:href`; the SVGAnimatedString API is the
+    // safest fallback because it doesn't depend on attribute-name namespacing.
+    function useHrefId(useEl) {
+      const raw = useEl.getAttribute('href')
+        || useEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+        || useEl.getAttribute('xlink:href')
+        || (useEl.href && useEl.href.baseVal)
+        || '';
+      return String(raw).replace(/^#/, '');
+    }
+
+    // Enumerates snap targets in sheet-coord space. Returns two parallel
+    // lists so findSnap can prefer vertex-snap (sharp corners) and fall
+    // back to edge-snap (foot of perpendicular on a segment):
+    //   vertices — 4 sheet corners + every path-segment endpoint of every
+    //              placed part
+    //   edges    — 4 sheet edges + every straight segment between adjacent
+    //              vertices within a part subpath (curves reduced to chords)
     // Sparrow's coordinate space equals sheet-mm 1:1 (its <use> transforms
     // are what its own solver reports), so applying the <use> transform to
     // each defs-side vertex yields the sheet-space snap point directly —
@@ -194,74 +237,134 @@
     // Cached until the SVG resizes (see ResizeObserver in init()).
     function getSnapTargets() {
       if (snapTargetsCache) return snapTargetsCache;
-      const targets = [];
+      const vertices = [];
+      const edges = [];
       const sheet = activeSheet();
       const w = Number(sheet?.width) || 0;
       const h = Number(sheet?.height) || 0;
       if (w > 0 && h > 0) {
-        targets.push({ x: 0, y: 0 });
-        targets.push({ x: w, y: 0 });
-        targets.push({ x: w, y: h });
-        targets.push({ x: 0, y: h });
+        const c00 = { x: 0, y: 0 };
+        const cW0 = { x: w, y: 0 };
+        const cWH = { x: w, y: h };
+        const c0H = { x: 0, y: h };
+        vertices.push(c00, cW0, cWH, c0H);
+        edges.push([c00, cW0], [cW0, cWH], [cWH, c0H], [c0H, c00]);
       }
       const svg = activeSvgEl();
-      if (!svg) { snapTargetsCache = targets; return targets; }
+      if (!svg) {
+        snapTargetsCache = { vertices, edges };
+        return snapTargetsCache;
+      }
 
       // Parse each unique defs entry once — many <use>s typically share the
       // same #item_N reference, so caching pays off on any real layout.
-      const localVertsById = new Map();
-      const uses = svg.querySelectorAll('#items > use');
+      const parsedById = new Map();
+      // Use a descendant selector (not direct-child): canvas-view wraps
+      // Sparrow's <use> children in an intermediary <g translate(margin
+      // margin)> when the preview needs to add the sheet margin band. Direct
+      // child selectors miss the parts entirely in that case.
+      const itemsGroup = svg.querySelector('#items');
+      const uses = itemsGroup ? itemsGroup.querySelectorAll('use') : [];
       uses.forEach(useEl => {
-        const href = useEl.getAttribute('href') || useEl.getAttribute('xlink:href') || '';
-        const id = href.replace(/^#/, '');
+        const id = useHrefId(useEl);
         if (!id) return;
-        let localVerts = localVertsById.get(id);
-        if (!localVerts) {
-          const def = svg.getElementById(id);
-          localVerts = [];
+        let parsed = parsedById.get(id);
+        if (!parsed) {
+          // getElementById is fine on SVG in browsers, but querySelector
+          // with a CSS-escaped id works reliably even inside shadow-tree
+          // edge cases; fall back to it if getElementById misses.
+          let def = svg.getElementById(id);
+          if (!def) {
+            try { def = svg.querySelector('#' + (window.CSS?.escape ? CSS.escape(id) : id)); }
+            catch { def = null; }
+          }
+          parsed = { vertices: [], edges: [] };
           if (def) {
             def.querySelectorAll('path').forEach(p => {
-              const d = p.getAttribute('d') || '';
-              parsePathVertices(d).forEach(pt => localVerts.push(pt));
+              const r = parsePathVertices(p.getAttribute('d') || '');
+              r.vertices.forEach(v => parsed.vertices.push(v));
+              r.edges.forEach(e => parsed.edges.push(e));
             });
           }
-          localVertsById.set(id, localVerts);
+          parsedById.set(id, parsed);
         }
-        if (!localVerts.length) return;
-        const t = parseUseTransform(useEl.getAttribute('transform'));
-        localVerts.forEach(v => {
-          // Rotate (about local origin) then translate — SVG right-to-left.
-          const rx = v.x * t.cos - v.y * t.sin;
-          const ry = v.x * t.sin + v.y * t.cos;
-          targets.push({ x: rx + t.tx, y: ry + t.ty });
-        });
+        if (!parsed.vertices.length) return;
+        // Compose EVERY transform from the <use> up to (but not including)
+        // #items itself — that covers the use's own translate+rotate and
+        // any intermediary wrapper <g>s the preview pipeline inserts (e.g.
+        // the sheet-margin translate). Applied innermost-first so a point
+        // walks from local coords through each stage into sheet-mm space.
+        const chain = [];
+        for (let node = useEl; node && node !== itemsGroup; node = node.parentNode) {
+          const tr = node.getAttribute?.('transform');
+          if (tr) chain.push(parseUseTransform(tr));
+        }
+        const apply = (v) => {
+          let x = v.x, y = v.y;
+          for (const t of chain) {
+            const rx = x * t.cos - y * t.sin;
+            const ry = x * t.sin + y * t.cos;
+            x = rx + t.tx;
+            y = ry + t.ty;
+          }
+          return { x, y };
+        };
+        parsed.vertices.forEach(v => vertices.push(apply(v)));
+        parsed.edges.forEach(([a, b]) => edges.push([apply(a), apply(b)]));
       });
-      snapTargetsCache = targets;
-      return targets;
+      snapTargetsCache = { vertices, edges };
+      return snapTargetsCache;
     }
 
     // Returns the snap target closest to the cursor within SNAP_RADIUS_PX,
     // or null if none is close enough. Distance is computed in viewport-local
     // screen pixels so the radius stays visually constant across zoom levels.
+    // Vertex snap wins over edge snap when both are in range — CAD users
+    // expect corners to "grab" more strongly than the middle of an edge.
     function findSnap(clientX, clientY) {
       if (!dom.viewport) return null;
-      const targets = getSnapTargets();
-      if (!targets.length) return null;
-      const vpRect = dom.viewport.getBoundingClientRect();
-      const cx = clientX - vpRect.left;
-      const cy = clientY - vpRect.top;
-      let best = null;
-      let bestDist = SNAP_RADIUS_PX;
-      targets.forEach(target => {
-        const px = sheetToViewportPx(target);
-        if (!px) return;
+      const { vertices, edges } = getSnapTargets();
+      if (!vertices.length && !edges.length) return null;
+      // Use the overlay's own origin, same as sheetToViewportPx — so the
+      // distance calc happens in the same pixel space that marks are drawn in.
+      const originRect = (overlaySvgEl || dom.viewport).getBoundingClientRect();
+      const cx = clientX - originRect.left;
+      const cy = clientY - originRect.top;
+
+      let bestVertex = null;
+      let bestVertexDist = SNAP_RADIUS_PX;
+      for (const v of vertices) {
+        const px = sheetToViewportPx(v);
+        if (!px) continue;
         const d = Math.hypot(px.x - cx, px.y - cy);
-        if (d < bestDist) {
-          best = target;
-          bestDist = d;
+        if (d < bestVertexDist) { bestVertex = v; bestVertexDist = d; }
+      }
+      if (bestVertex) return bestVertex;
+
+      let bestEdge = null;
+      let bestEdgeDist = SNAP_RADIUS_PX;
+      for (const [a, b] of edges) {
+        const pa = sheetToViewportPx(a);
+        const pb = sheetToViewportPx(b);
+        if (!pa || !pb) continue;
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const len2 = dx * dx + dy * dy;
+        if (len2 < 1) continue;
+        // t = fraction along the segment where the cursor's perpendicular
+        // foot lands, clamped to [0,1] so we stay on the segment.
+        const t = Math.max(0, Math.min(1, ((cx - pa.x) * dx + (cy - pa.y) * dy) / len2));
+        const fx = pa.x + t * dx;
+        const fy = pa.y + t * dy;
+        const d = Math.hypot(fx - cx, fy - cy);
+        if (d < bestEdgeDist) {
+          // Lerp in sheet space so the returned snap point matches the
+          // screen-space foot after the round-trip through sheetToViewportPx.
+          bestEdge = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+          bestEdgeDist = d;
         }
-      });
-      return best;
+      }
+      return bestEdge;
     }
 
     function invalidateSnapCache() { snapTargetsCache = null; }
@@ -360,17 +463,20 @@
 
     // ── rendering the overlay ────────────────────────────────────────────
 
-    // Little green diamond drawn on a snap target so the user can see the
-    // snap is engaged. Placed on the exact corner; the anchor circle beside
-    // it is rendered hollow so the corner geometry stays visible through it.
+    // Live snap indicator drawn while the cursor is hovering a snappable
+    // point. A hollow ring in a distinct accent-green — reads as "locked
+    // to this point" without obscuring the underlying geometry. The subtle
+    // inner dot marks the exact snap coordinate so users can eyeball
+    // precision on tight parts.
     function snapIndicatorMarkup(sheetPt) {
       const px = sheetToViewportPx(sheetPt);
       if (!px) return '';
-      const size = 7;
-      return `<rect x="${px.x - size}" y="${px.y - size}"
-                    width="${size * 2}" height="${size * 2}"
-                    transform="rotate(45 ${px.x} ${px.y})"
-                    fill="none" stroke="#22c55e" stroke-width="1.6"/>`;
+      return `<g pointer-events="none">
+        <circle cx="${px.x}" cy="${px.y}" r="6"
+                fill="none" stroke="#22c55e" stroke-width="1.6"/>
+        <circle cx="${px.x}" cy="${px.y}" r="1.4"
+                fill="#22c55e"/>
+      </g>`;
     }
 
     // Overlay and chips live INSIDE the viewport (a scroll container), so
@@ -392,10 +498,19 @@
     function redrawOverlay() {
       if (!overlaySvgEl || !dom.viewport) return;
       pinToVisibleFrame();
-      const vpRect = dom.viewport.getBoundingClientRect();
-      overlaySvgEl.setAttribute('viewBox', `0 0 ${vpRect.width} ${vpRect.height}`);
-      overlaySvgEl.setAttribute('width', String(vpRect.width));
-      overlaySvgEl.setAttribute('height', String(vpRect.height));
+      // Size viewBox to the OVERLAY's actual rendered dimensions, not the
+      // viewport's. Two reasons: (1) `width/height: 100%` in CSS renders
+      // against the padding-box, which can be smaller than the border-box
+      // this rect measures (e.g. scrollbar-gutter reserves horizontal space);
+      // (2) `preserveAspectRatio="none"` then stretches the viewBox to fit
+      // the smaller rendered box, so viewBox units and pixels are no longer
+      // 1:1 — visible on right-side snaps as a small horizontal drift that
+      // scales with distance from the origin. Matching them keeps 1 unit
+      // = 1 pixel so screenPt - overlayRect.left maps directly to draw coord.
+      const overlayRect = overlaySvgEl.getBoundingClientRect();
+      overlaySvgEl.setAttribute('viewBox', `0 0 ${overlayRect.width} ${overlayRect.height}`);
+      overlaySvgEl.setAttribute('width', String(overlayRect.width));
+      overlaySvgEl.setAttribute('height', String(overlayRect.height));
 
       if (!measureMode) {
         overlaySvgEl.innerHTML = '';
@@ -465,22 +580,22 @@
             : `<circle cx="${endpointPx.x}" cy="${endpointPx.y}" r="4"
                       fill="var(--accent)" stroke="#ffffff" stroke-width="1.5"/>`)
         : '';
-      // While rubber-banding, show the snap diamond on the live cursor snap
-      // — but suppress it if Shift is held, since ortho beats corner snap and
-      // the line would go somewhere other than the highlighted corner.
-      const liveSnapMarker = !committed && hoverSnap && !shiftDown
+      // Live snap indicator wherever the cursor currently snaps — shown
+      // during rubber-band AND after commit, so the user can see where
+      // the next click will anchor without exiting measure mode first.
+      // Suppressed only while Shift is held mid-rubber-band, since ortho
+      // wins over corner snap there and the line would go somewhere other
+      // than the highlighted point. The hollow anchor/endpoint circles
+      // still convey the "this landed on a snap target" fact for committed
+      // marks; the ring on hover is about the NEXT click, not the last.
+      const rubberBandOrtho = !committed && shiftDown;
+      const liveSnapMarker = hoverSnap && !rubberBandOrtho
         ? snapIndicatorMarkup(hoverSnap)
-        : '';
-      const anchorSnapMarker = anchorSnapped ? snapIndicatorMarkup(anchorSheet) : '';
-      const endpointSnapMarker = committed && endpointSnapped
-        ? snapIndicatorMarkup(endpointSheet)
         : '';
 
       overlaySvgEl.innerHTML = `
         <line x1="${anchorPx.x}" y1="${anchorPx.y}" x2="${endpointPx.x}" y2="${endpointPx.y}"
               stroke="var(--accent)" stroke-width="1.5" ${lineDash}/>
-        ${anchorSnapMarker}
-        ${endpointSnapMarker}
         ${liveSnapMarker}
         ${anchorMarker}
         ${endpointMarker}
@@ -677,6 +792,18 @@
       toggle() { setMeasureMode(!measureMode); },
       setActive(next) { setMeasureMode(!!next); },
       isActive() { return measureMode; },
+      /** Clear the current measurement (anchor + committed endpoint) without
+       *  turning measure mode off. Called on sheet-tab switches so a ruler
+       *  drawn against one sheet doesn't linger on top of another. */
+      resetMeasurement() {
+        if (!anchorSheet && !committed) return;
+        anchorSheet = null;
+        cursorSheet = null;
+        committed = false;
+        anchorSnapped = false;
+        endpointSnapped = false;
+        redrawOverlay();
+      },
       setShowCursorCoords(next) {
         showCursorCoords = !!next;
         if (!showCursorCoords && coordChipEl) coordChipEl.hidden = true;

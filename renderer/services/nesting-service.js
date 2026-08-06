@@ -103,11 +103,24 @@
       return String(strip?.svg_path || '').split(/[\\/]/).pop() || '';
     }
 
+    function stripJsonBasename(strip) {
+      return String(strip?.json_path || '').split(/[\\/]/).pop() || '';
+    }
+
     function isCanonicalFinalSummary(summary) {
       if (!summary?.strips?.length || summary.is_preview) return false;
-      return summary.strips.every(strip => (
-        !strip?.is_preview && /^strip_\d+\.svg$/i.test(stripSvgBasename(strip))
-      ));
+      return summary.strips.every(strip => {
+        if (strip?.is_preview) return false;
+
+        const svgName = stripSvgBasename(strip);
+        const jsonName = stripJsonBasename(strip);
+        const isMultiSheetFinal = /^strip_\d+\.svg$/i.test(svgName)
+          && /^strip_\d+\.json$/i.test(jsonName);
+        const isUnlimitedFinal = summary.strips.length === 1
+          && /^final_.+\.svg$/i.test(svgName)
+          && /^final_.+\.json$/i.test(jsonName);
+        return isMultiSheetFinal || isUnlimitedFinal;
+      });
     }
 
     // Called on a 500ms interval while the solver is running to fetch the latest result.
@@ -125,7 +138,18 @@
         completedFinalizationPolls = 0;
       }
 
-      if (result.summary?.strips?.length) {
+      // Between "solver reports done" and "canonical strip files exist on
+      // disk", one or more polls can return a transitional summary where a
+      // strip's SVG has parts already translated into outer-sheet coords
+      // while the metadata still reads like a preview — applying our margin
+      // shift on top double-translates every part into the top-right corner
+      // for that frame. Skip rendering (and mutating state) until the
+      // summary settles into its canonical shape; the last good preview
+      // frame stays on screen in the meantime.
+      const isFinalizationLimbo = result.status === 'completed'
+        && !isCanonicalFinalSummary(result.summary);
+
+      if (result.summary?.strips?.length && !isFinalizationLimbo) {
         const previousCount = state.nestResult?.strips?.length || 0;
         const previousIndex = state.activeStripIndex || 0;
         state.nestResult = result.summary;
@@ -271,10 +295,10 @@
           const { multiStripMode, bucketFillWeight } = strategy;
           const sheetMargin = Math.max(0, Number(settings.sheetMargin) || 0);
           const configuredSheetLength = Number(primarySheet.width);
-          const fixedUsableLength = configuredSheetLength - (sheetMargin * 2);
-          if (primarySheet.widthMode === 'fixed' &&
-              (!Number.isFinite(fixedUsableLength) || fixedUsableLength <= 0)) {
-            throw new Error('Sheet margin must be less than half the fixed sheet length.');
+          const usableSheetLength = configuredSheetLength - (sheetMargin * 2);
+          if (primarySheet.widthMode !== 'unlimited' &&
+              (!Number.isFinite(usableSheetLength) || usableSheetLength <= 0)) {
+            throw new Error('Sheet margin must be less than half the sheet length.');
           }
           const sparrowOptions = {
             globalTime: Number(settings.timeLimit) || 60,
@@ -283,7 +307,7 @@
             earlyTermination: !!settings.earlyStopping,
             maxStripLength: primarySheet.widthMode === 'unlimited'
               ? null
-              : (primarySheet.widthMode === 'fixed' ? fixedUsableLength : configuredSheetLength || null),
+              : usableSheetLength,
             stripMargin: sheetMargin,
             minItemSeparation: partSpacing,
             exactCoedge: partSpacing === 0,

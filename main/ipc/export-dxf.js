@@ -11,8 +11,8 @@ const {
 } = require('../../shared/engraving-layout');
 
 const FALLBACK_LAYER_COLORS = ['#4f8ef7', '#f75f5f', '#4fcf8e', '#f7c34f', '#cf4ff7', '#4ff7e8', '#f77f4f'];
-const FIXED_SHEET_BOUNDS_LAYER = Object.freeze({
-  name: 'DEFPOINTS',
+const SHEET_BOUNDARY_LAYER = Object.freeze({
+  name: 'SHEET_BOUNDARY',
   color: '#9CA3AF',
 });
 
@@ -25,6 +25,7 @@ function registerExportDxfIpc() {
     inputPath,
     exportItems = {},
     strips,
+    includeSheetOutline,
   }) => {
     try {
       return await withSecurityScopedAccess(outputDirBookmark, async () => {
@@ -39,6 +40,9 @@ function registerExportDxfIpc() {
         } catch (e) {
           // Fall through — will export what it can.
         }
+      }
+      if (typeof includeSheetOutline === 'boolean') {
+        exportSettings.includeSheetOutline = includeSheetOutline;
       }
 
       const RAD = Math.PI / 180;
@@ -470,11 +474,11 @@ function registerExportDxfIpc() {
         return [...layerDefs, { ...extraLayer }];
       }
 
-      function buildFixedSheetBoundsEntities(frame) {
+      function buildSheetBoundaryEntities(frame) {
         if (!frame) return [];
         return [{
           type: 'LWPOLYLINE',
-          layer: FIXED_SHEET_BOUNDS_LAYER.name,
+          layer: SHEET_BOUNDARY_LAYER.name,
           closed: true,
           vertices: [
             { x: frame.minX, y: frame.minY, z: 0 },
@@ -1012,10 +1016,9 @@ function registerExportDxfIpc() {
       }
 
       // Computes a bounding box over all transformed geometry in the sheet.
-      // In fixed-sheet mode we optionally union that with the configured sheet
-      // frame so the DXF keeps the full target size instead of collapsing to
-      // the occupied nesting geometry.
-      function computeSheetBbox(sheetEntities, forcedFrame = null) {
+      // A supplied outer frame keeps the DXF at its physical sheet dimensions
+      // instead of collapsing to the occupied nesting geometry.
+      function computeSheetBbox(sheetEntities, sheetFrame = null) {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         const expand = (x, y) => {
           if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -1055,24 +1058,33 @@ function registerExportDxfIpc() {
             });
           }
         });
-        if (forcedFrame) {
-          expand(forcedFrame.minX, forcedFrame.minY);
-          expand(forcedFrame.maxX, forcedFrame.maxY);
+        if (sheetFrame) {
+          expand(sheetFrame.minX, sheetFrame.minY);
+          expand(sheetFrame.maxX, sheetFrame.maxY);
         }
         return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
       }
 
-      function buildDXF(sheetEntities, engravings, layerDefs, emitDebug, forcedFrame = null) {
+      function buildDXF(
+        sheetEntities,
+        engravings,
+        layerDefs,
+        emitDebug,
+        sheetFrame = null,
+        includeSheetOutline = false,
+      ) {
         const lines = [];
         const L = s => lines.push(s);
         let handleSeed = 0x100;
         const nextHandle = () => (handleSeed++).toString(16).toUpperCase();
-        const fixedSheetBoundsEntities = buildFixedSheetBoundsEntities(forcedFrame);
+        const sheetBoundaryEntities = includeSheetOutline
+          ? buildSheetBoundaryEntities(sheetFrame)
+          : [];
 
         // Compute drawing extents up front so the HEADER can reference them.
         // Many viewers (and all cutting-machine software) require $EXTMIN/$EXTMAX
         // to know the drawing boundaries before reading entity data.
-        const bbox = computeSheetBbox(sheetEntities, forcedFrame);
+        const bbox = computeSheetBbox(sheetEntities, sheetFrame);
         const bMinX = bbox ? +bbox.minX.toFixed(4) : 0;
         const bMinY = bbox ? +bbox.minY.toFixed(4) : 0;
         const bMaxX = bbox ? +bbox.maxX.toFixed(4) : 0;
@@ -1281,7 +1293,7 @@ function registerExportDxfIpc() {
         L('0'); L('SECTION');
         L('2'); L('ENTITIES');
 
-        fixedSheetBoundsEntities.forEach(entity => {
+        sheetBoundaryEntities.forEach(entity => {
           writeEntity(lines, entity, 0, 0, 0, emitDebug, nextHandle);
         });
         sheetEntities.forEach(entity => writeEntity(lines, entity.entity, entity.rotation, entity.tx, entity.ty, emitDebug, nextHandle));
@@ -1341,19 +1353,16 @@ function registerExportDxfIpc() {
         const engravings = [];
         const debugRows = [];
         const emitDebug = { emitted: {}, skipped: [] };
-        const fixedSheetWidth = Number(strip.sheet_width);
-        const fixedSheetHeight = Number(strip.strip_height);
-        const fixedSheetMargin = strip.sheet_width_mode === 'fixed'
-          ? Math.max(0, Number(exportSettings.sheetMargin) || 0)
-          : 0;
-        const forcedFrame = strip.sheet_width_mode === 'fixed' &&
-          Number.isFinite(fixedSheetWidth) && fixedSheetWidth > 0 &&
-          Number.isFinite(fixedSheetHeight) && fixedSheetHeight > 0
+        const sheetWidth = Number(strip.sheet_width);
+        const sheetHeight = Number(strip.strip_height);
+        const sheetMargin = Math.max(0, Number(strip.sheet_margin ?? exportSettings.sheetMargin) || 0);
+        const sheetFrame = Number.isFinite(sheetWidth) && sheetWidth > 0 &&
+          Number.isFinite(sheetHeight) && sheetHeight > 0
           ? {
               minX: 0,
               minY: 0,
-              maxX: fixedSheetWidth,
-              maxY: fixedSheetHeight,
+              maxX: sheetWidth,
+              maxY: sheetHeight,
             }
           : null;
 
@@ -1367,8 +1376,8 @@ function registerExportDxfIpc() {
           const rotation = Number(placement.transformation?.rotation) || 0;
           const rawTx = Number(placement.transformation?.translation?.[0]) || 0;
           const rawTy = Number(placement.transformation?.translation?.[1]) || 0;
-          const tx = rawTx + fixedSheetMargin;
-          const ty = rawTy + fixedSheetMargin;
+          const tx = rawTx + sheetMargin;
+          const ty = rawTy + sheetMargin;
           const sourcePolygon = item.export?.polygon || item.shape.data;
           const transformed = applyTransform(sourcePolygon, rotation, tx, ty);
           const pts = transformed[0] && transformed[transformed.length - 1] &&
@@ -1433,15 +1442,23 @@ function registerExportDxfIpc() {
             label: labelForItem(item),
             rotation,
             raw_translation: [rawTx, rawTy],
-            translation_offset: [fixedSheetMargin, fixedSheetMargin],
+            translation_offset: [sheetMargin, sheetMargin],
             translation: [tx, ty],
           });
         });
 
-        const layerDefs = forcedFrame
-          ? ensureLayerDef(collectLayerDefs([{ placedItems }]), FIXED_SHEET_BOUNDS_LAYER)
+        const includeSheetOutline = !!exportSettings.includeSheetOutline && !!sheetFrame;
+        const layerDefs = includeSheetOutline
+          ? ensureLayerDef(collectLayerDefs([{ placedItems }]), SHEET_BOUNDARY_LAYER)
           : collectLayerDefs([{ placedItems }]);
-        const dxf = buildDXF(sheetEntities, engravings, layerDefs, emitDebug, forcedFrame);
+        const dxf = buildDXF(
+          sheetEntities,
+          engravings,
+          layerDefs,
+          emitDebug,
+          sheetFrame,
+          includeSheetOutline,
+        );
         const fileBase = exportSheetFileBase(strip, exportIndex);
         const outPath = path.join(outputDir, `${fileBase}.dxf`);
         const debugPath = path.join(outputDir, `${fileBase}.debug.json`);
@@ -1455,8 +1472,8 @@ function registerExportDxfIpc() {
             sheet_width: strip.sheet_width ?? null,
             strip_width: strip.strip_width ?? null,
             strip_height: strip.strip_height ?? null,
-            forced_frame: forcedFrame,
-            fixed_sheet_bounds_layer: forcedFrame ? FIXED_SHEET_BOUNDS_LAYER.name : null,
+            sheet_frame: sheetFrame,
+            sheet_boundary_layer: includeSheetOutline ? SHEET_BOUNDARY_LAYER.name : null,
             export_item_key_count: Object.keys(exportItems || {}).length,
             placed_item_count: placedItems.length,
             sheet_entity_count: sheetEntities.length,

@@ -64,6 +64,7 @@
     exportFormat: 'dxf',
     exportDebug: false,
     joinConnectedLinework: false,
+    includeSheetOutline: false,
     engravingLayer: '2',
     engravingStyle: 'simple',
     sketchContourMethod: 'arrangement',

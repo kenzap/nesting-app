@@ -239,6 +239,69 @@
       return `M${x},${y} L${x + width},${y} L${x + width},${y + height} L${x},${y + height} z`;
     }
 
+    function parseSolverPolygonPoints(pathData) {
+      const points = [];
+      const coordinatePair = /[ML]\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)[,\s]+([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)/gi;
+      let match;
+      while ((match = coordinatePair.exec(pathData || ''))) {
+        const x = Number(match[1]);
+        const y = Number(match[2]);
+        if (Number.isFinite(x) && Number.isFinite(y)) points.push({ x, y });
+      }
+      return points;
+    }
+
+    function parseSolverPlacementTransform(value) {
+      const transform = String(value || '');
+      const translate = transform.match(/translate\(\s*([-\d.eE+]+)[,\s]+([-\d.eE+]+)\s*\)/i);
+      const rotate = transform.match(/rotate\(\s*([-\d.eE+]+)/i);
+      const angle = (Number(rotate?.[1]) || 0) * Math.PI / 180;
+      return {
+        tx: Number(translate?.[1]) || 0,
+        ty: Number(translate?.[2]) || 0,
+        cos: Math.cos(angle),
+        sin: Math.sin(angle),
+      };
+    }
+
+    function placedItemBounds(root) {
+      const pointsByItemId = new Map();
+      root.querySelectorAll('g[id^="item_"]').forEach(itemGroup => {
+        const points = [];
+        itemGroup.querySelectorAll('path[d]').forEach(path => {
+          points.push(...parseSolverPolygonPoints(path.getAttribute('d')));
+        });
+        if (points.length) pointsByItemId.set(itemGroup.id, points);
+      });
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      let pointCount = 0;
+      root.querySelectorAll('#items use').forEach(use => {
+        const href = use.getAttribute('href')
+          || use.getAttribute('xlink:href')
+          || use.getAttributeNS?.('http://www.w3.org/1999/xlink', 'href')
+          || '';
+        const points = pointsByItemId.get(String(href).replace(/^#/, ''));
+        if (!points?.length) return;
+
+        const transform = parseSolverPlacementTransform(use.getAttribute('transform'));
+        points.forEach(point => {
+          const x = point.x * transform.cos - point.y * transform.sin + transform.tx;
+          const y = point.x * transform.sin + point.y * transform.cos + transform.ty;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+          pointCount += 1;
+        });
+      });
+
+      return pointCount ? { minX, minY, maxX, maxY } : null;
+    }
+
     function ensureTranslatedChildWrapper(group, childSelector, tx, ty, markerName) {
       if (!group || (!tx && !ty)) return false;
 
@@ -293,20 +356,41 @@
       const firstFrameRect = parseRectPathData(firstFramePath?.getAttribute('d'));
       const rawFrameWidth = firstFrameRect ? firstFrameRect.x1 - firstFrameRect.x0 : Number(strip?.strip_width);
       const rawFrameHeight = firstFrameRect ? firstFrameRect.y2 - firstFrameRect.y1 : vb.h;
-      // Preview mirrors the DXF export's shift rule: in `fixed` mode with a
-      // non-zero sheet margin, Sparrow returns placements relative to the
-      // usable-only frame, and both the export and this preview add the margin
-      // back so the parts render inside a visible border. Any other mode leaves
-      // the geometry alone. This replaces an older heuristic that tried to
-      // auto-detect whether Sparrow's frame already accounted for the margin
-      // — that check silently failed on some outputs and left the preview
-      // without any margin band even when the export had one.
+      // Preview mirrors the DXF export's shift rule: with a non-zero sheet
+      // margin, Sparrow usually returns placements relative to the usable-only
+      // frame, and both the export and this preview add the margin back so the
+      // parts render inside a visible border.
+      //
+      // During finalization Sparrow can hand back a usable-area frame while
+      // its parts have already been translated into outer-sheet coordinates.
+      // Applying our own margin shift on top moves the whole layout toward the
+      // top-right for one visible frame. Raw <use> translations cannot detect
+      // this reliably because item-local origins can sit far outside an
+      // outline. Instead, measure the transformed outlines: pre-shifted parts
+      // extend beyond the still-usable frame by approximately one margin.
       const isFixedSheet = config.widthMode === 'fixed'
         && Number.isFinite(configuredWidth) && configuredWidth > 0;
-      const shouldShiftForMargin = isFixedSheet && sheetMargin > 0;
+      let shouldShiftForMargin = sheetMargin > 0;
+      if (shouldShiftForMargin) {
+        const itemBounds = placedItemBounds(root);
+        const frameMinX = firstFrameRect?.x0 || 0;
+        const frameMinY = firstFrameRect?.y0 || 0;
+        const frameMaxX = frameMinX + rawFrameWidth;
+        const frameMaxY = frameMinY + rawFrameHeight;
+        const overflowTolerance = 0.5;
+        const startsInsideOuterMargin = itemBounds
+          && itemBounds.minX >= frameMinX + sheetMargin - overflowTolerance
+          && itemBounds.minY >= frameMinY + sheetMargin - overflowTolerance;
+        const exceedsUsableFrame = itemBounds
+          && (itemBounds.maxX > frameMaxX + overflowTolerance
+            || itemBounds.maxY > frameMaxY + overflowTolerance);
+        if (startsInsideOuterMargin && exceedsUsableFrame) {
+          shouldShiftForMargin = false;
+        }
+      }
       const targetWidth = isFixedSheet
         ? configuredWidth
-        : rawFrameWidth;
+        : rawFrameWidth + (sheetMargin * 2);
       const targetHeight = Number.isFinite(configuredHeight) && configuredHeight > 0
         ? configuredHeight
         : rawFrameHeight;
@@ -564,6 +648,10 @@
           state.activeStripIndex = i;
           btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
           showNestResult(i);
+          // Ruler is placed in sheet-mm coords, which don't map meaningfully
+          // across different sheets — clear the current measurement so it
+          // doesn't hover on top of parts it wasn't drawn against.
+          window.measureToolApi?.resetMeasurement?.();
         });
         dom.canvasTabs.appendChild(btn);
         existing.push(btn);

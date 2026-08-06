@@ -1,7 +1,7 @@
 'use strict';
 
 (function defineExportService(globalScope) {
-  function createExportService({ state, dom }) {
+  function createExportService({ state, dom, getCurrentNestingSettings = () => ({}) }) {
     const { formatWidthMeters } = globalScope.NestHelpers;
     let exportFolderPath = null;
     let exportFolderBookmark = null;
@@ -33,14 +33,24 @@
       return !!(state.nestResult?.strips?.length && !state.nestResult?.is_preview);
     }
 
-    // Returns the effective export width for a strip, preferring the user-configured
-    // fixed width over the solver's strip_width when the sheet is in fixed-width mode.
+    function sheetModeForStrip(strip, sheet) {
+      return String(strip?.sheet_width_mode || sheet?.widthMode || 'fixed');
+    }
+
+    function sheetMarginForStrip(strip) {
+      return Math.max(0, Number(strip?.sheet_margin) || 0);
+    }
+
+    // Sparrow reports the usable width. Fixed sheets keep their configured outer
+    // width; dynamically sized sheets restore both margin bands around that width.
     function exportSheetWidthForStrip(strip, sheet) {
-      if (sheet?.widthMode === 'fixed') {
-        const configuredWidth = Number(sheet?.width);
+      const mode = sheetModeForStrip(strip, sheet);
+      if (mode === 'fixed') {
+        const configuredWidth = Number(strip?.sheet_width ?? sheet?.width);
         if (Number.isFinite(configuredWidth) && configuredWidth > 0) return configuredWidth;
       }
-      return Number(strip?.strip_width) || 0;
+      const rawWidth = Number(strip?.strip_width) || 0;
+      return rawWidth > 0 ? rawWidth + (sheetMarginForStrip(strip) * 2) : 0;
     }
 
     // Recalculates density against the fixed target area so utilisation bars in the
@@ -50,18 +60,21 @@
       if (!Number.isFinite(rawDensity)) return 0;
 
       const rawWidth = Number(strip?.strip_width);
-      const rawHeight = Number(strip?.strip_height) || Number(sheet?.height);
+      const outerHeight = Number(strip?.strip_height) || Number(sheet?.height);
+      const margin = sheetMarginForStrip(strip);
+      const rawHeight = outerHeight - (margin * 2);
       const targetWidth = exportSheetWidthForStrip(strip, sheet);
 
-      if (!Number.isFinite(rawWidth) || rawWidth <= 0 || !Number.isFinite(rawHeight) || rawHeight <= 0) {
+      if (!Number.isFinite(rawWidth) || rawWidth <= 0 || !Number.isFinite(rawHeight) || rawHeight <= 0 ||
+          !Number.isFinite(outerHeight) || outerHeight <= 0) {
         return rawDensity;
       }
-      if (sheet?.widthMode !== 'fixed') return rawDensity;
+      if (sheetModeForStrip(strip, sheet) !== 'fixed' && margin === 0) return rawDensity;
 
       const usedArea = rawDensity * rawWidth * rawHeight;
-      const fixedArea = targetWidth * rawHeight;
-      if (!Number.isFinite(fixedArea) || fixedArea <= 0) return rawDensity;
-      return usedArea / fixedArea;
+      const outerArea = targetWidth * outerHeight;
+      if (!Number.isFinite(outerArea) || outerArea <= 0) return rawDensity;
+      return usedArea / outerArea;
     }
 
     // Rounds a millimetre dimension up to the nearest integer, matching the display
@@ -174,10 +187,11 @@
         index: strip.index,
         json_path: strip.json_path,
         strip_width: strip.strip_width,
-        strip_height: sheet.height || 0,
+        strip_height: strip.strip_height || sheet.height || 0,
         sheet_width: exportSheetWidthForStrip(strip, sheet),
-        sheet_width_mode: sheet.widthMode || 'fixed',
-        density: strip.density,
+        sheet_width_mode: sheetModeForStrip(strip, sheet),
+        sheet_margin: sheetMarginForStrip(strip),
+        density: exportSheetDensityForStrip(strip, sheet),
         item_count: strip.item_count,
         material: sheet.material || '',
       }));
@@ -206,7 +220,7 @@
       dom.exportSummaryLength.textContent = `${(totalMm / 1000).toFixed(2)} m`;
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       if (isPreview) {
-        dom.exportFolderLabel.textContent = 'Waiting for final Sparrow result before export';
+        dom.exportFolderLabel.textContent = 'Finalizing sheets…';
       }
 
       dom.exportTableBody.innerHTML = '';
@@ -326,6 +340,7 @@
             inputPath: state.nestInputPath || null,
             exportItems: state.lastPlacementExportItems || {},
             strips: buildExportStrips(),
+            includeSheetOutline: !!getCurrentNestingSettings()?.includeSheetOutline,
           });
           if (!result?.success) throw new Error(result?.error || 'Export failed');
 
