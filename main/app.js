@@ -42,9 +42,27 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
   }
 
   const viewSubmenu = [
-    { role: 'resetZoom' },
-    { role: 'zoomIn' },
-    { role: 'zoomOut' },
+    {
+      label: 'Fit to View',
+      accelerator: 'CmdOrCtrl+0',
+      click: (_menuItem, browserWindow) => {
+        dispatchRendererMenuAction('canvas-fit-view', browserWindow || mainWindow);
+      },
+    },
+    {
+      label: 'Zoom In',
+      accelerator: 'CmdOrCtrl+=',
+      click: (_menuItem, browserWindow) => {
+        dispatchRendererMenuAction('canvas-zoom-in', browserWindow || mainWindow);
+      },
+    },
+    {
+      label: 'Zoom Out',
+      accelerator: 'CmdOrCtrl+-',
+      click: (_menuItem, browserWindow) => {
+        dispatchRendererMenuAction('canvas-zoom-out', browserWindow || mainWindow);
+      },
+    },
     { type: 'separator' },
     {
       label: 'Measure',
@@ -240,6 +258,13 @@ function registerAppMenuIpc() {
           break;
         case 'reset-zoom':
           win?.webContents.setZoomLevel(0);
+          break;
+        case 'canvas-fit-view':
+        case 'canvas-zoom-in':
+        case 'canvas-zoom-out':
+          if (!dispatchRendererMenuAction(action, win)) {
+            return { success: false, error: 'No active window to receive canvas zoom action' };
+          }
           break;
         case 'open-settings':
           if (!dispatchRendererMenuAction('open-settings', win)) {

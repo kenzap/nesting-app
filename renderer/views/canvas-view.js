@@ -17,6 +17,9 @@
     const SVG_PREVIEW_MARGIN_Y = 44;
     const SHEET_LABEL_FONT_SIZE = 22;
     const SHEET_LABEL_OFFSET_Y = 8;
+    const MIN_ZOOM = 0.2;
+    const MAX_ZOOM = 4;
+    const ZOOM_STEP = 0.15;
 
     function isLightTheme() {
       return typeof document !== 'undefined'
@@ -887,13 +890,60 @@
       }
     }
 
+    function clampZoom(value) {
+      return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+    }
+
+    function setZoom(nextZoom, { recenter = false, anchorEvent = null } = {}) {
+      const svg = dom.svgContainer.querySelector('svg');
+      const beforeRect = anchorEvent && svg ? svg.getBoundingClientRect() : null;
+      const anchorX = beforeRect?.width
+        ? (anchorEvent.clientX - beforeRect.left) / beforeRect.width
+        : null;
+      const anchorY = beforeRect?.height
+        ? (anchorEvent.clientY - beforeRect.top) / beforeRect.height
+        : null;
+
+      state.zoom = clampZoom(nextZoom);
+      applyZoom(recenter);
+
+      if (!beforeRect || anchorX === null || anchorY === null || !dom.viewport) return;
+      const afterRect = svg.getBoundingClientRect();
+      dom.viewport.scrollLeft += afterRect.left + (anchorX * afterRect.width) - anchorEvent.clientX;
+      dom.viewport.scrollTop += afterRect.top + (anchorY * afterRect.height) - anchorEvent.clientY;
+    }
+
+    function zoomIn() {
+      setZoom(state.zoom + ZOOM_STEP);
+    }
+
+    function zoomOut() {
+      setZoom(state.zoom - ZOOM_STEP);
+    }
+
+    function fitView() {
+      setZoom(1, { recenter: true });
+    }
+
+    function handleViewportWheel(event) {
+      const isPinchZoom = event.ctrlKey || event.metaKey;
+      const isDiscreteWheel = event.deltaMode !== 0
+        || (Math.abs(event.deltaY) >= 40 && Math.abs(event.deltaX) < 2);
+      if (!isPinchZoom && !isDiscreteWheel) return;
+
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setZoom(state.zoom + (direction * ZOOM_STEP), { anchorEvent: event });
+    }
+
     // Wires up all canvas interaction: zoom-in/out/fit buttons update state.zoom and call
     // applyZoom, while mousedown/mousemove/mouseup on the viewport implement click-drag panning.
     // Also re-applies zoom on window resize so the fit scale stays accurate.
     function bind() {
-      dom.zoomIn.addEventListener('click', () => { state.zoom = Math.min(4, state.zoom + 0.15); applyZoom(); });
-      dom.zoomOut.addEventListener('click', () => { state.zoom = Math.max(0.2, state.zoom - 0.15); applyZoom(); });
-      dom.fitView.addEventListener('click', () => { state.zoom = 1; applyZoom(true); });
+      dom.zoomIn.addEventListener('click', zoomIn);
+      dom.zoomOut.addEventListener('click', zoomOut);
+      dom.fitView.addEventListener('click', fitView);
+      dom.viewport?.addEventListener('wheel', handleViewportWheel, { passive: false });
 
       let viewportDrag = null;
       dom.viewport?.addEventListener('mousedown', e => {
@@ -928,6 +978,9 @@
       renderTabs,
       showNestResult,
       applyZoom,
+      zoomIn,
+      zoomOut,
+      fitView,
       bind,
     };
   }

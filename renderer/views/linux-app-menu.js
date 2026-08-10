@@ -20,6 +20,11 @@
       edit: [
         { label: 'Settings…', action: 'open-settings', type: 'ipc' },
       ],
+      view: [
+        { label: 'Fit to View', action: 'canvas-fit-view', type: 'ipc' },
+        { label: 'Zoom In', action: 'canvas-zoom-in', type: 'ipc' },
+        { label: 'Zoom Out', action: 'canvas-zoom-out', type: 'ipc' },
+      ],
       window: [
         { label: 'Minimize', action: 'minimize-window', type: 'ipc' },
         { label: 'Zoom', action: 'toggle-maximize-window', type: 'ipc' },

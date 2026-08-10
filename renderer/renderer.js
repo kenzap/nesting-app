@@ -205,6 +205,9 @@ window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
   if (action === 'open-settings') settingsModalApi.open();
   else if (action === 'toggle-measure') measureToolApi.toggle();
   else if (action === 'toggle-cursor-coords') toggleShowCursorCoords();
+  else if (action === 'canvas-fit-view') canvasViewApi.fitView();
+  else if (action === 'canvas-zoom-in') canvasViewApi.zoomIn();
+  else if (action === 'canvas-zoom-out') canvasViewApi.zoomOut();
 });
 
 // View → Live Coordinates. Flips state.settings.showCursorCoords, persists it
