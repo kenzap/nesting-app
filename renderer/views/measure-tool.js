@@ -495,6 +495,108 @@
       if (coordChipEl) coordChipEl.style.transform = transform;
     }
 
+    function chooseMeasurementLabelPosition({
+      anchorPx,
+      endpointPx,
+      chipWidth,
+      chipHeight,
+      viewportWidth,
+      viewportHeight,
+    }) {
+      const midX = (anchorPx.x + endpointPx.x) / 2;
+      const midY = (anchorPx.y + endpointPx.y) / 2;
+      const lineDx = endpointPx.x - anchorPx.x;
+      const lineDy = endpointPx.y - anchorPx.y;
+      const lineLen = Math.hypot(lineDx, lineDy);
+      const unitX = lineLen > 0.1 ? lineDx / lineLen : 1;
+      const unitY = lineLen > 0.1 ? lineDy / lineLen : 0;
+      let perpX = -unitY;
+      let perpY = unitX;
+      if (perpY > 0) { perpX = -perpX; perpY = -perpY; }
+
+      const halfWidth = chipWidth / 2;
+      const halfHeight = chipHeight / 2;
+      const edgePadding = 8;
+      const endpointClearance = 9;
+      const inflatedHalfWidth = halfWidth + endpointClearance;
+      const inflatedHalfHeight = halfHeight + endpointClearance;
+      const endpoints = [anchorPx, endpointPx];
+
+      const fitsViewport = ({ x, y }) => (
+        x - halfWidth >= edgePadding
+        && x + halfWidth <= viewportWidth - edgePadding
+        && y - halfHeight >= edgePadding
+        && y + halfHeight <= viewportHeight - edgePadding
+      );
+      const clearsEndpoints = ({ x, y }) => endpoints.every(point => (
+        Math.abs(point.x - x) > inflatedHalfWidth
+        || Math.abs(point.y - y) > inflatedHalfHeight
+      ));
+
+      const candidates = [];
+      // Prefer a compact perpendicular offset, increasing it only until both
+      // endpoint handles are clear. Try the opposite side near canvas edges.
+      for (const side of [1, -1]) {
+        for (let offset = 18; offset <= 90; offset += 6) {
+          candidates.push({
+            x: midX + perpX * offset * side,
+            y: midY + perpY * offset * side,
+          });
+        }
+      }
+      // Very narrow diagonal measurements can occupy the bubble's full width
+      // on both perpendicular sides. Outside-end candidates are the fallback.
+      const outsideOffset = lineLen / 2 + halfWidth + endpointClearance + 5;
+      candidates.push(
+        { x: midX + unitX * outsideOffset, y: midY + unitY * outsideOffset },
+        { x: midX - unitX * outsideOffset, y: midY - unitY * outsideOffset },
+      );
+
+      let center = candidates.find(candidate => (
+        fitsViewport(candidate) && clearsEndpoints(candidate)
+      ));
+      if (!center) {
+        // On extremely small viewports, keep the label visible and maximize
+        // endpoint clearance even if no candidate satisfies every constraint.
+        center = candidates
+          .map(candidate => ({
+            x: Math.max(
+              edgePadding + halfWidth,
+              Math.min(viewportWidth - edgePadding - halfWidth, candidate.x),
+            ),
+            y: Math.max(
+              edgePadding + halfHeight,
+              Math.min(viewportHeight - edgePadding - halfHeight, candidate.y),
+            ),
+          }))
+          .sort((a, b) => {
+            const clearance = point => Math.min(...endpoints.map(endpoint => (
+              Math.hypot(point.x - endpoint.x, point.y - endpoint.y)
+            )));
+            return clearance(b) - clearance(a);
+          })[0] || { x: midX, y: midY - 30 };
+      }
+
+      const toMidX = midX - center.x;
+      const toMidY = midY - center.y;
+      const boundaryScale = Math.min(
+        Math.abs(toMidX) > 0.01 ? halfWidth / Math.abs(toMidX) : Infinity,
+        Math.abs(toMidY) > 0.01 ? halfHeight / Math.abs(toMidY) : Infinity,
+      );
+      const leaderEnd = Number.isFinite(boundaryScale)
+        ? {
+          x: center.x + toMidX * boundaryScale,
+          y: center.y + toMidY * boundaryScale,
+        }
+        : { x: center.x, y: center.y + halfHeight };
+
+      return {
+        center,
+        leaderStart: { x: midX, y: midY },
+        leaderEnd,
+      };
+    }
+
     function redrawOverlay() {
       if (!overlaySvgEl || !dom.viewport) return;
       pinToVisibleFrame();
@@ -535,36 +637,23 @@
       const distance = Math.hypot(dx, dy);
       const label = `${distance.toFixed(1)} mm`;
 
-      const midX = (anchorPx.x + endpointPx.x) / 2;
-      const midY = (anchorPx.y + endpointPx.y) / 2;
       const isOrtho = shiftDown && anchorSheet && cursorSheet;
       const lineDash = committed ? '' : 'stroke-dasharray="4 3"';
       const chipFill = committed ? 'var(--accent)' : 'var(--surface)';
       const chipStroke = committed ? 'var(--accent)' : 'var(--accent)';
       const chipTextColor = committed ? '#ffffff' : 'var(--accent)';
       const chipWidth = 12 + label.length * 7.2;
-
-      // Position the chip OFF the line (perpendicular offset in screen space)
-      // so it never covers the endpoints — matters for short measurements
-      // where midpoint-of-line lands right between the two anchor circles.
-      // Prefer the "up" side of the line so the chip clears part geometry
-      // that typically extends downward.
-      const CHIP_OFFSET_PX = 18;
-      const lineDx = endpointPx.x - anchorPx.x;
-      const lineDy = endpointPx.y - anchorPx.y;
-      const lineLen = Math.hypot(lineDx, lineDy);
-      let perpX = 0;
-      let perpY = -1; // fallback: straight up for zero-length lines
-      if (lineLen > 0.1) {
-        perpX = -lineDy / lineLen;
-        perpY = lineDx / lineLen;
-        // Flip toward the "up" screen direction so the chip stays out of
-        // most part geometry (which naturally extends into the sheet body).
-        if (perpY > 0) { perpX = -perpX; perpY = -perpY; }
-      }
-      const chipCenterX = midX + perpX * CHIP_OFFSET_PX;
-      const chipCenterY = midY + perpY * CHIP_OFFSET_PX;
-      const chipY = chipCenterY;
+      const chipHeight = 24;
+      const labelPlacement = chooseMeasurementLabelPosition({
+        anchorPx,
+        endpointPx,
+        chipWidth,
+        chipHeight,
+        viewportWidth: overlayRect.width,
+        viewportHeight: overlayRect.height,
+      });
+      const chipCenterX = labelPlacement.center.x;
+      const chipY = labelPlacement.center.y;
 
       // Snapped anchors render as hollow rings so the underlying corner
       // geometry stays visible; unsnapped anchors are solid dots.
@@ -596,11 +685,11 @@
       overlaySvgEl.innerHTML = `
         <line x1="${anchorPx.x}" y1="${anchorPx.y}" x2="${endpointPx.x}" y2="${endpointPx.y}"
               stroke="var(--accent)" stroke-width="1.5" ${lineDash}/>
-        ${liveSnapMarker}
-        ${anchorMarker}
-        ${endpointMarker}
+        <line x1="${labelPlacement.leaderStart.x}" y1="${labelPlacement.leaderStart.y}"
+              x2="${labelPlacement.leaderEnd.x}" y2="${labelPlacement.leaderEnd.y}"
+              stroke="var(--accent)" stroke-width="1" stroke-opacity="0.55"/>
         <g transform="translate(${chipCenterX} ${chipY})">
-          <rect x="${-chipWidth / 2}" y="-12" width="${chipWidth}" height="24" rx="12"
+          <rect x="${-chipWidth / 2}" y="${-chipHeight / 2}" width="${chipWidth}" height="${chipHeight}" rx="12"
                 fill="${chipFill}" stroke="${chipStroke}" stroke-width="1"/>
           <text x="0" y="4" text-anchor="middle"
                 font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
@@ -616,7 +705,10 @@
                </g>`
             : ''
           }
-        </g>`;
+        </g>
+        ${liveSnapMarker}
+        ${anchorMarker}
+        ${endpointMarker}`;
     }
 
     // Ortho snap: if Shift is held during rubber-band phase, lock the endpoint
