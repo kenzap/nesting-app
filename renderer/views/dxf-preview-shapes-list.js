@@ -4,7 +4,7 @@
   const { f, f1 } = global.NestDxfSvg;
   const { adjustHexColorForTheme, adjustSvgTextForTheme } = global.NestDxfColor;
 
-  function createDxfPreviewShapesListView({ pv, getShapesList, getShapeCount, getFileMeta, getStats, syncActions }) {
+  function createDxfPreviewShapesListView({ pv, getShapesList, getShapeCount, getFileMeta, getStats, syncActions, getFitWarning }) {
     // Rebuilds the entire shapes panel list so the UI reflects the latest shape state.
     // Groups shapes by layer with a coloured header, floats removed shapes to the bottom,
     // and wires up thumbnail SVGs, qty +/- buttons, direct qty input, and the restore button.
@@ -27,6 +27,7 @@
 
       let lastLayer = null;
       grouped.forEach(shape => {
+        const fitWarning = getFitWarning?.(shape.id) || null;
         if (shape.layer !== lastLayer) {
           lastLayer = shape.layer;
           const color = (pv.layers.find(layer => layer.name === shape.layer) || {}).color || '#888';
@@ -51,12 +52,17 @@
         </svg>`;
 
         const row = document.createElement('div');
-        row.className = `pvw-shape-row${shape.id === pv.selectedId ? ' selected' : ''}${shape.visible === false ? ' dimmed' : ''}`;
+        row.className = `pvw-shape-row${shape.id === pv.selectedId ? ' selected' : ''}${shape.visible === false ? ' dimmed' : ''}${fitWarning ? ' fit-error' : ''}`;
         row.dataset.id = shape.id;
+        if (fitWarning) {
+          row.setAttribute('aria-invalid', 'true');
+          row.setAttribute('aria-label', `${shape.name}. ${fitWarning.message}`);
+        }
         row.innerHTML = `
           <div class="pvw-thumb">${thumb}</div>
           <div class="pvw-info">
-            <div class="pvw-name">${shape.name}</div>
+            <div class="pvw-name">${shape.name}${fitWarning ? `
+              <span class="fit-pill" role="status">Too large</span>` : ''}</div>
             <div class="pvw-dims">${f1(shape.bbox.w)} × ${f1(shape.bbox.h)} mm${shape.visible === false ? ' · removed' : ''}</div>
           </div>
           <div class="pvw-controls">
@@ -66,6 +72,8 @@
                  <input class="qty-value qty-input pvw-qty-input" data-id="${shape.id}" type="number" min="1" step="1" value="${shape.qty}" aria-label="Quantity for ${shape.name}">
                  <button class="qty-btn pvw-inc" data-id="${shape.id}">+</button>`}
           </div>`;
+        const fitPill = row.querySelector('.fit-pill');
+        if (fitPill) fitPill.title = fitWarning.message;
         row.addEventListener('click', event => {
           if (!event.target.closest('.pvw-controls')) onSelectShape(shape.id);
         });

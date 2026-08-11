@@ -15,6 +15,7 @@
       editingSheetId: null,
       activeStripIndex: 0,
       lastPlacementExportItems: null,
+      partFitWarnings: [],
       nestInputPath: null,
     };
 

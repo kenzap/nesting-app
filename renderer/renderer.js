@@ -358,6 +358,7 @@ const nestingServiceApi = window.NestNestingService.createNestingService({
   renderTabs: canvasViewApi.renderTabs,
   syncExportButton: exportServiceApi.syncExportButton,
   partsHistory: partsHistoryApi,
+  setPartFitWarnings: filesPaneApi.setFitWarnings,
 });
 
 // DXF preview modal — opens the shape-selection overlay where users can pick

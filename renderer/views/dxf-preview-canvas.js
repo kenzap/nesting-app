@@ -15,16 +15,38 @@
   const TARGET_DISPLAY_PX = 700;
   const MIN_DISPLAY_SCALE = 0.15;   // don't crush very large shapes below 15 %
   const MAX_DISPLAY_SCALE = 40;     // don't blow up very tiny shapes above 40×
+  // Keep the overflow-mask implementation available while showing a single,
+  // uniform warning tone in the modal preview.
+  const SHOW_FIT_OVERFLOW_TINT = false;
+
+  // Bounds a shape's display box in mm — normally its own bbox, but expanded
+  // to also cover the sheet's usable dimensions when the shape has a fit
+  // warning. That way both the shape AND the sheet outline overlay share the
+  // same displayScale and fit inside the layout slot without spilling into
+  // neighbouring shapes or the caption row below.
+  function shapeDisplayBounds(shape, sheetOverlayDims) {
+    const w = Math.max(shape.bbox.w || 0, sheetOverlayDims?.width || 0);
+    const h = Math.max(shape.bbox.h || 0, sheetOverlayDims?.height || 0);
+    return { w, h };
+  }
 
   // Returns the scale factor to apply to a shape's SVG so its longest side is
   // approximately TARGET_DISPLAY_PX pixels, clamped to a sensible range.
-  function shapeDisplayScale(shape) {
-    const longest = Math.max(shape.bbox.w || 0, shape.bbox.h || 0);
+  function shapeDisplayScale(shape, sheetOverlayDims) {
+    const bounds = shapeDisplayBounds(shape, sheetOverlayDims);
+    const longest = Math.max(bounds.w, bounds.h);
     if (!longest) return 1;
     return Math.max(MIN_DISPLAY_SCALE, Math.min(MAX_DISPLAY_SCALE, TARGET_DISPLAY_PX / longest));
   }
 
-  function createDxfPreviewCanvasView({ pv, getCanvasWrap, getLayerConfig }) {
+  function createDxfPreviewCanvasView({ pv, getCanvasWrap, getLayerConfig, getFitWarning, getSheetUsableDims }) {
+    // Returns the sheet-outline dims that should influence this shape's
+    // display box, or null when the shape has no fit warning / no sheet
+    // dimensions are available. Reused by autoLayout, buildPreviewSVG, and
+    // the per-shape overlay so all three stay in lockstep.
+    function sheetOverlayFor(shape) {
+      return (getFitWarning?.(shape.id) && getSheetUsableDims?.()) || null;
+    }
     // Reads the live rendered width of the canvas column so the SVG fills the
     // actual available space instead of falling back to the hardcoded default.
     function getCanvasWidth() {
@@ -46,9 +68,11 @@
       let y = PAD;
       let rowH = 0;
       return shapes.map(shape => {
-        const scale = shapeDisplayScale(shape);
-        const displayW = shape.bbox.w * scale;
-        const displayH = shape.bbox.h * scale;
+        const overlayDims = sheetOverlayFor(shape);
+        const scale = shapeDisplayScale(shape, overlayDims);
+        const bounds = shapeDisplayBounds(shape, overlayDims);
+        const displayW = bounds.w * scale;
+        const displayH = bounds.h * scale;
         if (x + displayW + PAD > canvasWidth && x > PAD) {
           x = PAD;
           y += rowH + PAD;
@@ -65,8 +89,16 @@
     // grid, and one <g> per shape with selection glow, decor layers, boundary
     // items, engraving label, and a name caption underneath.
     function buildPreviewSVG(shapes, positions, activeLayer, selectedId, canvasWidth) {
-      const maxX = positions.reduce((max, pos, index) => Math.max(max, pos.x + shapes[index].bbox.w * shapeDisplayScale(shapes[index]) + PAD), 0);
-      const maxY = positions.reduce((max, pos, index) => Math.max(max, pos.y + shapes[index].bbox.h * shapeDisplayScale(shapes[index]) + 14), 0) + PAD;
+      const maxX = positions.reduce((max, pos, index) => {
+        const overlayDims = sheetOverlayFor(shapes[index]);
+        const bounds = shapeDisplayBounds(shapes[index], overlayDims);
+        return Math.max(max, pos.x + bounds.w * shapeDisplayScale(shapes[index], overlayDims) + PAD);
+      }, 0);
+      const maxY = positions.reduce((max, pos, index) => {
+        const overlayDims = sheetOverlayFor(shapes[index]);
+        const bounds = shapeDisplayBounds(shapes[index], overlayDims);
+        return Math.max(max, pos.y + bounds.h * shapeDisplayScale(shapes[index], overlayDims) + 14);
+      }, 0) + PAD;
       const width = Math.max(canvasWidth, maxX, DEFAULT_CANVAS_W);
       const height = Math.max(maxY, 220);
 
@@ -84,6 +116,7 @@
       const shapeEls = shapes.map((shape, index) => {
         const pos = positions[index];
         const isSelected = shape.id === selectedId;
+        const fitWarning = getFitWarning?.(shape.id) || null;
         const hasActiveLayer = activeLayer !== null;
         const renderSyntheticPath = !shape.hasSyntheticOuter;
         const selectableLayers = shape.ownerLayers || [shape.layer];
@@ -115,9 +148,11 @@
           )
           : '';
 
-        const displayScale = shapeDisplayScale(shape);
-        const displayW = shape.bbox.w * displayScale;
-        const displayH = shape.bbox.h * displayScale;
+        const overlayDims = sheetOverlayFor(shape);
+        const displayScale = shapeDisplayScale(shape, overlayDims);
+        const displayBounds = shapeDisplayBounds(shape, overlayDims);
+        const displayW = displayBounds.w * displayScale;
+        const displayH = displayBounds.h * displayScale;
         // All stroke widths in the pre-built SVG strings are in mm units.
         // Dividing by displayScale keeps them visually consistent after the
         // scale() transform is applied to the group.
@@ -127,15 +162,37 @@
         );
         const strokeW = f(baseStrokeWidth / displayScale);
         const selStrokeW = f(2.8 / displayScale);
+        const fitStrokeW = f(3 / displayScale);
+        const fitPath = selectionPath || shape.pathData;
+        // Fit overlay: the full silhouette receives the normal warning fill
+        // and outline below. This second, stronger tint identifies only the
+        // portion outside the usable sheet and is clipped to the real part
+        // contour so it never appears as a detached rectangular strip.
+        const fitClipId = overlayDims ? `pvwFitClip_${shape.id}` : '';
+        const sheetOutlineMarkup = overlayDims && SHOW_FIT_OVERFLOW_TINT
+          ? `<defs>
+              <clipPath id="${fitClipId}">
+                ${fitPath
+                  ? `<path d="${fitPath}" fill-rule="${shape.fillRule}" clip-rule="${shape.fillRule}"/>`
+                  : `<rect x="0" y="0" width="${f(shape.bbox.w)}" height="${f(shape.bbox.h)}"/>`}
+              </clipPath>
+            </defs>
+            <path d="M 0 0 L ${f(displayBounds.w)} 0 L ${f(displayBounds.w)} ${f(displayBounds.h)} L 0 ${f(displayBounds.h)} Z M 0 0 L ${f(overlayDims.width)} 0 L ${f(overlayDims.width)} ${f(overlayDims.height)} L 0 ${f(overlayDims.height)} Z"
+                  fill="#f75f5f" fill-opacity="0.32" fill-rule="evenodd"
+                  clip-path="url(#${fitClipId})"
+                  pointer-events="none"/>`
+          : '';
         const normBoundaryItems = visibleBoundaryItems.map(item => adjustSvgTextForTheme(normaliseStrokes(item.svg)));
         const normDecorItems    = visibleDecorItems.map(item => adjustSvgTextForTheme(normaliseStrokes(item.svg)));
         const dynamicColor = adjustHexColorForTheme(shape.layerColor);
         const adjustedPreviewLabelSvg = adjustSvgTextForTheme(previewLabelSvg);
         return `
-<g class="pvw-shape" data-id="${shape.id}"
+<g class="pvw-shape${fitWarning ? ' fit-error' : ''}" data-id="${shape.id}"
    transform="translate(${f(pos.x)},${f(pos.y)})"
    opacity="${isDimmed ? 0.12 : 1}" style="cursor:pointer">
   <g transform="scale(${f(displayScale)})">
+    ${fitWarning && fitPath ? `<path class="pvw-fit-error-outline" d="${fitPath}" fill="#f75f5f" fill-opacity="0.1" fill-rule="${shape.fillRule}" stroke="#f75f5f" stroke-width="${fitStrokeW}" stroke-linejoin="round"/>` : ''}
+    ${sheetOutlineMarkup}
     ${showOuter && isSelected && allowSelectionFill && selectionPath ? `<path d="${selectionPath}" fill="white" fill-opacity="0.06" fill-rule="${shape.fillRule}" stroke="none"/>` : ''}
     ${showOuter && isSelected && selectionPath ? `<path d="${selectionPath}" fill="none" stroke="${dynamicColor}" stroke-width="${selStrokeW}" stroke-opacity="0.75" stroke-linejoin="round" fill-rule="${shape.fillRule}" filter="url(#pvwGlow)"/>` : ''}
     ${showOuter && renderSyntheticPath && !shape.mixedOuterLayers && !isSelected ? `<path d="${shape.pathData}" fill="${dynamicColor}" fill-opacity="${allowSelectionFill ? dimmedOuterOpacity : 0}" fill-rule="${shape.fillRule}" stroke="${dynamicColor}" stroke-opacity="${baseStrokeOpacity}" stroke-width="${strokeW}" stroke-linejoin="round"/>` : ''}
@@ -146,7 +203,7 @@
     ${adjustedPreviewLabelSvg}
   </g>
   <text x="${f(displayW / 2)}" y="${f(displayH + 11)}" text-anchor="middle" font-size="8" fill="${dynamicColor}" opacity="0.6" font-family="monospace">${shape.name}</text>
-  <title>${shape.name} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestDxfSvg.f1(shape.bbox.w)}×${global.NestDxfSvg.f1(shape.bbox.h)} mm</title>
+  <title>${shape.name} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestDxfSvg.f1(shape.bbox.w)}×${global.NestDxfSvg.f1(shape.bbox.h)} mm${fitWarning ? ' · does not fit' : ''}</title>
 </g>`;
       }).join('');
 

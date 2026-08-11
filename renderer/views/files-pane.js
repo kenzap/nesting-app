@@ -3,6 +3,16 @@
 (function defineFilesPane(globalScope) {
   function createFilesPane({ state, dom, schedulePersistJobState, hydrateFileShapesForList }) {
     const { uid, formatBytes, effectiveFileQty } = globalScope.NestHelpers;
+    state.partFitWarnings = Array.isArray(state.partFitWarnings) ? state.partFitWarnings : [];
+
+    function fitWarningForFile(fileId) {
+      const matches = state.partFitWarnings.filter(warning => warning?.fileId === fileId);
+      if (!matches.length) return null;
+      return {
+        count: matches.length,
+        message: matches.map(warning => warning.message).filter(Boolean).join('\n'),
+      };
+    }
 
     // Rebuilds the DXF files sidebar so it matches current state.
     // Shows each file's shape count, size, and total qty, wires up the ✕ remove buttons,
@@ -11,16 +21,22 @@
       dom.fileList.innerHTML = '';
       if (dom.clearFilesBtn) dom.clearFilesBtn.disabled = state.files.length === 0;
       state.files.forEach(f => {
+        const fitWarning = fitWarningForFile(f.id);
         const shapeCount = Array.isArray(f.shapes)
           ? f.shapes.filter(shape => shape.visible !== false).length
           : 0;
         const shapeLabel = `${shapeCount} shape${shapeCount === 1 ? '' : 's'}`;
         const li = document.createElement('li');
-        li.className = 'file-item';
+        li.className = `file-item${fitWarning ? ' part-fit-error' : ''}`;
+        if (fitWarning) {
+          li.setAttribute('aria-invalid', 'true');
+          li.setAttribute('aria-label', `${f.name}. ${fitWarning.message}`);
+        }
         li.innerHTML = `
           <div class="file-icon">DXF</div>
           <div class="file-info">
-            <div class="file-name" title="${f.name}">${f.name}</div>
+            <div class="file-name" title="${f.name}">${f.name}${fitWarning ? `
+              <span class="fit-pill" role="status">Too large</span>` : ''}</div>
             <div class="file-size">${shapeLabel} · ${formatBytes(f.size)}</div>
           </div>
           <div class="file-qty-total">${effectiveFileQty(f)}</div>
@@ -29,6 +45,8 @@
               <path d="M9 1L1 9M1 1l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </button>`;
+        const fitPill = li.querySelector('.fit-pill');
+        if (fitPill) fitPill.title = fitWarning.message;
         li.addEventListener('click', e => {
           if (!e.target.closest('.file-remove')) {
             if (window.openDXFPreview) window.openDXFPreview(f.id, f.name);
@@ -48,6 +66,15 @@
       });
 
       dom.dropZone.style.display = 'flex';
+    }
+
+    function setFitWarnings(warnings = []) {
+      state.partFitWarnings = Array.isArray(warnings) ? warnings.filter(warning => warning?.fileId) : [];
+      renderFiles();
+      if (!state.partFitWarnings.length) return;
+      requestAnimationFrame(() => {
+        dom.fileList.querySelector('.part-fit-error')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
     }
 
     // Accepts an array of file objects and adds them to state, skipping duplicates by name.
@@ -119,6 +146,7 @@
       renderFiles,
       addFiles,
       removeJobFileById,
+      setFitWarnings,
       bind,
     };
   }

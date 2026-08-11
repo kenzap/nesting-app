@@ -2,16 +2,17 @@
 
   (function defineNestingService(globalScope) {
     function createNestingService({
-    state,
-    dom,
-    getCurrentNestingSettings,
-    exportPlacementJSON,
-    setStatus,
-    setNestStatsTone,
-    showNestResult,
-    renderTabs,
+      state,
+      dom,
+      getCurrentNestingSettings,
+      exportPlacementJSON,
+      setStatus,
+      setNestStatsTone,
+      showNestResult,
+      renderTabs,
       syncExportButton,
       partsHistory = null,
+      setPartFitWarnings = null,
     }) {
       const {
         MULTI_SHEET_STRATEGY_OPTIONS = {
@@ -21,6 +22,7 @@
           'by-height-or-length': { multiStripMode: 'prebucket', bucketFillWeight: null },
         },
       } = globalScope.NestSettings || {};
+      const { findUnfitPlacementItems } = globalScope.NestHelpers || {};
       let nestInterval = null;
       let sparrowRunAborted = false;
       let activeSparrowRunId = null;
@@ -157,6 +159,70 @@
       };
     }
 
+    function formatFitDimension(value) {
+      if (!Number.isFinite(Number(value))) return 'unlimited';
+      const rounded = Math.round(Number(value) * 10) / 10;
+      return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    }
+
+    function exportMetadataForItem(itemId) {
+      return state.lastPlacementExportItems?.[itemId]
+        || state.lastPlacementExportItems?.[String(itemId)]
+        || null;
+    }
+
+    function sourceFileIdForMetadata(metadata) {
+      if (metadata?.source_file_id && state.files.some(file => file.id === metadata.source_file_id)) {
+        return metadata.source_file_id;
+      }
+      const source = String(metadata?.source_file || '');
+      const sourceName = String(metadata?.source_name || '');
+      return state.files.find(file => (
+        (source && (file.path === source || file.name === source))
+        || (sourceName && file.name === sourceName)
+      ))?.id || null;
+    }
+
+    function warningsForUnfitItems(unfitItems, { usableWidth, usableHeight }) {
+      return (unfitItems || []).map(item => {
+        const metadata = exportMetadataForItem(item.id);
+        const fileId = sourceFileIdForMetadata(metadata);
+        if (!fileId) return null;
+        const required = `${formatFitDimension(item.width)} × ${formatFitDimension(item.height)} mm`;
+        const available = Number.isFinite(usableWidth)
+          ? `${formatFitDimension(usableWidth)} × ${formatFitDimension(usableHeight)} mm`
+          : `${formatFitDimension(usableHeight)} mm usable height`;
+        return {
+          fileId,
+          itemId: item.id,
+          shapeId: metadata?.source_shape_id || null,
+          message: `Does not fit. Best allowed rotation requires ${required}; usable sheet area is ${available}.`,
+        };
+      }).filter(Boolean);
+    }
+
+    // Some engine failures identify the exact input item even when the local
+    // dimensional preflight could not reproduce the engine-side constraint.
+    function warningsFromSolverError(...chunks) {
+      const text = cleanErrorText(chunks.map(errorChunkText).filter(Boolean).join('\n'));
+      const itemIds = new Set();
+      const itemPattern = /\bitem\s+(?:id\s*)?[#:]?\s*(\d+)\b[^\n]*(?:cannot fit|does not (?:seem to )?fit|doesn't fit|too large|larger than)/gi;
+      let match;
+      while ((match = itemPattern.exec(text))) itemIds.add(Number(match[1]));
+
+      return [...itemIds].map(itemId => {
+        const metadata = exportMetadataForItem(itemId);
+        const fileId = sourceFileIdForMetadata(metadata);
+        if (!fileId) return null;
+        return {
+          fileId,
+          itemId,
+          shapeId: metadata?.source_shape_id || null,
+          message: 'The nesting engine reported that this part does not fit on the configured sheet.',
+        };
+      }).filter(Boolean);
+    }
+
     // Sets the status chip to error, tints the status bar red, and writes the error
     // message with a tooltip containing the full solver details for debugging.
     function showRunError(message, details = '') {
@@ -169,6 +235,12 @@
 
     function presentRunError(stage, ...chunks) {
       const failure = normalizeRunError(...chunks);
+      const reportedWarnings = warningsFromSolverError(...chunks);
+      if (reportedWarnings.length) {
+        setPartFitWarnings?.(reportedWarnings);
+        const subject = reportedWarnings.length === 1 ? 'The affected part is' : 'The affected parts are';
+        failure.message = `${failure.message} ${subject} highlighted in Parts.`;
+      }
       console.error(`[Nesting] ${failure.message}`);
       if (failure.details && failure.details !== failure.message) {
         console.groupCollapsed(`[Nesting details] ${stage}`);
@@ -333,6 +405,10 @@
           return;
         }
 
+        // A new valid run re-checks every part, so remove warnings left by the
+        // previous sheet configuration before preparing the new payload.
+        setPartFitWarnings?.([]);
+
         // Snapshot the parts list into the run-history stack before starting.
         // No-op if the list hasn't changed since the previous run, so back-to-back
         // runs on the same configuration don't add duplicate entries.
@@ -406,6 +482,30 @@
             multiStripMode,
             ...(Number.isFinite(bucketFillWeight) ? { bucketFillWeight } : {}),
           };
+
+          const usableSheetHeight = Number(primarySheet.height) - (sheetMargin * 2);
+          const usableWidth = Number.isFinite(sparrowOptions.maxStripLength)
+            ? sparrowOptions.maxStripLength
+            : Infinity;
+          const unfitItems = typeof findUnfitPlacementItems === 'function'
+            ? findUnfitPlacementItems(exported.payload?.items, {
+                usableWidth,
+                usableHeight: usableSheetHeight,
+              })
+            : [];
+          if (unfitItems.length) {
+            const warnings = warningsForUnfitItems(unfitItems, {
+              usableWidth,
+              usableHeight: usableSheetHeight,
+            });
+            setPartFitWarnings?.(warnings);
+            const firstMetadata = exportMetadataForItem(unfitItems[0].id);
+            const firstName = firstMetadata?.source_name;
+            const message = unfitItems.length === 1
+              ? `${firstName ? `“${firstName}”` : 'One part'} is larger than the usable sheet area. It is highlighted in Parts.`
+              : `${unfitItems.length} parts are larger than the usable sheet area. Their source files are highlighted in Parts.`;
+            throw new Error(message);
+          }
           const result = await window.electronAPI.runSparrow(exported.payload, sparrowOptions);
 
           if (!result?.success || !result.runId) {

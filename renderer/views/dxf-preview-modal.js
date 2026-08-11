@@ -42,10 +42,30 @@
     };
 
     const previewService = global.NestDxfPreviewService.createDxfPreviewService();
+    const getFitWarning = shapeId => (state.partFitWarnings || []).find(warning => (
+      warning?.fileId === pv.fileId && warning?.shapeId === shapeId
+    )) || null;
+    // Usable sheet area for the fit-outline overlay in the canvas. Reads the
+    // primary sheet minus the configured margin on all four sides. Returns
+    // null when either dimension isn't finite (auto/unlimited width mode)
+    // so the outline is only shown when a bounded comparison is meaningful.
+    const getSheetUsableDims = () => {
+      const sheet = Array.isArray(state.sheets) ? state.sheets[0] : null;
+      if (!sheet) return null;
+      const width = Number(sheet.width);
+      const height = Number(sheet.height);
+      const margin = Math.max(0, Number(state.settings?.sheetMargin) || 0);
+      const usableWidth = Number.isFinite(width) && width > 0 ? width - (2 * margin) : NaN;
+      const usableHeight = Number.isFinite(height) && height > 0 ? height - (2 * margin) : NaN;
+      if (!(usableWidth > 0) || !(usableHeight > 0)) return null;
+      return { width: usableWidth, height: usableHeight };
+    };
     const canvasView = global.NestDxfPreviewCanvasView.createDxfPreviewCanvasView({
       pv,
       getCanvasWrap: () => dom.canvasWrap,
       getLayerConfig: () => (typeof global.getPartLabelConfig === 'function' ? global.getPartLabelConfig(pv.layers) : { enabled: false, color: '#4488FF', style: 'stroked' }),
+      getFitWarning,
+      getSheetUsableDims,
     });
 
     // Keeps the Hide/Restore button in sync with the current selection:
@@ -64,6 +84,7 @@
       getFileMeta: () => dom.fileMeta,
       getStats: () => dom.stats,
       syncActions,
+      getFitWarning,
     });
 
     // Rebuilds the layer-filter tab row from scratch so counts and active state
@@ -217,6 +238,9 @@
       renderTabs();
       renderSVG();
       renderList();
+      requestAnimationFrame(() => {
+        dom.shapesList.querySelector('.pvw-shape-row.fit-error')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
     }
 
     // Hides the modal by removing the "open" class; does not discard pv state

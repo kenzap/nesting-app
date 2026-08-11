@@ -805,6 +805,59 @@ body.platform-linux .linux-menubar {
 }
 .file-item:hover { background: var(--surface2); }
 
+.file-item.part-fit-error {
+  /* Very subtle red wash — the .fit-pill next to the name is the primary
+     status; the wash is just ambient scanning cue. */
+  background: rgba(247,95,95,.05);
+  animation: part-fit-attention .45s ease-out;
+}
+.file-item.part-fit-error:hover { background: rgba(247,95,95,.09); }
+/* Rounded left accent bar. Rendered as a pseudo-element with its own
+   matching border-radius on the left corners so it curves into the row
+   naturally instead of getting clipped into a bracket shape by
+   inset box-shadow. */
+.file-item.part-fit-error::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--danger);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  pointer-events: none;
+}
+.file-item.part-fit-error .file-icon {
+  color: var(--danger);
+  background: rgba(247,95,95,.08);
+  border-color: rgba(247,95,95,.28);
+}
+
+/* Compact status pill used for fit warnings in the files pane and shape
+   list. Sits inline next to the item name — same visual language in both
+   places so users learn it once. */
+.fit-pill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(247,95,95,.18);
+  color: var(--danger);
+  font: 600 10px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+}
+[data-theme="light"] .fit-pill {
+  background: rgba(247,95,95,.14);
+}
+
+@keyframes part-fit-attention {
+  from { box-shadow: 0 0 0 4px rgba(247,95,95,.18); }
+  to { box-shadow: 0 0 0 0 rgba(247,95,95,0); }
+}
+
 .file-icon {
   width: 28px;
   height: 28px;
@@ -1788,6 +1841,7 @@ body.platform-linux .linux-menubar {
   cursor: pointer;
   transition: background .12s;
   border: 1px solid transparent;
+  position: relative;
 }
 .pvw-shape-row:hover { background: var(--surface2); }
 .pvw-shape-row.selected {
@@ -1801,6 +1855,30 @@ body.platform-linux .linux-menubar {
 .pvw-shape-row.dimmed.selected {
   opacity: 0.8;
   border-color: rgba(255,255,255,0.28);
+}
+.pvw-shape-row.fit-error {
+  background: rgba(247,95,95,.05);
+}
+.pvw-shape-row.fit-error:hover { background: rgba(247,95,95,.09); }
+.pvw-shape-row.fit-error::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--danger);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  pointer-events: none;
+}
+.pvw-shape-row.fit-error .pvw-thumb { border-color: rgba(247,95,95,.35); }
+
+.pvw-fit-error-outline {
+  pointer-events: none;
+  animation: pvw-fit-error-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pvw-fit-error-pulse {
+  0%, 100% { stroke-opacity: 1; fill-opacity: .1; }
+  50% { stroke-opacity: .58; fill-opacity: .04; }
 }
 
 .pvw-thumb {

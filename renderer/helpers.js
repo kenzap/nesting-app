@@ -94,6 +94,77 @@
   }
 
   /**
+   * Finds placement items that cannot fit inside the usable sheet area at any
+   * of their allowed rotations. Returns the closest rotation for explaining
+   * the problem in the UI; invalid polygons are left to geometry validation.
+   */
+  function findUnfitPlacementItems(items, { usableWidth = Infinity, usableHeight } = {}) {
+    const finiteWidth = Number.isFinite(Number(usableWidth));
+    const widthLimit = finiteWidth ? Number(usableWidth) : Infinity;
+    const heightLimit = Number(usableHeight);
+    if ((finiteWidth && widthLimit <= 0) || !Number.isFinite(heightLimit) || heightLimit <= 0) return [];
+
+    const boundsAtAngle = (points, angle) => {
+      const radians = (Number(angle) || 0) * Math.PI / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      points.forEach(point => {
+        const x = Array.isArray(point) ? Number(point[0]) : Number(point?.x);
+        const y = Array.isArray(point) ? Number(point[1]) : Number(point?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const rotatedX = (x * cos) - (y * sin);
+        const rotatedY = (x * sin) + (y * cos);
+        minX = Math.min(minX, rotatedX);
+        minY = Math.min(minY, rotatedY);
+        maxX = Math.max(maxX, rotatedX);
+        maxY = Math.max(maxY, rotatedY);
+      });
+
+      if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+      return {
+        angle: Number(angle) || 0,
+        width: Math.max(0, maxX - minX),
+        height: Math.max(0, maxY - minY),
+      };
+    };
+
+    return (Array.isArray(items) ? items : []).flatMap(item => {
+      const points = item?.shape?.data;
+      if (!Array.isArray(points) || points.length < 3) return [];
+      const orientations = Array.isArray(item.allowed_orientations) && item.allowed_orientations.length
+        ? item.allowed_orientations
+        : [0];
+      const candidates = orientations.map(angle => boundsAtAngle(points, angle)).filter(Boolean);
+      if (!candidates.length) return [];
+
+      const epsilon = 1e-6;
+      const fits = candidates.some(candidate => (
+        candidate.height <= heightLimit + epsilon
+        && (!finiteWidth || candidate.width <= widthLimit + epsilon)
+      ));
+      if (fits) return [];
+
+      const overflowScore = candidate => Math.max(
+        finiteWidth ? candidate.width / widthLimit : 0,
+        candidate.height / heightLimit,
+      );
+      const closest = [...candidates].sort((a, b) => overflowScore(a) - overflowScore(b))[0];
+      return [{
+        id: item.id,
+        demand: item.demand,
+        angle: closest.angle,
+        width: closest.width,
+        height: closest.height,
+      }];
+    });
+  }
+
+  /**
    * Checks whether two polygon points are the same after rounding.
    *
    * Used during polygon cleanup to detect consecutive duplicates that arose
@@ -215,6 +286,7 @@
     partLabelFromName,
     normalizeRotationStep,
     buildAllowedOrientations,
+    findUnfitPlacementItems,
     sameExportPoint,
     sanitizePolygonPoints,
     clonePlain,

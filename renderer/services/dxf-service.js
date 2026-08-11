@@ -138,6 +138,7 @@
           });
 
           exportItems[itemId] = {
+            source_file_id: file.id,
             source_file: file.path || file.name,
             source_name: file.name,
             source_shape_id: shape.id,
