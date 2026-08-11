@@ -41,6 +41,7 @@ const dom = {
   canvasTabs: document.getElementById('canvasTabs'),
   canvasZoom: document.getElementById('canvasZoom'),
   zoomLabel: document.getElementById('zoomLabel'),
+  sheetDimensionBadge: document.getElementById('sheetDimensionBadge'),
   nestStats: document.getElementById('nestStats'),
   canvasStatusbar: document.getElementById('canvasStatusbar'),
   openSettings: document.getElementById('openSettings'),

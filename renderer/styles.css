@@ -1000,7 +1000,26 @@ body.platform-linux .linux-menubar {
   flex-direction: column;
   background: var(--bg);
   overflow: hidden;
+  position: relative;
 }
+
+.sheet-dimension-badge {
+  position: absolute;
+  z-index: 4;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--text-dim);
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  font: 500 12px/1.15 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.sheet-dimension-badge[hidden] { display: none; }
+.sheet-dimension-badge.is-fallback { box-shadow: 0 2px 8px rgba(0,0,0,.16); }
 
 .canvas-toolbar {
   display: flex;

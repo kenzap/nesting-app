@@ -15,8 +15,6 @@
     const FIT_INSET_Y = 28;
     const SVG_PREVIEW_MARGIN_X = 80;
     const SVG_PREVIEW_MARGIN_Y = 44;
-    const SHEET_LABEL_FONT_SIZE = 22;
-    const SHEET_LABEL_OFFSET_Y = 8;
     const MIN_ZOOM = 0.2;
     const MAX_ZOOM = 4;
     const ZOOM_STEP = 0.15;
@@ -105,9 +103,6 @@
           dashStroke: '#bcc2d0',
           dashOpacity: '0.55',
           metaText: '#4a5070',
-          labelText: '#64748b',
-          labelChipFill: '#ffffff',
-          labelChipOpacity: '0.85',
         };
       }
 
@@ -122,9 +117,6 @@
         dashStroke: '#3a5080',
         dashOpacity: '0.35',
         metaText: '#3a4566',
-        labelText: '#8a97b3',
-        labelChipFill: '#0d0f18',
-        labelChipOpacity: '0.75',
       };
     }
 
@@ -579,41 +571,86 @@
       // Apply the vertical flip last so it is guaranteed to survive every
       // preceding regex pass and cannot be defeated by any DOM round-trip.
       styled = flipSolverSvgVertically(styled);
-      // Sheet dimension label. Rendered at SVG root (outside the flip wrapper)
-      // so text sits upright. Positioned in the top-right corner above the
-      // sheet, with a soft chip backdrop so a part touching the top edge
-      // doesn't reduce legibility. Only shown when we have concrete
-      // dimensions — `unlimited` mode has no width to state.
-      styled = styled.replace(/<\/svg>\s*$/i, `${buildSheetDimensionLabel(colors)}</svg>`);
       return styled;
     }
 
-    // Builds the SVG markup for the sheet dimension chip. Reads sheet
-    // dimensions from the current config; returns an empty string when the
-    // sheet has no fixed width (unlimited mode) so we don't emit "auto × H".
-    function buildSheetDimensionLabel(colors) {
+    function sheetDimensionLabel() {
       const sheet = currentSheetConfig();
       const sheetW = Number(sheet?.width);
       const sheetH = Number(sheet?.height);
-      if (!Number.isFinite(sheetW) || !Number.isFinite(sheetH) || sheetW <= 0 || sheetH <= 0) return '';
-      if (sheet?.widthMode !== 'fixed' && sheet?.widthMode !== 'max') return '';
+      if (!Number.isFinite(sheetW) || !Number.isFinite(sheetH) || sheetW <= 0 || sheetH <= 0) return null;
+      if (sheet?.widthMode !== 'fixed' && sheet?.widthMode !== 'max') return null;
+      return { text: `${Math.round(sheetW)} × ${Math.round(sheetH)} mm`, width: sheetW, height: sheetH };
+    }
 
-      const label = `${Math.round(sheetW)} × ${Math.round(sheetH)} mm`;
-      const fontSize = SHEET_LABEL_FONT_SIZE;
-      // Reasonable chip dimensions based on approximate glyph width (0.6em for
-      // monospace) + horizontal padding.
-      const chipPadX = fontSize * 0.6;
-      const chipHeight = fontSize * 1.5;
-      const chipWidth = fontSize * 0.6 * label.length + chipPadX * 2;
-      // baseline offset so the text sits inside the chip
-      const baselineY = -SHEET_LABEL_OFFSET_Y - (chipHeight - fontSize) / 2 - fontSize * 0.15;
-      const chipY = -SHEET_LABEL_OFFSET_Y - chipHeight;
-      const chipX = sheetW - chipWidth;
+    let sheetBadgeFrame = null;
 
-      return `<g class="pf-sheet-dim-label" pointer-events="none">
-  <rect x="${chipX.toFixed(2)}" y="${chipY.toFixed(2)}" width="${chipWidth.toFixed(2)}" height="${chipHeight.toFixed(2)}" rx="${(chipHeight / 2).toFixed(2)}" fill="${colors.labelChipFill}" fill-opacity="${colors.labelChipOpacity}"/>
-  <text x="${(sheetW - chipPadX).toFixed(2)}" y="${baselineY.toFixed(2)}" text-anchor="end" dominant-baseline="alphabetic" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="${fontSize}" font-weight="500" fill="${colors.labelText}">${label}</text>
-</g>`;
+    function hideSheetDimensionBadge() {
+      if (sheetBadgeFrame !== null) {
+        cancelAnimationFrame(sheetBadgeFrame);
+        sheetBadgeFrame = null;
+      }
+      if (dom.sheetDimensionBadge) dom.sheetDimensionBadge.hidden = true;
+    }
+
+    // Positions a fixed-pixel HTML badge at the rendered sheet's top-right
+    // corner. SVG coordinates are used only for anchoring, so fit-to-view and
+    // zoom never change the badge's font size or padding.
+    function syncSheetDimensionBadge() {
+      sheetBadgeFrame = null;
+      const badge = dom.sheetDimensionBadge;
+      const svg = dom.svgContainer.querySelector('svg');
+      const dimension = sheetDimensionLabel();
+      if (!badge || !svg || !dimension || dom.svgContainer.style.display === 'none') {
+        hideSheetDimensionBadge();
+        return;
+      }
+
+      const viewBox = (svg.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
+      const [viewX, viewY, viewWidth, viewHeight] = viewBox;
+      const svgRect = svg.getBoundingClientRect();
+      const areaRect = dom.canvasArea?.getBoundingClientRect();
+      const viewportRect = dom.viewport?.getBoundingClientRect();
+      if (![viewX, viewY, viewWidth, viewHeight].every(Number.isFinite)
+          || viewWidth <= 0 || viewHeight <= 0 || !svgRect.width || !areaRect || !viewportRect) {
+        hideSheetDimensionBadge();
+        return;
+      }
+
+      badge.textContent = dimension.text;
+      badge.hidden = false;
+      badge.classList.remove('is-fallback');
+
+      const sheetLeft = svgRect.left + (((0 - viewX) / viewWidth) * svgRect.width);
+      const sheetRight = svgRect.left + (((dimension.width - viewX) / viewWidth) * svgRect.width);
+      const sheetTop = svgRect.top + (((0 - viewY) / viewHeight) * svgRect.height);
+      const badgeWidth = badge.offsetWidth;
+      const badgeHeight = badge.offsetHeight;
+      const renderedSheetWidth = Math.max(0, sheetRight - sheetLeft);
+      const viewportLeft = viewportRect.left - areaRect.left;
+      const viewportTop = viewportRect.top - areaRect.top;
+
+      let left;
+      let top;
+      if (renderedSheetWidth < badgeWidth + 16) {
+        badge.classList.add('is-fallback');
+        left = viewportRect.right - areaRect.left - badgeWidth - 12;
+        top = viewportTop + 10;
+        left = Math.max(viewportLeft + 8, left);
+      } else {
+        left = sheetRight - areaRect.left - badgeWidth;
+        top = sheetTop - areaRect.top - badgeHeight - 6;
+        left = Math.max(viewportLeft + 8, Math.min(left, viewportRect.right - areaRect.left - badgeWidth - 8));
+        top = Math.max(viewportTop + 8, top);
+      }
+
+      badge.style.left = `${Math.round(left)}px`;
+      badge.style.top = `${Math.round(top)}px`;
+    }
+
+    function scheduleSheetDimensionBadgeSync() {
+      if (sheetBadgeFrame !== null) return;
+      sheetBadgeFrame = requestAnimationFrame(syncSheetDimensionBadge);
     }
 
     // Reconciles the sheet tab row with the current solver result.
@@ -830,6 +867,7 @@
       }
 
       if (strip) {
+        hideSheetDimensionBadge();
         state.activeStripIndex = sheetIndex;
         const totalSheets = state.nestResult?.strips?.length || state.nestResult?.strip_count || 0;
         const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? 'Preview · ' : '';
@@ -885,6 +923,7 @@
         el.style.transform = '';
       }
       dom.zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+      scheduleSheetDimensionBadgeSync();
       if (recenter) {
         requestAnimationFrame(() => centerViewportOnContent());
       }
@@ -944,6 +983,7 @@
       dom.zoomOut.addEventListener('click', zoomOut);
       dom.fitView.addEventListener('click', fitView);
       dom.viewport?.addEventListener('wheel', handleViewportWheel, { passive: false });
+      dom.viewport?.addEventListener('scroll', scheduleSheetDimensionBadgeSync, { passive: true });
 
       let viewportDrag = null;
       dom.viewport?.addEventListener('mousedown', e => {
