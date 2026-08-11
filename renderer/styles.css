@@ -1109,15 +1109,22 @@ body.platform-linux .linux-menubar {
 }
 
 .canvas-statusbar.error {
-  color: #ffd8d8;
-  background: rgba(247,95,95,.12);
-  border-top-color: rgba(247,95,95,.35);
+  color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 11%, var(--surface));
+  border-top-color: color-mix(in oklab, var(--danger) 38%, var(--border));
 }
 
 .canvas-statusbar.warning {
-  color: #fff0cf;
-  background: rgba(247,195,79,.12);
-  border-top-color: rgba(247,195,79,.35);
+  color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 11%, var(--surface));
+  border-top-color: color-mix(in oklab, var(--warning) 38%, var(--border));
+}
+
+#nestStats {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .canvas-statusbar.error .canvas-statusbar-icon {

@@ -1,9 +1,8 @@
 'use strict';
 
-// Session-scoped history of the Parts list. Snapshots are captured only at the
-// moment a nesting run is initiated, and only when the current parts state
-// differs from the previous snapshot. This keeps the stack meaningful —
-// every entry represents "the parts list that was actually sent to Sparrow".
+// Session-scoped history of the Parts list. Snapshots are captured when a
+// nesting run is initiated. If restored parts were edited before the first
+// run, the restored list is retained as a separate baseline entry first.
 // Not persisted; history clears on reload.
 
 (function definePartsHistory(globalScope) {
@@ -12,6 +11,7 @@
   function createPartsHistory({ state, dom, renderFiles, schedulePersistJobState }) {
     state.partsHistory = Array.isArray(state.partsHistory) ? state.partsHistory : [];
     let initialSnapshot = deepClone(state.files || []);
+    let initialSnapshotRecorded = false;
     let popoverEl = null;
     let popoverOpen = false;
     let outsideClickHandler = null;
@@ -62,13 +62,14 @@
       return `${fileCount} ${fileWord} · ${partCount} ${partWord}`;
     }
 
-    function pushEntry() {
+    function pushEntry(files = state.files, source = 'run') {
       const entry = {
         id: `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
         timestamp: Date.now(),
-        signature: signatureOfFiles(state.files),
-        summary: summaryOfFiles(state.files),
-        snapshot: deepClone(state.files),
+        source,
+        signature: signatureOfFiles(files),
+        summary: summaryOfFiles(files),
+        snapshot: deepClone(files),
       };
       state.partsHistory.push(entry);
       while (state.partsHistory.length > MAX_ENTRIES) state.partsHistory.shift();
@@ -83,9 +84,20 @@
      */
     function recordRunStart() {
       const currentSig = signatureOfFiles(state.files);
-      const last = state.partsHistory[state.partsHistory.length - 1];
+      const initialSig = signatureOfFiles(initialSnapshot);
+      let last = state.partsHistory[state.partsHistory.length - 1];
+
+      // Preserve restored startup parts before the first edited/replaced list
+      // is recorded. The baseline is intentionally skipped for a blank start.
+      if (!initialSnapshotRecorded && initialSnapshot.length && currentSig !== initialSig) {
+        if (!last || last.signature !== initialSig) pushEntry(initialSnapshot, 'loaded');
+        initialSnapshotRecorded = true;
+        last = state.partsHistory[state.partsHistory.length - 1];
+      }
+
       if (last && last.signature === currentSig) return;
-      pushEntry();
+      pushEntry(state.files, 'run');
+      if (currentSig === initialSig) initialSnapshotRecorded = true;
     }
 
     function restore(entryId) {
@@ -106,6 +118,7 @@
     function clearHistory() {
       state.partsHistory = [];
       initialSnapshot = deepClone(state.files);
+      initialSnapshotRecorded = false;
       syncIcon();
       if (popoverOpen) closePopover();
     }
@@ -141,8 +154,8 @@
       const disabled = count === 0;
       dom.partsHistoryBtn.disabled = disabled;
       dom.partsHistoryBtn.title = disabled
-        ? 'No run history yet'
-        : `Run history (${count})`;
+        ? 'No parts history yet'
+        : `Parts history (${count})`;
       dom.partsHistoryBtn.classList.toggle('has-history', !disabled);
       dom.partsHistoryBtn.classList.toggle('active', popoverOpen);
     }
@@ -236,15 +249,15 @@
             <span class="parts-history-dot-marker"></span>
             <span class="parts-history-action">
               <strong>${escapeHtml(entry.summary)}</strong>
-              <span>Run · ${formatRelative(entry.timestamp)}</span>
+              <span>${entry.source === 'loaded' ? 'Loaded' : 'Run'} · ${formatRelative(entry.timestamp)}</span>
             </span>
             ${badge}
           </li>`;
       }).join('');
       popoverEl.innerHTML = `
         <div class="parts-history-header">
-          <span>Run history</span>
-          <span class="parts-history-count">${state.partsHistory.length} ${state.partsHistory.length === 1 ? 'run' : 'runs'}</span>
+          <span>Parts history</span>
+          <span class="parts-history-count">${state.partsHistory.length} ${state.partsHistory.length === 1 ? 'entry' : 'entries'}</span>
         </div>
         <ul class="parts-history-list">${items}</ul>
         <div class="parts-history-footer">
@@ -282,6 +295,7 @@
       /** Marker for the "first load" baseline; call after initial hydration. */
       captureBaseline() {
         initialSnapshot = deepClone(state.files);
+        initialSnapshotRecorded = false;
       },
     };
   }

@@ -653,6 +653,9 @@ function bindOverlayClose() {
   });
   if (backfilledLegacyFileMetadata) schedulePersistJobState();
 
+  // Parts history is created before async job hydration, so capture the true
+  // restored baseline only after saved files and compatibility metadata load.
+  partsHistoryApi.captureBaseline();
   filesPaneApi.renderFiles();
   sheetsPaneApi.renderSheets();
   exportServiceApi.syncExportButton();

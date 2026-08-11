@@ -27,40 +27,96 @@
       let completedFinalizationPolls = 0;
       const MAX_COMPLETED_FINALIZATION_POLLS = 8;
 
-    // Translates the raw Sparrow / Rust error into a plain-language sentence
-    // the operator can act on. Anything unrecognised passes through unchanged
-    // so we never hide detail the user might still need.
-    function translateSparrowError(raw) {
-      const text = String(raw || '').trim();
-      if (!text) return 'Sparrow failed';
+    const SOLVER_ERROR_RULES = [
+      {
+        pattern: /barrier-mode k-discovery did not converge|tried up to k\s*=\s*\d+ sheets,? items still don'?t fit/i,
+        message: 'One or more parts cannot fit on the configured sheet. Increase the sheet dimensions or check the DXF units.',
+      },
+      {
+        pattern: /strip[-\s]?width is running away.*does not seem to fit|item \d+ has minimum bbox dimension .*cannot fit in any sheet/is,
+        message: 'A part is larger than the sheet. Check the DXF units or increase the sheet dimensions.',
+      },
+      {
+        pattern: /requires strip length .* exceeding the configured maximum/i,
+        message: 'The parts do not fit within the sheet’s maximum length. Reduce the quantities or increase the sheet length.',
+      },
+      {
+        pattern: /sheet margin must be less than half the sheet length/i,
+        message: 'The sheet margin is too large for the configured sheet length.',
+      },
+      {
+        pattern: /strip margin .* leaves no usable strip height/i,
+        message: 'The sheet margin leaves no usable nesting area. Reduce the margin or increase the sheet height.',
+      },
+      {
+        pattern: /could not construct (?:any strip candidate|a valid strip bucket) under the configured constraints/i,
+        message: 'The parts could not be arranged within the current sheet constraints. Increase the sheet dimensions or use a different sheet strategy.',
+      },
+      {
+        pattern: /no (?:items|parts).*placed|zero sheets|no sheets|cannot exact-fit an empty/i,
+        message: 'No parts could be placed. Check the part quantities and sheet settings.',
+      },
+      {
+        pattern: /invalid (?:polygon|geometry)|self[-\s]?intersect|non[-\s]?finite coordinate/i,
+        message: 'A DXF contains invalid geometry. Repair the affected contour and try again.',
+      },
+      {
+        pattern: /executable not found|enoent/i,
+        message: 'The nesting engine could not be started. Reinstall the app or verify its bundled files.',
+      },
+      {
+        pattern: /eacces|permission denied/i,
+        message: 'The nesting engine could not be started because access was denied.',
+      },
+    ];
 
-      // Rust panic: "strip-width is running away (>N), item N does not seem to fit into the strip"
-      // Triggered when a single part is larger than the sheet's usable area —
-      // typically wrong DXF units (drawn in metres/inches interpreted as mm)
-      // or a sheet that's smaller than the biggest part.
-      if (/strip[-\s]?width is running away/i.test(text) && /does not seem to fit/i.test(text)) {
-        return 'A part is larger than the sheet. Check the DXF units, or increase the sheet size in the sheet dialog.';
+    function errorChunkText(chunk) {
+      if (!chunk) return '';
+      if (typeof chunk === 'string') return chunk;
+      if (chunk instanceof Error) {
+        return [chunk.message, chunk.sparrowDetails, chunk.cause]
+          .map(errorChunkText)
+          .filter(Boolean)
+          .join('\n');
       }
-
-      // "requires strip length X exceeding the configured maximum"
-      // Triggered when the total placement exceeds the sheet's configured max length.
-      if (/requires strip length .* exceeding the configured maximum/i.test(text)) {
-        return 'The nested parts don\'t fit within the sheet\'s maximum length. Lower the quantities or widen the sheet.';
+      if (typeof chunk === 'object') {
+        return [chunk.message, chunk.error, chunk.stderr, chunk.stdout, chunk.details]
+          .map(errorChunkText)
+          .filter(Boolean)
+          .join('\n');
       }
-
-      return text;
+      return String(chunk);
     }
 
-    // Parses raw stdout/stderr from the solver binary into a clean one-line message.
-    // Priority order: Rust panic reason → explicit "error:" line → known strip-length
-    // pattern → the last line that isn't an [info]/[warn] log tag. Every candidate
-    // goes through translateSparrowError so recognised failure modes become
-    // action-oriented sentences instead of solver jargon.
-    function extractSparrowErrorMessage(...chunks) {
-      const text = chunks.map(chunk => String(chunk || '')).filter(Boolean).join('\n').trim();
-      if (!text) return 'Sparrow failed';
+    function cleanErrorText(raw) {
+      return String(raw || '')
+        .replace(/\u001b\[[0-9;]*m/g, '')
+        .replace(/\r/g, '')
+        .trim();
+    }
 
-      const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    // Translates raw solver/Rust errors into plain-language sentences. Unknown
+    // messages remain available as technical details and use their cleanest
+    // meaningful line as the visible summary.
+    function translateSparrowError(raw) {
+      const text = cleanErrorText(raw);
+      if (!text) return 'Nesting could not be completed.';
+      const matchedRule = SOLVER_ERROR_RULES.find(rule => rule.pattern.test(text));
+      return matchedRule?.message || text;
+    }
+
+    // Parses raw stdout/stderr into a clean one-line message. Known failures
+    // win first, followed by Rust panic reasons and the last meaningful line.
+    function extractSparrowErrorMessage(...chunks) {
+      const text = cleanErrorText(chunks.map(errorChunkText).filter(Boolean).join('\n'));
+      if (!text) return 'Nesting could not be completed.';
+
+      const knownFailure = SOLVER_ERROR_RULES.find(rule => rule.pattern.test(text));
+      if (knownFailure) return knownFailure.message;
+
+      const lines = [...new Set(text.split(/\n/)
+        .map(line => line.trim().replace(/^(?:uncaught\s+)?error:\s*/i, ''))
+        .filter(Boolean))];
 
       // Rust panic: the reason is on the line immediately after
       // "thread '…' panicked at path/to/file.rs:N:N:".
@@ -69,15 +125,36 @@
         return translateSparrowError(lines[panicIdx + 1]);
       }
 
-      const explicitError = [...lines].reverse().find(line => /^error:/i.test(line));
-      if (explicitError) return translateSparrowError(explicitError.replace(/^error:\s*/i, '').trim());
+      const explicitError = [...lines].reverse().find(line => /^(?:fatal|failed|failure):/i.test(line));
+      if (explicitError) return translateSparrowError(explicitError.replace(/^[^:]+:\s*/i, '').trim());
 
       const stripLength = [...lines].reverse().find(line => /requires strip length .* exceeding the configured maximum/i.test(line));
       if (stripLength) return translateSparrowError(stripLength);
 
       // Skip both info and warn tag lines — neither is an error signal on its own.
-      const lastMeaningful = [...lines].reverse().find(line => !/^\[(info|warn)\]/i.test(line));
-      return translateSparrowError(lastMeaningful || lines[lines.length - 1] || 'Sparrow failed');
+      const lastMeaningful = [...lines].reverse().find(line => (
+        !/^\[(info|warn|debug|trace)\]/i.test(line)
+        && !/^at\s+\S+/i.test(line)
+      ));
+      const summary = translateSparrowError(
+        lastMeaningful || lines[lines.length - 1] || 'Nesting could not be completed.',
+      );
+      return summary.length > 220 ? `${summary.slice(0, 217)}…` : summary;
+    }
+
+    function normalizeRunError(...chunks) {
+      const detailLines = [...new Set(
+        cleanErrorText(chunks.map(errorChunkText).filter(Boolean).join('\n'))
+          .split(/\n/)
+          .map(line => line.trim())
+          .filter(Boolean),
+      )];
+      const message = extractSparrowErrorMessage(detailLines.join('\n'));
+      if (detailLines.length > 1 && detailLines[0] === message) detailLines.shift();
+      return {
+        message,
+        details: detailLines.join('\n'),
+      };
     }
 
     // Sets the status chip to error, tints the status bar red, and writes the error
@@ -85,9 +162,20 @@
     function showRunError(message, details = '') {
       setStatus('error');
       setNestStatsTone('error');
-      const summary = message || 'Sparrow failed';
-      dom.nestStats.textContent = `Run failed: ${summary}`;
+      const summary = message || 'Nesting could not be completed.';
+      dom.nestStats.textContent = summary;
       dom.nestStats.title = details || summary;
+    }
+
+    function presentRunError(stage, ...chunks) {
+      const failure = normalizeRunError(...chunks);
+      console.error(`[Nesting] ${failure.message}`);
+      if (failure.details && failure.details !== failure.message) {
+        console.groupCollapsed(`[Nesting details] ${stage}`);
+        console.debug(failure.details);
+        console.groupEnd();
+      }
+      showRunError(failure.message, failure.details);
     }
 
     // Shows a gentle preflight hint when Run is pressed before the user has
@@ -131,7 +219,10 @@
 
       const result = await window.electronAPI.pollSparrow(runId);
       if (!result?.success) {
-        throw new Error(result?.error || 'Failed to poll Sparrow run');
+        const failure = normalizeRunError(result?.error || 'The nesting run could not be checked.');
+        const err = new Error(failure.message);
+        err.sparrowDetails = failure.details;
+        throw err;
       }
 
       if (result.status !== 'completed') {
@@ -206,9 +297,9 @@
         clearInterval(nestInterval);
         nestInterval = null;
         activeSparrowRunId = null;
-        const combinedDetails = [result.error, result.stderr, result.stdout].filter(Boolean).join('\n');
-        const err = new Error(extractSparrowErrorMessage(result.error, result.stderr, result.stdout));
-        err.sparrowDetails = combinedDetails;
+        const failure = normalizeRunError(result.error, result.stderr, result.stdout);
+        const err = new Error(failure.message);
+        err.sparrowDetails = failure.details;
         throw err;
       }
 
@@ -318,7 +409,10 @@
           const result = await window.electronAPI.runSparrow(exported.payload, sparrowOptions);
 
           if (!result?.success || !result.runId) {
-            throw new Error(result?.error || 'Failed to start Sparrow');
+            const failure = normalizeRunError(result?.error || 'The nesting engine could not be started.');
+            const err = new Error(failure.message);
+            err.sparrowDetails = failure.details;
+            throw err;
           }
           activeSparrowRunId = result.runId;
           setNestStatsTone('');
@@ -333,11 +427,10 @@
               await pollSparrowRun(activeSparrowRunId);
             } catch (pollError) {
               if (sparrowRunAborted) return;
-              console.error('[Sparrow] Live preview failed:', pollError?.sparrowDetails || pollError);
               clearInterval(nestInterval);
               nestInterval = null;
               activeSparrowRunId = null;
-              showRunError(pollError.message, pollError?.sparrowDetails || pollError.message);
+              presentRunError('Live preview', pollError);
               dom.startBtn.classList.remove('running');
               dom.startBtn.disabled = false;
               dom.stopBtn.disabled = true;
@@ -346,13 +439,12 @@
           }, 500);
         } catch (err) {
           if (sparrowRunAborted) return;
-          console.error('[Sparrow] Run failed:', err?.sparrowDetails || err);
           activeSparrowRunId = null;
           if (nestInterval) {
             clearInterval(nestInterval);
             nestInterval = null;
           }
-          showRunError(err.message, err?.sparrowDetails || err.message);
+          presentRunError('Run', err);
           dom.startBtn.classList.remove('running');
           dom.startBtn.disabled = false;
           dom.stopBtn.disabled = true;
