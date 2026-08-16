@@ -365,6 +365,55 @@
     };
   }
 
+  // The half-edge graph only needs entity endpoints, but endpoint-only rings
+  // are not accurate enough for area and containment checks on curved parts.
+  // Rebuild the finished ring with sampled ARC/SPLINE geometry while keeping
+  // the graph nodes as the exact joins between consecutive entities.
+  function sampleOrderedLoopPoints(orderedEdges, pointKeys, nodes) {
+    if (!orderedEdges?.length || pointKeys?.length !== orderedEdges.length + 1) return [];
+
+    const points = [];
+    const append = point => {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      if (!points.length || !samePoint(points[points.length - 1], point)) {
+        points.push({ x: point.x, y: point.y });
+      }
+    };
+
+    orderedEdges.forEach(({ entity, reversed }, index) => {
+      const start = nodes.get(pointKeys[index]);
+      const end = nodes.get(pointKeys[index + 1]);
+      if (!start || !end) return;
+      if (!points.length) append(start);
+
+      if (entity?.type === 'ARC' && entity.center && Number.isFinite(entity.radius)) {
+        let span = Number.isFinite(entity.angleLength)
+          ? Math.abs(entity.angleLength)
+          : (entity.endAngle || 0) - (entity.startAngle || 0);
+        while (span <= 0) span += TWO_PI;
+        while (span > TWO_PI) span -= TWO_PI;
+        const startAngle = Math.atan2(start.y - entity.center.y, start.x - entity.center.x);
+        const signedSpan = reversed ? -span : span;
+        const steps = Math.max(2, Math.ceil(span / (Math.PI / 18)));
+        for (let step = 1; step < steps; step++) {
+          const angle = startAngle + signedSpan * (step / steps);
+          append({
+            x: entity.center.x + entity.radius * Math.cos(angle),
+            y: entity.center.y + entity.radius * Math.sin(angle),
+          });
+        }
+      } else if (entity?.type === 'SPLINE') {
+        const sampled = geometry.splineToPoints(entity);
+        const directed = reversed ? [...sampled].reverse() : sampled;
+        directed.slice(1, -1).forEach(append);
+      }
+
+      append(end);
+    });
+
+    return dedupePoints(points, true);
+  }
+
   // Main graph-tracing algorithm that finds closed rings from loose LINE/ARC
   // entities. Builds a planar half-edge graph, traces interior faces using the
   // CCW left-turn rule, and recovers the exterior boundary via its complement.
@@ -544,12 +593,13 @@
         const sourceLayers = Object.keys(dominantLayer);
         const layer = Object.entries(dominantLayer).sort((a, b) => b[1] - a[1])[0]?.[0] || '0';
 
+        const sampledPoints = sampleOrderedLoopPoints(orderedEdges, loop.pointKeys, nodes);
         loops.push({
           type: 'LINE_LOOP',
           layer,
           sourceLayers,
           isSingleLayer: sourceLayers.length <= 1,
-          points: loop.points,
+          points: sampledPoints.length >= 3 ? sampledPoints : loop.points,
           sourceEntities,
           orderedEdges,
           componentId: edgeComponent.get(index),
@@ -622,7 +672,6 @@
         const maxInterior = maxInteriorAreaByComponent.get(compId) || 0;
         if (absArea <= maxInterior * 1.001) return;
 
-        const ccwPoints = area < 0 ? [...points].reverse() : points;
         const orderedEdgesCW = edgeIndices.map((edgeIdx, i) => {
           const currentEdge = openEdges[edgeIdx];
           const fromKey = pointKeys[i];
@@ -631,6 +680,12 @@
         const ccwEdges = area < 0
           ? [...orderedEdgesCW].reverse().map(item => ({ entity: item.entity, reversed: !item.reversed }))
           : orderedEdgesCW;
+        const ringPointKeys = pointKeys.slice(0, -1);
+        const ccwPointKeys = area < 0
+          ? [ringPointKeys[0], ...ringPointKeys.slice(1).reverse(), ringPointKeys[0]]
+          : pointKeys;
+        const fallbackPoints = dedupePoints(ccwPointKeys.map(key => nodes.get(key)), true);
+        const sampledPoints = sampleOrderedLoopPoints(ccwEdges, ccwPointKeys, nodes);
 
         const sourceEntities = [...new Set(ccwEdges.map(item => item.entity))];
         sourceEntities.forEach(entity => { entity.__inferredContour = true; });
@@ -647,7 +702,7 @@
           layer,
           sourceLayers,
           isSingleLayer: sourceLayers.length <= 1,
-          points: ccwPoints,
+          points: sampledPoints.length >= 3 ? sampledPoints : fallbackPoints,
           sourceEntities,
           orderedEdges: ccwEdges,
           componentId: compId,
