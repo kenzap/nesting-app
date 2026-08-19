@@ -28,6 +28,8 @@
       let activeSparrowRunId = null;
       let completedFinalizationPolls = 0;
       const MAX_COMPLETED_FINALIZATION_POLLS = 8;
+      const STOP_FINALIZATION_POLL_MS = 250;
+      const MAX_STOP_FINALIZATION_POLLS = 300;
 
     const SOLVER_ERROR_RULES = [
       {
@@ -362,7 +364,7 @@
         dom.startBtn.disabled = false;
         dom.stopBtn.disabled = true;
         dom.stopBtn.classList.remove('active');
-        return;
+        return result;
       }
 
       if (result.status === 'error') {
@@ -376,10 +378,25 @@
       }
 
       if (result.status === 'stopped') {
+        const finalSummaryReady = isCanonicalFinalSummary(result.summary);
         clearInterval(nestInterval);
         nestInterval = null;
         activeSparrowRunId = null;
+        setStatus(finalSummaryReady ? 'done' : 'idle');
+        setNestStatsTone(finalSummaryReady ? '' : 'warning');
+        dom.nestStats.textContent = finalSummaryReady
+          ? 'Stopped · best placement ready to export'
+          : 'Stopped before an exportable placement was ready';
+        dom.nestStats.title = '';
+        dom.startBtn.classList.remove('running');
+        dom.startBtn.disabled = false;
+        dom.stopBtn.disabled = true;
+        dom.stopBtn.classList.remove('active');
+        syncExportButton();
+        return result;
       }
+
+      return result;
     }
 
     // Wires the Start and Stop buttons.
@@ -552,29 +569,45 @@
         }
       });
 
-      // Stop button — sets the abort flag, tells the main process to stop Sparrow,
-      // clears the polling interval, and resets the UI to idle.
+      // Stop button — requests graceful native finalization, then keeps polling
+      // until the best complete placement has exportable per-sheet JSON files.
       dom.stopBtn.addEventListener('click', async () => {
         if (state.status !== 'running') return;
+        const runId = activeSparrowRunId;
+        if (!runId) return;
+
         sparrowRunAborted = true;
-        activeSparrowRunId = null;
-        if (window.electronAPI?.stopSparrow) {
-          try {
-            await window.electronAPI.stopSparrow();
-          } catch (err) {
-            console.error('[Sparrow] Stop failed:', err);
-          }
-        }
         clearInterval(nestInterval);
         nestInterval = null;
-        setStatus('idle');
         setNestStatsTone('');
-        dom.nestStats.textContent = 'Placement stopped';
+        dom.nestStats.textContent = 'Stopping · preparing best placement…';
         dom.nestStats.title = '';
-        dom.startBtn.classList.remove('running');
-        dom.startBtn.disabled = false;
         dom.stopBtn.disabled = true;
-        dom.stopBtn.classList.remove('active');
+
+        try {
+          if (!window.electronAPI?.stopSparrow) {
+            throw new Error('The nesting engine cannot be stopped from this build.');
+          }
+          const stopResult = await window.electronAPI.stopSparrow(runId);
+          if (!stopResult?.success) {
+            throw new Error(stopResult?.error || 'The stop request failed.');
+          }
+
+          for (let attempt = 0; attempt < MAX_STOP_FINALIZATION_POLLS; attempt += 1) {
+            await new Promise(resolve => window.setTimeout(resolve, STOP_FINALIZATION_POLL_MS));
+            const result = await pollSparrowRun(runId);
+            if (result?.status === 'stopped' || result?.status === 'completed') return;
+          }
+
+          throw new Error('The nesting engine did not finish preparing the stopped placement.');
+        } catch (err) {
+          activeSparrowRunId = null;
+          presentRunError('Stop', err);
+          dom.startBtn.classList.remove('running');
+          dom.startBtn.disabled = false;
+          dom.stopBtn.disabled = true;
+          dom.stopBtn.classList.remove('active');
+        }
       });
     }
 

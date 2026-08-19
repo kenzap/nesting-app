@@ -839,7 +839,8 @@
         const sameSource = sameStrip
           && dom.svgContainer.dataset.svgSource === sourcePath
           && dom.svgContainer.dataset.svgPreview === sourcePreviewState;
-        if (!(sameSvg && sameSource)) {
+        const didSwap = !(sameSvg && sameSource);
+        if (didSwap) {
           dom.svgContainer.innerHTML = styled;
           dom.svgContainer.dataset.activeIndex = String(sheetIndex);
           dom.svgContainer.dataset.svgLen = String(styled.length);
@@ -862,7 +863,7 @@
         // Only re-center the viewport when the SVG actually got swapped — a
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.
-        if (!sameSvg) applyZoom(true);
+        if (didSwap) applyZoom(true);
         return;
       }
 

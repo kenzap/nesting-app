@@ -429,17 +429,26 @@ function collectRunningSparrowArtifacts(runDir, safeName) {
   };
 }
 
-function terminateSparrowRun(runId, { markStopped = true, forceAfterMs = 2000 } = {}) {
+function terminateSparrowRun(runId, {
+  markStopped = true,
+  graceful = true,
+  forceAfterMs = 60000,
+} = {}) {
   const child = activeSparrowProcesses.get(runId);
   if (!child) return false;
 
   const run = sparrowRuns.get(runId);
   if (run && markStopped && run.status === 'running') {
-    run.status = 'stopped';
+    run.status = 'stopping';
+    run.stopRequested = true;
   }
 
   try {
-    child.kill('SIGTERM');
+    // The native engine treats SIGINT as an optimization stop request, then
+    // writes the best complete solution to its normal final JSON/SVG files.
+    // Windows cannot deliver a graceful console interrupt through Node's
+    // child.kill API, so retain its existing termination behavior there.
+    child.kill(graceful && process.platform !== 'win32' ? 'SIGINT' : 'SIGTERM');
   } catch {
     try {
       child.kill();
@@ -473,7 +482,7 @@ function terminateAllSparrowRuns(options = {}) {
 
 function registerSparrowIpc() {
   app.on('before-quit', () => {
-    terminateAllSparrowRuns({ markStopped: true, forceAfterMs: 1000 });
+    terminateAllSparrowRuns({ markStopped: true, graceful: false, forceAfterMs: 1000 });
   });
 
   ipcMain.handle('get-native-engine-info', async () => {
@@ -580,6 +589,7 @@ function registerSparrowIpc() {
         stdout: '',
         stderr: '',
         status: 'running',
+        stopRequested: false,
         exitCode: null,
         error: null,
       });
@@ -607,7 +617,9 @@ function registerSparrowIpc() {
         const run = sparrowRuns.get(runId);
         if (run) {
           run.exitCode = code;
-          run.status = code === 0 ? 'completed' : (run.status === 'stopped' ? 'stopped' : 'error');
+          run.status = run.stopRequested
+            ? 'stopped'
+            : (code === 0 ? 'completed' : 'error');
           if (code !== 0 && !run.error && run.status !== 'stopped') {
             run.error = `Sparrow exited with code ${code}`;
           }
@@ -631,9 +643,23 @@ function registerSparrowIpc() {
   ipcMain.handle('stop-sparrow', async (event, runId = null) => {
     try {
       if (runId) {
-        return { success: true, stopped: terminateSparrowRun(runId, { markStopped: true, forceAfterMs: 1000 }) };
+        return {
+          success: true,
+          stopped: terminateSparrowRun(runId, {
+            markStopped: true,
+            graceful: true,
+            forceAfterMs: 60000,
+          }),
+        };
       }
-      return { success: true, stopped: terminateAllSparrowRuns({ markStopped: true, forceAfterMs: 1000 }) > 0 };
+      return {
+        success: true,
+        stopped: terminateAllSparrowRuns({
+          markStopped: true,
+          graceful: true,
+          forceAfterMs: 60000,
+        }) > 0,
+      };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -646,7 +672,7 @@ function registerSparrowIpc() {
     }
 
     const status = run.status;
-    const rawArtifacts = status === 'running'
+    const rawArtifacts = status === 'running' || status === 'stopping'
       ? collectRunningSparrowArtifacts(run.runDir, run.safeName)
       : collectSparrowArtifacts(run.runDir, run.safeName);
     const artifacts = attachRunSheetMetadata(rawArtifacts, run.runDir, run.safeName);

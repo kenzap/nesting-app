@@ -65,7 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getNativeEngineInfo: () => ipcRenderer.invoke('get-native-engine-info'),
   runSparrow: (payload, options) => ipcRenderer.invoke('run-sparrow', payload, options),
   pollSparrow: (runId) => ipcRenderer.invoke('poll-sparrow', runId),
-  stopSparrow: () => ipcRenderer.invoke('stop-sparrow'),
+  stopSparrow: (runId) => ipcRenderer.invoke('stop-sparrow', runId),
   chooseExportFolder: () => ipcRenderer.invoke('choose-export-folder'),
   printSheetsReport: (payload) => ipcRenderer.invoke('print-sheets-report', payload),
   exportSheetsDXF: (payload) => ipcRenderer.invoke('export-sheets-dxf', payload),
