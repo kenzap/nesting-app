@@ -306,14 +306,96 @@
     return dedupePoints(points, close);
   }
 
-  // Returns the fit points (preferred) or control points of a SPLINE as a simple
-  // point array. Accurate enough for nesting polygon approximation without needing
-  // full B-spline evaluation.
+  function evaluateBSplinePoint(controlPoints, knots, degree, parameter, weights = []) {
+    const lastControlIndex = controlPoints.length - 1;
+    let span = degree;
+    if (parameter >= knots[lastControlIndex + 1] - EPS) {
+      span = lastControlIndex;
+    } else {
+      let low = degree;
+      let high = lastControlIndex + 1;
+      span = Math.floor((low + high) / 2);
+      while (parameter < knots[span] || parameter >= knots[span + 1]) {
+        if (parameter < knots[span]) high = span;
+        else low = span;
+        span = Math.floor((low + high) / 2);
+      }
+    }
+
+    const work = [];
+    for (let j = 0; j <= degree; j++) {
+      const controlIndex = span - degree + j;
+      const point = controlPoints[controlIndex];
+      const rawWeight = weights[controlIndex] ?? point?.weight ?? point?.w ?? 1;
+      const weight = Number.isFinite(Number(rawWeight)) ? Number(rawWeight) : 1;
+      work.push({ x: point.x * weight, y: point.y * weight, weight });
+    }
+
+    for (let level = 1; level <= degree; level++) {
+      for (let j = degree; j >= level; j--) {
+        const knotIndex = span - degree + j;
+        const denominator = knots[knotIndex + degree - level + 1] - knots[knotIndex];
+        const alpha = Math.abs(denominator) <= EPS
+          ? 0
+          : (parameter - knots[knotIndex]) / denominator;
+        work[j] = {
+          x: (1 - alpha) * work[j - 1].x + alpha * work[j].x,
+          y: (1 - alpha) * work[j - 1].y + alpha * work[j].y,
+          weight: (1 - alpha) * work[j - 1].weight + alpha * work[j].weight,
+        };
+      }
+    }
+
+    const result = work[degree];
+    if (!result || Math.abs(result.weight) <= EPS) return null;
+    return { x: result.x / result.weight, y: result.y / result.weight };
+  }
+
+  // Evaluates a DXF SPLINE from its degree, knot vector, and control points.
+  // Control points generally do not lie on the curve, so connecting them or
+  // passing a Catmull-Rom path through them can create false loops and tails.
   function splineToPoints(ent) {
-    const raw = (ent.fitPoints && ent.fitPoints.length > 1)
+    const controlPoints = Array.isArray(ent?.controlPoints) ? ent.controlPoints : [];
+    const knots = Array.isArray(ent?.knotValues) ? ent.knotValues.map(Number) : [];
+    const degree = Number(ent?.degreeOfSplineCurve);
+    const validControlPoints = controlPoints.length > degree && controlPoints.every(point =>
+      Number.isFinite(point?.x) && Number.isFinite(point?.y)
+    );
+    const validKnots = Number.isInteger(degree) && degree >= 1 &&
+      knots.length >= controlPoints.length + degree + 1 &&
+      knots.every(Number.isFinite) &&
+      knots.every((value, index) => index === 0 || value >= knots[index - 1]);
+
+    if (validControlPoints && validKnots) {
+      const lastControlIndex = controlPoints.length - 1;
+      const domainStart = knots[degree];
+      const domainEnd = knots[lastControlIndex + 1];
+      if (Number.isFinite(domainStart) && Number.isFinite(domainEnd) && domainEnd - domainStart > EPS) {
+        const weights = Array.isArray(ent.weights) ? ent.weights : [];
+        const samplesPerSpan = Math.max(8, degree * 4);
+        const sampled = [];
+
+        for (let span = degree; span <= lastControlIndex; span++) {
+          const start = knots[span];
+          const end = knots[span + 1];
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end - start <= EPS) continue;
+          for (let step = 0; step < samplesPerSpan; step++) {
+            const parameter = start + (end - start) * (step / samplesPerSpan);
+            const point = evaluateBSplinePoint(controlPoints, knots, degree, parameter, weights);
+            if (point) sampled.push(point);
+          }
+        }
+
+        const endPoint = evaluateBSplinePoint(controlPoints, knots, degree, domainEnd, weights);
+        if (endPoint) sampled.push(endPoint);
+        if (sampled.length >= 2) return dedupePoints(sampled, !!ent.closed);
+      }
+    }
+
+    const fallback = (ent.fitPoints && ent.fitPoints.length > 1)
       ? ent.fitPoints
-      : (ent.controlPoints || []);
-    return dedupePoints(raw.map(point => ({ x: point.x, y: point.y })), !!ent.closed);
+      : controlPoints;
+    return dedupePoints(fallback.map(point => ({ x: point.x, y: point.y })), !!ent.closed);
   }
 
   // Tessellates a CIRCLE into 48 evenly-spaced points so it can be treated as

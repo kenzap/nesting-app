@@ -63,10 +63,18 @@
     return `M${f(x1)},${f(y1)} A${f(r)},${f(r)},0,${large},0,${f(x2)},${f(y2)}`;
   }
 
-  // Renders a SPLINE as a smooth cubic Bézier SVG path using Catmull-Rom
-  // tangent estimation, giving a visually accurate curve without needing
-  // full B-spline evaluation.
+  // Renders evaluated B-splines directly so the modal uses the same geometry
+  // as contour detection. Older spline records without a usable knot vector
+  // retain the Catmull-Rom fallback used by previous versions.
   function splinePath(ent, ox, originMaxY) {
+    const hasEvaluableSpline = Array.isArray(ent.controlPoints) &&
+      Number.isInteger(Number(ent.degreeOfSplineCurve)) &&
+      Array.isArray(ent.knotValues) &&
+      ent.knotValues.length >= ent.controlPoints.length + Number(ent.degreeOfSplineCurve) + 1;
+    if (hasEvaluableSpline) {
+      return pathFromPoints(splineToPoints(ent), ox, originMaxY, !!ent.closed);
+    }
+
     const raw = (ent.fitPoints && ent.fitPoints.length > 1)
       ? ent.fitPoints
       : (ent.controlPoints || []);
