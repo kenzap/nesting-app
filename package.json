@@ -1,6 +1,6 @@
 {
   "name": "nesting-app",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "description": "DXF Nesting Application",
   "author": "Kenzap Pte Ltd",
   "main": "main.js",

@@ -925,6 +925,10 @@
       }
       dom.zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
       scheduleSheetDimensionBadgeSync();
+      // The outer SVG container keeps its viewport-sized minimum below the
+      // fit scale, so its ResizeObserver does not fire while the SVG shrinks.
+      // Reproject measurements directly after every zoom change instead.
+      globalScope.measureToolApi?.onCanvasUpdated?.();
       if (recenter) {
         requestAnimationFrame(() => centerViewportOnContent());
       }

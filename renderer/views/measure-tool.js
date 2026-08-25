@@ -901,8 +901,8 @@
         if (!showCursorCoords && coordChipEl) coordChipEl.hidden = true;
       },
       isShowCursorCoords() { return showCursorCoords; },
-      /** Called by canvas-view when a new SVG is rendered so we resize the
-       *  overlay and re-project any committed measurement. */
+      /** Called by canvas-view after rendering or resizing the SVG so the
+       *  overlay and committed measurement follow its current transform. */
       onCanvasUpdated() {
         invalidateSnapCache();
         redrawOverlay();
