@@ -443,12 +443,23 @@ function terminateSparrowRun(runId, {
     run.stopRequested = true;
   }
 
+  let stopRequested = false;
+  if (graceful && process.platform === 'win32' && run?.stopFilePath) {
+    try {
+      // Windows cannot deliver SIGINT to this child process through Node.
+      // A per-run marker lets the engine finish and export its best solution.
+      fs.writeFileSync(run.stopFilePath, 'stop\n', 'utf-8');
+      stopRequested = true;
+    } catch {
+      // Fall back to process termination if the marker cannot be written.
+    }
+  }
+
   try {
-    // The native engine treats SIGINT as an optimization stop request, then
-    // writes the best complete solution to its normal final JSON/SVG files.
-    // Windows cannot deliver a graceful console interrupt through Node's
-    // child.kill API, so retain its existing termination behavior there.
-    child.kill(graceful && process.platform !== 'win32' ? 'SIGINT' : 'SIGTERM');
+    if (!stopRequested) {
+      const signal = graceful && process.platform !== 'win32' ? 'SIGINT' : 'SIGTERM';
+      child.kill(signal);
+    }
   } catch {
     try {
       child.kill();
@@ -519,11 +530,15 @@ function registerSparrowIpc() {
       cleanupTempArtifacts(runsRootDir);
       const runDir = path.join(runsRootDir, `${safeName}-${Date.now()}`);
       fs.mkdirSync(runDir, { recursive: true });
+      const stopFilePath = path.join(runDir, '.stop-requested');
 
       const inputPath = path.join(runDir, `${safeName}.json`);
       fs.writeFileSync(inputPath, JSON.stringify(payload, null, 2), 'utf-8');
 
       const args = ['--input', inputPath];
+      if (process.platform === 'win32') {
+        args.push('--stop-file', stopFilePath);
+      }
       if (Number.isFinite(options.globalTime) && options.globalTime > 0) {
         args.push('--global-time', String(options.globalTime));
       }
@@ -586,6 +601,7 @@ function registerSparrowIpc() {
         safeName,
         runDir,
         inputPath,
+        stopFilePath,
         stdout: '',
         stderr: '',
         status: 'running',
