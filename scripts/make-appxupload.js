@@ -44,13 +44,25 @@ function createArchive(outputPath, files) {
   if (!files.length) fail('No files provided for upload archive.');
 
   if (process.platform === 'win32') {
+    // Compress-Archive only accepts a .zip destination even though Store
+    // upload packages are ZIP containers with a different extension.
+    const temporaryZipPath = `${outputPath}.${process.pid}-${Date.now()}.zip`;
     const command = [
       '$ErrorActionPreference = "Stop"',
       `$files = @(${files.map(file => `'${file.replace(/'/g, "''")}'`).join(', ')})`,
-      `Compress-Archive -LiteralPath $files -DestinationPath '${outputPath.replace(/'/g, "''")}' -Force`
+      `Compress-Archive -LiteralPath $files -DestinationPath '${temporaryZipPath.replace(/'/g, "''")}' -Force`
     ].join('; ');
-    const result = spawnSync('powershell', ['-NoProfile', '-Command', command], { stdio: 'inherit' });
-    if (result.status !== 0) fail(`PowerShell Compress-Archive failed with exit code ${result.status ?? 'unknown'}.`);
+    try {
+      const result = spawnSync('powershell', ['-NoProfile', '-Command', command], { stdio: 'inherit' });
+      if (result.error) throw new Error(`PowerShell Compress-Archive failed: ${result.error.message}`);
+      if (result.status !== 0) {
+        throw new Error(`PowerShell Compress-Archive failed with exit code ${result.status ?? 'unknown'}.`);
+      }
+      fs.renameSync(temporaryZipPath, outputPath);
+    } catch (error) {
+      if (fs.existsSync(temporaryZipPath)) fs.rmSync(temporaryZipPath, { force: true });
+      fail(error.message);
+    }
     return;
   }
 

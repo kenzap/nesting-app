@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "electron": "^42.4.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "@flatten-js/core": "^1.6.12",
@@ -142,20 +142,24 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
     },
-    "snap": {
-      "allowNativeWayland": true,
-      "confinement": "strict",
-      "grade": "stable",
-      "plugs": [
-        "default",
-        "removable-media",
-        {
-          "shared-memory": {
-            "interface": "shared-memory",
-            "private": true
+    "snapcraft": {
+      "base": "core24",
+      "core24": {
+        "useLXD": true,
+        "confinement": "strict",
+        "grade": "stable",
+        "plugs": [
+          "default",
+          "home",
+          "removable-media",
+          {
+            "shared-memory": {
+              "interface": "shared-memory",
+              "private": true
+            }
           }
-        }
-      ]
+        ]
+      }
     }
   }
 }
