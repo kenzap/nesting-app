@@ -168,7 +168,10 @@
 
     function enhanceModalSelects() {
       if (!isLinux) return;
-      document.querySelectorAll('.modal-body select').forEach(enhanceSelect);
+      // Skip hidden selects — they're placeholders whose value is driven by
+      // a custom control (e.g. the sheet-mode segmented control) and should
+      // not sprout a duplicate visible dropdown.
+      document.querySelectorAll('.modal-body select:not([hidden])').forEach(enhanceSelect);
     }
 
     return {

@@ -495,7 +495,7 @@
             stripMargin: sheetMargin,
             minItemSeparation: partSpacing,
             exactCoedge: partSpacing === 0,
-            align: String(settings.preferredAlignment || 'top'),
+            align: String(settings.preferredAlignment || 'bottom-left'),
             multiStripMode,
             ...(Number.isFinite(bucketFillWeight) ? { bucketFillWeight } : {}),
           };

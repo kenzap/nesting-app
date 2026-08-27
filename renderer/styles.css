@@ -1501,6 +1501,84 @@ body.platform-linux .linux-menubar {
   box-shadow: inset 0 0 0 1px rgba(79,142,247,.2);
 }
 
+/* Three-way segmented control for the sheet mode. Replaces the previous
+   dropdown so all three sourcing scenarios (fixed sheet, cuttable strip
+   up to a max, unlimited strip) are visible at a glance with an icon
+   that shows what each mode physically represents. */
+.sheet-mode-seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.sheet-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+/* SVG icons carry 1.5 units of trailing padding inside their viewBox. Pull
+   the layout in by the same amount so the visible right edge of the icon
+   sits at the flex-gap boundary, matching the auto-sized text glyph. */
+.sheet-mode-btn svg {
+  flex: 0 0 auto;
+  opacity: 0.9;
+  margin-right: -1.5px;
+}
+/* Text-based glyph (e.g. ∞) rendered inline in place of an SVG icon. Auto-
+   sized to its natural glyph width so there is no trailing whitespace after
+   it — the button's flex `gap` alone controls the space to the label. */
+.sheet-mode-btn .sheet-mode-glyph {
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  font: 500 16px/1 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  opacity: 0.9;
+  /* The ∞ glyph in system-ui sits above its em-center — a small negative
+     margin-top pulls it into visual alignment with the SVG icons on the
+     other two buttons (which are centered in a 14-tall viewBox). */
+  margin-top: -2px;
+}
+.sheet-mode-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+.sheet-mode-btn.active {
+  border-color: rgba(79,142,247,.55);
+  background: rgba(79,142,247,.12);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(79,142,247,.2);
+}
+
+/* When the length input is not applicable (unlimited mode), collapse the
+   input into an infinity chip so users see there is nothing to fill in
+   without the field shifting layout on mode changes. */
+.sheet-dims-row .input-with-unit.length-infinite input,
+.sheet-dims-row .input-with-unit.length-infinite .unit { display: none; }
+.sheet-dims-row .input-with-unit.length-infinite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 300;
+  background: var(--surface2);
+  border: 1px dashed var(--border);
+  cursor: default;
+}
+.sheet-dims-row .input-with-unit.length-infinite::before {
+  content: '∞';
+}
+
 .sheet-field-head {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1521,16 +1599,27 @@ body.platform-linux .linux-menubar {
 .sheet-dims-row .input-with-unit { flex: 1; }
 .sheet-dims-row .input-with-unit input { width: 100%; }
 .sheet-help {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background:
-    linear-gradient(180deg, rgba(79,142,247,.08), rgba(79,142,247,0)) ,
-    var(--surface2);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent) 5%, transparent);
   color: var(--text-muted);
   font-size: 11.5px;
   line-height: 1.45;
+}
+.sheet-help::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 12px; height: 12px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.85;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><circle cx='6' cy='6' r='5.4' fill='none' stroke='black' stroke-width='1.2'/><circle cx='6' cy='3.6' r='0.7' fill='black'/><path d='M6 5.5 v3.5' stroke='black' stroke-width='1.2' stroke-linecap='round'/></svg>") no-repeat center / contain;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><circle cx='6' cy='6' r='5.4' fill='none' stroke='black' stroke-width='1.2'/><circle cx='6' cy='3.6' r='0.7' fill='black'/><path d='M6 5.5 v3.5' stroke='black' stroke-width='1.2' stroke-linecap='round'/></svg>") no-repeat center / contain;
 }
 .input-with-unit input:disabled {
   opacity: 0.5;

@@ -57,7 +57,7 @@
     rotationStep: '90',
     mirrorParts: false,
     earlyStopping: true,
-    preferredAlignment: 'top',
+    preferredAlignment: 'bottom-left',
     timeLimit: 60,
     rngSeed: 42,
     workers: 3,

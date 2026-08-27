@@ -64,7 +64,10 @@
     }
 
     // Disables the width input when "unlimited" mode is selected and updates the help text
-    // to explain what each mode means, then syncs the preset button highlights.
+    // to explain what each mode means, then syncs the preset button highlights. Also
+    // reflects the current mode on the segmented control and adapts the length field's
+    // label and appearance so users see one input treatment per mode instead of a
+    // generic "Length" that means different things in different modes.
     function updateSheetModeControls() {
       const mode = dom.sheetWidthMode.value;
       const unlimited = mode === 'unlimited';
@@ -72,11 +75,26 @@
       dom.sheetWidth.disabled = unlimited;
 
       if (unlimited) {
-        dom.sheetModeHelp.textContent = 'The strip can continue without a fixed length limit.';
+        dom.sheetModeHelp.textContent = 'Strip length has no limit; the engine uses whatever it needs.';
       } else if (mode === 'max') {
-        dom.sheetModeHelp.textContent = 'Length is treated as a maximum. The algorithm may use less length when possible and will automatically calculate the number of sheets needed and their dimensions.';
+        dom.sheetModeHelp.textContent = 'Length is the maximum; sheets may be shorter and the count is calculated automatically.';
       } else {
-        dom.sheetModeHelp.textContent = 'A fixed sheet size will be used. The number of sheets required is calculated automatically.';
+        dom.sheetModeHelp.textContent = 'Fixed sheet size; the number of sheets is calculated automatically.';
+      }
+
+      const lengthLabelEl = document.getElementById('sheetLengthLabel');
+      if (lengthLabelEl) {
+        lengthLabelEl.textContent = unlimited ? 'Length (∞)' : (mode === 'max' ? 'Up to' : 'Length');
+      }
+      const lengthWrap = document.getElementById('sheetLengthWrap');
+      if (lengthWrap) lengthWrap.classList.toggle('length-infinite', unlimited);
+
+      const seg = document.getElementById('sheetModeSeg');
+      if (seg) {
+        seg.querySelectorAll('.sheet-mode-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.mode === mode);
+          btn.setAttribute('aria-selected', btn.dataset.mode === mode ? 'true' : 'false');
+        });
       }
 
       syncSheetPresetButtons();
@@ -92,6 +110,15 @@
       dom.sheetWidthMode.addEventListener('change', updateSheetModeControls);
       dom.sheetWidth.addEventListener('input', syncSheetPresetButtons);
       dom.sheetHeight.addEventListener('input', syncSheetPresetButtons);
+
+      // Segmented mode buttons drive the hidden <select> so the rest of the
+      // code path (validation, persistence, existing helpers) is unchanged.
+      document.querySelectorAll('#sheetModeSeg .sheet-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          dom.sheetWidthMode.value = btn.dataset.mode;
+          updateSheetModeControls();
+        });
+      });
 
       document.querySelectorAll('.preset-btn').forEach(btn => {
         btn.addEventListener('click', () => {

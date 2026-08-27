@@ -183,11 +183,11 @@
         <div class="setting-row">
           <label>Preferred alignment</label>
           <select data-setting-key="preferredAlignment">
-            <option value="top" selected>Top</option>
+            <option value="top">Top</option>
             <option value="top-left">Top left</option>
             <option value="top-right">Top right</option>
             <option value="bottom">Bottom</option>
-            <option value="bottom-left">Bottom left</option>
+            <option value="bottom-left" selected>Bottom left</option>
             <option value="bottom-right">Bottom right</option>
           </select>
         </div>
@@ -334,17 +334,35 @@
       </div>
       <div class="settings-section">
         <div class="settings-section-title">Dimensions</div>
-        <div class="setting-row">
-          <label>Mode</label>
-          <select id="sheetWidthMode">
-            <option value="fixed" selected>Fixed size sheet</option>
-            <option value="max">Optimize up to max length</option>
-            <option value="unlimited">Unlimited strip length</option>
-          </select>
+        <select id="sheetWidthMode" hidden>
+          <option value="fixed" selected>Fixed size sheet</option>
+          <option value="max">Optimize up to max length</option>
+          <option value="unlimited">Unlimited strip length</option>
+        </select>
+        <div class="sheet-mode-seg" id="sheetModeSeg" role="tablist" aria-label="Sheet mode">
+          <button class="sheet-mode-btn" data-mode="fixed" type="button" role="tab">
+            <svg width="22" height="14" viewBox="0 0 22 14" fill="none" aria-hidden="true">
+              <rect x="1.5" y="2.5" width="19" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            <span>Fixed</span>
+          </button>
+          <button class="sheet-mode-btn" data-mode="max" type="button" role="tab">
+            <svg width="22" height="14" viewBox="0 0 22 14" fill="none" aria-hidden="true">
+              <path d="M11 2.5 L1.5 2.5 L1.5 11.5 L11 11.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M11 2.5 L20.5 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.6" stroke-linecap="round"/>
+              <path d="M11 11.5 L20.5 11.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.6" stroke-linecap="round"/>
+              <path d="M20.5 2.5 L20.5 11.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.6" stroke-linecap="round"/>
+            </svg>
+            <span>Up to</span>
+          </button>
+          <button class="sheet-mode-btn" data-mode="unlimited" type="button" role="tab">
+            <span class="sheet-mode-glyph" aria-hidden="true">∞</span>
+            <span>Unlimited</span>
+          </button>
         </div>
         <div class="sheet-field-head">
           <span>Width</span>
-          <span>Length</span>
+          <span id="sheetLengthLabel">Length</span>
         </div>
         <div class="sheet-dims-row">
           <div class="input-with-unit">
@@ -352,7 +370,7 @@
             <span class="unit">mm</span>
           </div>
           <span class="dims-sep">×</span>
-          <div class="input-with-unit">
+          <div class="input-with-unit" id="sheetLengthWrap">
             <input type="number" id="sheetWidth" placeholder="Length" value="3000" min="1" />
             <span class="unit">mm</span>
           </div>
