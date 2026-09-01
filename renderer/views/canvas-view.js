@@ -400,6 +400,8 @@
       root.setAttribute('viewBox', `${previewMinX} ${previewMinY} ${previewWidth} ${previewHeight}`);
       root.setAttribute('width', `${previewWidth}`);
       root.setAttribute('height', `${previewHeight}`);
+      root.setAttribute('data-sheet-width', `${targetWidth}`);
+      root.setAttribute('data-sheet-height', `${targetHeight}`);
 
       const frameOriginX = 0;
       const frameOriginY = 0;
@@ -574,12 +576,21 @@
       return styled;
     }
 
-    function sheetDimensionLabel() {
+    function sheetDimensionLabel(svg = null) {
       const sheet = currentSheetConfig();
-      const sheetW = Number(sheet?.width);
-      const sheetH = Number(sheet?.height);
+      const strip = state.nestResult?.strips?.[state.activeStripIndex || 0] || null;
+      const config = stripSheetConfig(strip, sheet);
+      if (config.widthMode !== 'fixed' && config.widthMode !== 'max') return null;
+
+      const renderedWidth = Number(svg?.getAttribute('data-sheet-width'));
+      const renderedHeight = Number(svg?.getAttribute('data-sheet-height'));
+      const sheetW = Number.isFinite(renderedWidth) && renderedWidth > 0
+        ? renderedWidth
+        : (strip ? displayStripWidth(strip, sheet) : Number(config.width));
+      const sheetH = Number.isFinite(renderedHeight) && renderedHeight > 0
+        ? renderedHeight
+        : Number(config.height);
       if (!Number.isFinite(sheetW) || !Number.isFinite(sheetH) || sheetW <= 0 || sheetH <= 0) return null;
-      if (sheet?.widthMode !== 'fixed' && sheet?.widthMode !== 'max') return null;
       return { text: `${Math.round(sheetW)} × ${Math.round(sheetH)} mm`, width: sheetW, height: sheetH };
     }
 
@@ -600,7 +611,7 @@
       sheetBadgeFrame = null;
       const badge = dom.sheetDimensionBadge;
       const svg = dom.svgContainer.querySelector('svg');
-      const dimension = sheetDimensionLabel();
+      const dimension = sheetDimensionLabel(svg);
       if (!badge || !svg || !dimension || dom.svgContainer.style.display === 'none') {
         hideSheetDimensionBadge();
         return;
