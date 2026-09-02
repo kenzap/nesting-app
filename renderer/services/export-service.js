@@ -2,7 +2,7 @@
 
 (function defineExportService(globalScope) {
   function createExportService({ state, dom, getCurrentNestingSettings = () => ({}) }) {
-    const { formatWidthMeters } = globalScope.NestHelpers;
+    const { resolveMeasurementSystem, unitLabel, formatLength, formatLongLength } = globalScope.NestUnits;
     let exportFolderPath = null;
     let exportFolderBookmark = null;
 
@@ -77,10 +77,17 @@
       return usedArea / outerArea;
     }
 
-    // Rounds a millimetre dimension up to the nearest integer, matching the display
-    // convention where e.g. 2660.1 mm is shown as 2661 mm.
-    function roundUpDim(mm) {
-      return Math.ceil(mm);
+    function measurementSystem() {
+      return resolveMeasurementSystem(getCurrentNestingSettings()?.measurementSystem);
+    }
+
+    function formatExportDimension(mm, unitSystem) {
+      if (unitSystem === 'metric') return String(Math.ceil(Number(mm) || 0));
+      return formatLength(mm, {
+        system: unitSystem,
+        imperialPrecision: 2,
+        includeUnit: false,
+      });
     }
 
     // Maps a utilisation percentage to a CSS modifier class used to colour the
@@ -217,7 +224,10 @@
         ? `${(avgUtil * 100).toFixed(1)}%`
         : '—';
       const totalMm = strips.reduce((sum, strip) => sum + exportSheetWidthForStrip(strip, sheet), 0);
-      dom.exportSummaryLength.textContent = `${(totalMm / 1000).toFixed(2)} m`;
+      const unitSystem = measurementSystem();
+      dom.exportSummaryLength.textContent = formatLongLength(totalMm, unitSystem);
+      const sizeHeading = document.getElementById('exportSheetSizeHeading');
+      if (sizeHeading) sizeHeading.textContent = `Sheet Size (${unitLabel(unitSystem)})`;
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       if (isPreview) {
         dom.exportFolderLabel.textContent = 'Finalizing sheets…';
@@ -225,15 +235,14 @@
 
       dom.exportTableBody.innerHTML = '';
       strips.forEach((strip, i) => {
-        const w = roundUpDim(exportSheetWidthForStrip(strip, sheet));
-        const h = roundUpDim(sheet.height || 0);
+        const dimensions = `${formatExportDimension(sheet.height || 0, unitSystem)} × ${formatExportDimension(exportSheetWidthForStrip(strip, sheet), unitSystem)}`;
         const density = exportSheetDensityForStrip(strip, sheet);
         const pct = Number.isFinite(density) && density > 0 ? density * 100 : null;
         const cls = Number.isFinite(pct) ? utilClass(pct) : '';
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><span class="export-sheet-num">${i + 1}</span></td>
-          <td style="font-variant-numeric:tabular-nums">${h} × ${w}</td>
+          <td style="font-variant-numeric:tabular-nums">${dimensions}</td>
           <td style="color:var(--text-dim)">${sheet.material || '—'}</td>
           <td style="font-variant-numeric:tabular-nums">${strip.item_count || 0}</td>
           <td>
@@ -244,7 +253,7 @@
               <span class="export-util-pct">${Number.isFinite(pct) ? `${pct.toFixed(1)}%` : '—'}</span>
             </div>
           </td>
-          <td style="font-variant-numeric:tabular-nums;color:var(--text-dim)">${formatWidthMeters(exportSheetWidthForStrip(strip, sheet))}</td>`;
+          <td style="font-variant-numeric:tabular-nums;color:var(--text-dim)">${formatLongLength(exportSheetWidthForStrip(strip, sheet), unitSystem)}</td>`;
         dom.exportTableBody.appendChild(tr);
       });
     }
@@ -299,6 +308,7 @@
           const result = await window.electronAPI.printSheetsReport({
             jobName: state.nestResult.name || 'nesting-job',
             sheetMaterial: sheet.material || '',
+            measurementSystem: measurementSystem(),
             strips: buildExportStrips(),
           });
 
@@ -363,6 +373,9 @@
 
     return {
       loadLastExportFolder,
+      refreshUnits() {
+        if (dom.exportModal?.classList.contains('open')) populateExportModal();
+      },
       syncExportButton,
       bind,
     };

@@ -203,7 +203,7 @@
     ${adjustedPreviewLabelSvg}
   </g>
   <text x="${f(displayW / 2)}" y="${f(displayH + 11)}" text-anchor="middle" font-size="8" fill="${dynamicColor}" opacity="0.6" font-family="monospace">${shape.name}</text>
-  <title>${shape.name} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestDxfSvg.f1(shape.bbox.w)}×${global.NestDxfSvg.f1(shape.bbox.h)} mm${fitWarning ? ' · does not fit' : ''}</title>
+  <title>${shape.name} · outer: ${(shape.ownerLayers || [shape.layer]).join(', ')} · all: ${(shape.involvedLayers || [shape.layer]).join(', ')} · ${global.NestUnits.formatDimensions(shape.bbox.w, shape.bbox.h, { system: global.getCurrentNestingSettings?.().measurementSystem })}${fitWarning ? ' · does not fit' : ''}</title>
 </g>`;
       }).join('');
 

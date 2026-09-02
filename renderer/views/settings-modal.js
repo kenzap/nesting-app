@@ -3,18 +3,31 @@
 (function defineSettingsModal(globalScope) {
   function createSettingsModal({ state, dom, onSettingsApplied }) {
     const { SETTINGS_DEFAULTS, normalizeSettings } = globalScope.NestSettings;
+    const {
+      resolveMeasurementSystem,
+      unitLabel,
+      fromDisplayLength,
+      formatInputLength,
+    } = globalScope.NestUnits;
     const settingsFields = dom.settingsFields;
+    const lengthSettingKeys = new Set(['partSpacing', 'sheetMargin']);
+    const measurementSystemField = settingsFields.find(field => field.dataset.settingKey === 'measurementSystem');
     const devOnlyRows = Array.from(document.querySelectorAll('[data-dev-only-setting]'));
     let isDevBuild = false;
+    let dialogUnitSystem = resolveMeasurementSystem(SETTINGS_DEFAULTS.measurementSystem);
 
     // Reads the current value of a single settings field, normalising checkboxes to
     // booleans and number inputs to JS numbers so callers always get the right type.
-    function settingFieldValue(field) {
+    function settingFieldValue(field, unitSystem = dialogUnitSystem) {
       if (field.type === 'checkbox') return field.checked;
       if (field.type === 'number') {
         if (field.value === '') return '';
-        const numeric = Number(field.value);
+        const displayNumeric = Number(field.value);
+        const numeric = lengthSettingKeys.has(field.dataset.settingKey)
+          ? fromDisplayLength(displayNumeric, unitSystem)
+          : displayNumeric;
         if (!Number.isFinite(numeric)) return '';
+        if (lengthSettingKeys.has(field.dataset.settingKey)) return Math.max(0, numeric);
         const min = field.min === '' ? -Infinity : Number(field.min);
         const max = field.max === '' ? Infinity : Number(field.max);
         return Math.min(max, Math.max(min, numeric));
@@ -24,21 +37,24 @@
 
     // Writes a value back to a settings form field, handling the checkbox/text distinction.
     // Silently skips fields whose key is not present in the provided settings object.
-    function applySettingFieldValue(field, value) {
+    function applySettingFieldValue(field, value, unitSystem = dialogUnitSystem) {
       if (value === undefined) return;
       if (field.type === 'checkbox') {
         field.checked = !!value;
         return;
       }
-      field.value = `${value}`;
+      field.value = lengthSettingKeys.has(field.dataset.settingKey)
+        ? formatInputLength(value, unitSystem)
+        : `${value}`;
       if (typeof field._syncCustomSelect === 'function') field._syncCustomSelect();
     }
 
     // Reads every [data-setting-key] field in the modal at once and returns them as a plain object.
     // Used before persisting so the saved data always reflects what the user currently sees in the form.
     function collectSettingsFromDialog() {
+      const unitSystem = resolveMeasurementSystem(measurementSystemField?.value || 'auto');
       return settingsFields.reduce((acc, field) => {
-        acc[field.dataset.settingKey] = settingFieldValue(field);
+        acc[field.dataset.settingKey] = settingFieldValue(field, unitSystem);
         return acc;
       }, {});
     }
@@ -65,8 +81,26 @@
 
     // Pushes a settings object into every form field in the modal.
     // Called both on initial open (to show current values) and on reset (to restore defaults).
+    function updateLengthFieldPresentation() {
+      const label = unitLabel(dialogUnitSystem);
+      document.querySelectorAll('#settingsModal [data-length-unit]').forEach(node => {
+        node.textContent = label;
+      });
+      settingsFields.forEach(field => {
+        if (!lengthSettingKeys.has(field.dataset.settingKey)) return;
+        field.step = dialogUnitSystem === 'imperial' ? '0.001' : (field.dataset.settingKey === 'partSpacing' ? '0.5' : '1');
+      });
+    }
+
     function applySettingsToDialog(settings) {
-      settingsFields.forEach(field => applySettingFieldValue(field, settings[field.dataset.settingKey]));
+      const preference = settings.measurementSystem || SETTINGS_DEFAULTS.measurementSystem;
+      if (measurementSystemField) applySettingFieldValue(measurementSystemField, preference);
+      dialogUnitSystem = resolveMeasurementSystem(preference);
+      updateLengthFieldPresentation();
+      settingsFields.forEach(field => {
+        if (field === measurementSystemField) return;
+        applySettingFieldValue(field, settings[field.dataset.settingKey], dialogUnitSystem);
+      });
     }
 
     function openSettingsDialog() {
@@ -88,6 +122,11 @@
       if (globalScope.NestThemeManager?.applyTheme) {
         globalScope.NestThemeManager.applyTheme(state.settings?.theme);
       }
+      const measurementSystem = resolveMeasurementSystem(state.settings?.measurementSystem);
+      document.documentElement.dataset.measurementSystem = measurementSystem;
+      globalScope.dispatchEvent(new CustomEvent('nest-units-changed', {
+        detail: { measurementSystem },
+      }));
     }
 
     // Reads the form, normalises the values, saves them to state, and writes through to disk via Electron IPC.
@@ -106,6 +145,20 @@
     // Falls back silently to defaults when no data is saved or the Electron bridge is unavailable.
     async function loadPersistedSettings() {
       const defaults = dialogDefaults();
+      if (window.electronAPI?.getSystemLocale) {
+        try {
+          const localeInfo = await window.electronAPI.getSystemLocale();
+          const locale = String(localeInfo?.locale || '');
+          const countryCode = String(localeInfo?.countryCode || '').toUpperCase();
+          const language = locale.replace(/_/g, '-').split('-')[0];
+          globalScope.NestUnits.setSystemLocales([
+            language && countryCode ? `${language}-${countryCode}` : '',
+            locale,
+          ]);
+        } catch {
+          // navigator.languages remains the cross-platform fallback.
+        }
+      }
       if (window.electronAPI?.getNativeEngineInfo) {
         try {
           const engineInfo = await window.electronAPI.getNativeEngineInfo();
@@ -137,6 +190,14 @@
     function bind() {
       dom.openSettings.addEventListener('click', openSettingsDialog);
       dom.closeSettings.addEventListener('click', closeSettingsDialog);
+      measurementSystemField?.addEventListener('change', () => {
+        const valuesMm = new Map(settingsFields
+          .filter(field => lengthSettingKeys.has(field.dataset.settingKey))
+          .map(field => [field, settingFieldValue(field, dialogUnitSystem)]));
+        dialogUnitSystem = resolveMeasurementSystem(measurementSystemField.value);
+        updateLengthFieldPresentation();
+        valuesMm.forEach((value, field) => applySettingFieldValue(field, value, dialogUnitSystem));
+      });
       dom.applySettings.addEventListener('click', async () => {
         try {
           await persistCurrentSettings();

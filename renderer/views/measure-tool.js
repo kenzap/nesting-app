@@ -18,6 +18,7 @@
 
 (function defineMeasureTool(globalScope) {
   function createMeasureTool({ state, dom }) {
+    const { resolveMeasurementSystem, unitLabel, formatLength } = globalScope.NestUnits;
     let coordChipEl = null;
     let modeChipEl = null;
     let overlaySvgEl = null;
@@ -34,6 +35,19 @@
     // Ambient coord chip visibility. Backed by the showCursorCoords setting;
     // togglable from View → Live Coordinates.
     let showCursorCoords = true;
+
+    function measurementSystem() {
+      return resolveMeasurementSystem(state.settings?.measurementSystem);
+    }
+
+    function formatMeasuredLength(mm, includeUnit = true) {
+      return formatLength(mm, {
+        system: measurementSystem(),
+        metricPrecision: 1,
+        imperialPrecision: 3,
+        includeUnit,
+      });
+    }
 
     // ── snap state ───────────────────────────────────────────────────────
     // Snap targets are cached because computing them touches the DOM
@@ -635,7 +649,7 @@
       const dx = endpointSheet.x - anchorSheet.x;
       const dy = endpointSheet.y - anchorSheet.y;
       const distance = Math.hypot(dx, dy);
-      const label = `${distance.toFixed(1)} mm`;
+      const label = formatMeasuredLength(distance);
 
       const isOrtho = shiftDown && anchorSheet && cursorSheet;
       const lineDash = committed ? '' : 'stroke-dasharray="4 3"';
@@ -730,11 +744,11 @@
       if (!coordChipEl) return;
       if (!showCursorCoords) { coordChipEl.hidden = true; return; }
       if (!sheetPt) { coordChipEl.hidden = true; return; }
-      const base = `x: ${sheetPt.x.toFixed(1)} · y: ${sheetPt.y.toFixed(1)} mm`;
+      const base = `x: ${formatMeasuredLength(sheetPt.x, false)} · y: ${formatMeasuredLength(sheetPt.y, false)} ${unitLabel(measurementSystem())}`;
       if (measureMode && anchorSheet && !committed) {
         const endpoint = orthoAdjusted(anchorSheet, sheetPt);
         const distance = Math.hypot(endpoint.x - anchorSheet.x, endpoint.y - anchorSheet.y);
-        coordChipEl.textContent = `${base} · Δ ${distance.toFixed(1)}`;
+        coordChipEl.textContent = `${base} · Δ ${formatMeasuredLength(distance, false)}`;
       } else {
         coordChipEl.textContent = base;
       }
@@ -901,6 +915,10 @@
         if (!showCursorCoords && coordChipEl) coordChipEl.hidden = true;
       },
       isShowCursorCoords() { return showCursorCoords; },
+      onUnitsChanged() {
+        if (cursorSheet) updateCoordChip(cursorSheet);
+        redrawOverlay();
+      },
       /** Called by canvas-view after rendering or resizing the SVG so the
        *  overlay and committed measurement follow its current transform. */
       onCanvasUpdated() {

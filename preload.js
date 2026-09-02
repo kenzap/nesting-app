@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
   getSystemTheme: () => ipcRenderer.invoke('get-system-theme'),
+  getSystemLocale: () => ipcRenderer.invoke('get-system-locale'),
   onSystemThemeChanged: (handler) => {
     if (typeof handler !== 'function') return () => {};
     const listener = (_event, payload) => handler(payload);

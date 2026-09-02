@@ -1,8 +1,19 @@
 (function attachNestDxfPreviewShapesListView(global) {
   'use strict';
 
-  const { f, f1 } = global.NestDxfSvg;
+  const { f } = global.NestDxfSvg;
   const { adjustHexColorForTheme, adjustSvgTextForTheme } = global.NestDxfColor;
+
+  function formatShapeDimensions(shape) {
+    const settings = typeof global.getCurrentNestingSettings === 'function'
+      ? global.getCurrentNestingSettings()
+      : {};
+    return global.NestUnits.formatDimensions(shape.bbox.w, shape.bbox.h, {
+      system: settings.measurementSystem,
+      metricPrecision: 1,
+      imperialPrecision: 3,
+    });
+  }
 
   function createDxfPreviewShapesListView({ pv, getShapesList, getShapeCount, getFileMeta, getStats, syncActions, getFitWarning }) {
     // Rebuilds the entire shapes panel list so the UI reflects the latest shape state.
@@ -63,7 +74,7 @@
           <div class="pvw-info">
             <div class="pvw-name">${shape.name}${fitWarning ? `
               <span class="fit-pill" role="status">Too large</span>` : ''}</div>
-            <div class="pvw-dims">${f1(shape.bbox.w)} × ${f1(shape.bbox.h)} mm${shape.visible === false ? ' · removed' : ''}</div>
+            <div class="pvw-dims">${formatShapeDimensions(shape)}${shape.visible === false ? ' · removed' : ''}</div>
           </div>
           <div class="pvw-controls">
             ${shape.visible === false

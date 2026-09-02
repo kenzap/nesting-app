@@ -1,14 +1,66 @@
 'use strict';
 
 (function defineSheetModal(globalScope) {
+  const METRIC_PRESETS = [
+    { height: 1250, width: 3000 },
+    { height: 1500, width: 3000 },
+    { height: 2000, width: 4000 },
+    { height: 2000, width: 6000 },
+  ];
+  const IMPERIAL_PRESETS = [
+    { height: 48, width: 96 },
+    { height: 48, width: 120 },
+    { height: 60, width: 120 },
+    { height: 72, width: 144 },
+  ];
+
   function createSheetModal({ state, dom, schedulePersistJobState, renderSheets }) {
+    const {
+      resolveMeasurementSystem,
+      unitLabel,
+      fromDisplayLength,
+      formatInputLength,
+    } = globalScope.NestUnits;
+
+    function measurementSystem() {
+      return resolveMeasurementSystem(state.settings?.measurementSystem);
+    }
+
+    function setLengthInput(input, mm) {
+      input.value = formatInputLength(mm, measurementSystem(), { imperialPrecision: 2 });
+    }
+
+    function readLengthInput(input) {
+      return fromDisplayLength(input.value, measurementSystem());
+    }
+
+    function presetDimensions(index, system = measurementSystem()) {
+      const preset = (system === 'imperial' ? IMPERIAL_PRESETS : METRIC_PRESETS)[index];
+      if (system === 'imperial') {
+        return {
+          height: fromDisplayLength(preset.height, system),
+          width: fromDisplayLength(preset.width, system),
+          label: `${preset.height} × ${preset.width}`,
+        };
+      }
+      return { ...preset, label: `${preset.height} × ${preset.width}` };
+    }
+
+    function setDefaultSheetDimensions() {
+      const preset = presetDimensions(0);
+      setLengthInput(dom.sheetHeight, preset.height);
+      setLengthInput(dom.sheetWidth, preset.width);
+    }
+
     // Returns true when the current form values exactly match a preset button's dimensions.
     // Used by syncSheetPresetButtons to decide which preset (if any) should appear highlighted.
     function presetMatches(btn) {
+      const width = readLengthInput(dom.sheetWidth);
+      const height = readLengthInput(dom.sheetHeight);
       return (
         dom.sheetWidthMode.value === 'fixed' &&
-        String(dom.sheetWidth.value) === String(btn.dataset.w) &&
-        String(dom.sheetHeight.value) === String(btn.dataset.h)
+        Math.abs(width - Number(btn.dataset.w)) < 0.5 &&
+        Math.abs(height - Number(btn.dataset.h)) < 0.5
       );
     }
 
@@ -26,8 +78,7 @@
       state.editingSheetId = null;
       dom.sheetWidthMode.value = 'fixed';
       if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
-      dom.sheetHeight.value = '1250';
-      dom.sheetWidth.value = '3000';
+      setDefaultSheetDimensions();
       dom.sheetMaterial.value = '';
       dom.confirmSheet.textContent = 'Add Sheet';
       updateSheetModeControls();
@@ -49,8 +100,8 @@
       state.editingSheetId = sheet.id;
       dom.sheetWidthMode.value = sheet.widthMode || 'fixed';
       if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
-      dom.sheetHeight.value = sheet.height ?? 1250;
-      dom.sheetWidth.value = sheet.width ?? 3000;
+      setLengthInput(dom.sheetHeight, sheet.height ?? 1250);
+      setLengthInput(dom.sheetWidth, sheet.width ?? 3000);
       dom.sheetMaterial.value = sheet.material || '';
       dom.confirmSheet.textContent = 'Save Sheet';
       updateSheetModeControls();
@@ -100,6 +151,33 @@
       syncSheetPresetButtons();
     }
 
+    function syncUnits() {
+      const system = measurementSystem();
+      const label = unitLabel(system);
+      document.querySelectorAll('#sheetModal [data-sheet-length-unit]').forEach(node => {
+        node.textContent = label;
+      });
+      dom.sheetWidth.step = system === 'imperial' ? '0.001' : '1';
+      dom.sheetHeight.step = system === 'imperial' ? '0.001' : '1';
+      dom.sheetWidth.min = system === 'imperial' ? '0.001' : '1';
+      dom.sheetHeight.min = system === 'imperial' ? '0.001' : '1';
+      document.querySelectorAll('.preset-btn').forEach((btn, index) => {
+        const preset = presetDimensions(index, system);
+        btn.dataset.h = String(preset.height);
+        btn.dataset.w = String(preset.width);
+        btn.textContent = preset.label;
+      });
+
+      const editing = state.sheets.find(sheet => sheet.id === state.editingSheetId);
+      if (editing) {
+        setLengthInput(dom.sheetHeight, editing.height ?? 1250);
+        setLengthInput(dom.sheetWidth, editing.width ?? 3000);
+      } else if (!dom.sheetModal.classList.contains('open')) {
+        setDefaultSheetDimensions();
+      }
+      syncSheetPresetButtons();
+    }
+
     // Wires all modal interactions: open/close buttons, mode dropdown, width/height inputs for
     // preset sync, preset button clicks, and the confirm button that creates or updates the sheet.
     function bind() {
@@ -124,16 +202,16 @@
         btn.addEventListener('click', () => {
           dom.sheetWidthMode.value = 'fixed';
           if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
-          dom.sheetWidth.value = btn.dataset.w;
-          dom.sheetHeight.value = btn.dataset.h;
+          setLengthInput(dom.sheetWidth, Number(btn.dataset.w));
+          setLengthInput(dom.sheetHeight, Number(btn.dataset.h));
           updateSheetModeControls();
         });
       });
 
       dom.confirmSheet.addEventListener('click', () => {
         const mode = dom.sheetWidthMode.value;
-        const w = mode === 'unlimited' ? null : parseInt(dom.sheetWidth.value);
-        const h = parseInt(dom.sheetHeight.value);
+        const w = mode === 'unlimited' ? null : readLengthInput(dom.sheetWidth);
+        const h = readLengthInput(dom.sheetHeight);
         const mat = dom.sheetMaterial.value.trim();
         if (!h || (mode !== 'unlimited' && !w)) return;
 
@@ -161,6 +239,7 @@
       openSheetEditor,
       closeSheetDialog,
       updateSheetModeControls,
+      syncUnits,
       bind,
     };
   }

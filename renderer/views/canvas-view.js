@@ -8,7 +8,8 @@
     setNestStatsTone,
     syncViewportEmptyState,
   }) {
-    const { formatWidthMeters, partLabelFromName } = globalScope.NestHelpers;
+    const { partLabelFromName } = globalScope.NestHelpers;
+    const { resolveMeasurementSystem, formatDimensions, formatLongLength } = globalScope.NestUnits;
     const { DEFAULT_ENGRAVING_COLOR } = globalScope.NestConstants;
     const { FALLBACK_PALETTE = [] } = globalScope.NestDxfLayerService || {};
     const FIT_INSET_X = 40;
@@ -153,6 +154,10 @@
     // so always pull from index 0 rather than scattering that assumption everywhere.
     function currentSheetConfig() {
       return state.sheets[0] || {};
+    }
+
+    function measurementSystem() {
+      return resolveMeasurementSystem(getCurrentNestingSettings()?.measurementSystem);
     }
 
     function stripSheetConfig(strip, fallbackSheet = currentSheetConfig()) {
@@ -591,7 +596,15 @@
         ? renderedHeight
         : Number(config.height);
       if (!Number.isFinite(sheetW) || !Number.isFinite(sheetH) || sheetW <= 0 || sheetH <= 0) return null;
-      return { text: `${Math.round(sheetW)} × ${Math.round(sheetH)} mm`, width: sheetW, height: sheetH };
+      return {
+        text: formatDimensions(sheetW, sheetH, {
+          system: measurementSystem(),
+          metricPrecision: 0,
+          imperialPrecision: 2,
+        }),
+        width: sheetW,
+        height: sheetH,
+      };
     }
 
     let sheetBadgeFrame = null;
@@ -818,7 +831,7 @@
           <rect x="8" y="8" width="${W - 16}" height="${H - 16}" rx="3" fill="none" stroke="${colors.sheetStroke}" stroke-width="1" stroke-dasharray="6 4"/>
           ${shapesSVG}
           <text x="${W / 2}" y="${H - 8}" text-anchor="middle" font-size="9" fill="${colors.metaText}" font-family="monospace">
-            ${sheet.width} × ${sheet.height} mm · Preview · ${utilization}% utilization
+            ${formatDimensions(sheet.width, sheet.height, { system: measurementSystem() })} · Preview · ${utilization}% utilization
           </text>
         </svg>`,
         utilization,
@@ -865,7 +878,7 @@
         const placed = Number(strip.item_count) || 0;
         const densityValue = displayStripDensity(strip, sheet);
         const density = Number.isFinite(densityValue) ? `${(densityValue * 100).toFixed(1)}%` : null;
-        const usedWidth = formatWidthMeters(displayStripWidth(strip, sheet));
+        const usedWidth = formatLongLength(displayStripWidth(strip, sheet), measurementSystem());
         const previewPrefix = strip.is_preview || state.nestResult.is_preview ? 'Preview · ' : '';
         setNestStatsTone('');
         const partsText = placed > 0 ? ` · ${placed} parts` : '';
@@ -875,6 +888,7 @@
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.
         if (didSwap) applyZoom(true);
+        else scheduleSheetDimensionBadgeSync();
         return;
       }
 
@@ -900,7 +914,7 @@
       dom.emptyState.style.display = 'none';
       syncViewportEmptyState(false);
       const placed = state.files.reduce((a, f) => a + f.qty, 0);
-      const mockWidth = formatWidthMeters(state.sheets[sheetIndex]?.width);
+      const mockWidth = formatLongLength(state.sheets[sheetIndex]?.width, measurementSystem());
       setNestStatsTone('');
       dom.nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}% · Width: ${mockWidth}`;
       applyZoom(true);

@@ -2,6 +2,8 @@
 
 (function defineSheetsPane(globalScope) {
   function createSheetsPane({ state, dom, schedulePersistJobState, getOpenSheetEditor, renderTabs }) {
+    const { resolveMeasurementSystem, unitLabel, formatLength, formatDimensions } = globalScope.NestUnits;
+
     // Rebuilds the sheets sidebar so it reflects current state.
     // Hides the Add Sheet button once a sheet exists (only one is supported), renders each sheet row
     // with its dimensions, material, and mode label, and calls renderTabs to keep the canvas tab row in sync.
@@ -12,10 +14,11 @@
         dom.addSheetBtn.style.visibility = allowAnotherSheet ? 'visible' : 'hidden';
         dom.addSheetBtn.disabled = !allowAnotherSheet;
       }
+      const measurementSystem = resolveMeasurementSystem(state.settings?.measurementSystem);
       state.sheets.forEach(s => {
         const widthLabel = s.widthMode === 'unlimited'
-          ? `${s.height} × Unlimited mm`
-          : `${s.height} × ${s.width} mm`;
+          ? `${formatLength(s.height, { system: measurementSystem, includeUnit: false })} × Unlimited ${unitLabel(measurementSystem)}`
+          : formatDimensions(s.height, s.width, { system: measurementSystem });
         const modeLabel = s.widthMode === 'unlimited'
           ? 'Auto sheets · continuous strip'
           : s.widthMode === 'max'

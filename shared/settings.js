@@ -74,6 +74,7 @@
     // legacy values is handled in `normalizeSettings`.
     multiSheetStrategy: 'auto',
     theme: 'system',
+    measurementSystem: 'auto',
     colorPartsBySource: true,
     showCursorCoords: true,
   };
@@ -166,6 +167,10 @@
 
     if (!['system', 'dark', 'light'].includes(normalized.theme)) {
       normalized.theme = SETTINGS_DEFAULTS.theme;
+    }
+
+    if (!['auto', 'metric', 'imperial'].includes(normalized.measurementSystem)) {
+      normalized.measurementSystem = SETTINGS_DEFAULTS.measurementSystem;
     }
 
     const engravingLayerRaw = normalized.engravingLayer;

@@ -163,8 +163,12 @@
 
     function formatFitDimension(value) {
       if (!Number.isFinite(Number(value))) return 'unlimited';
-      const rounded = Math.round(Number(value) * 10) / 10;
-      return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+      return globalScope.NestUnits.formatLength(Number(value), {
+        system: getCurrentNestingSettings()?.measurementSystem,
+        metricPrecision: 1,
+        imperialPrecision: 3,
+        includeUnit: false,
+      });
     }
 
     function exportMetadataForItem(itemId) {
@@ -186,14 +190,17 @@
     }
 
     function warningsForUnfitItems(unfitItems, { usableWidth, usableHeight }) {
+      const unit = globalScope.NestUnits.unitLabel(
+        globalScope.NestUnits.resolveMeasurementSystem(getCurrentNestingSettings()?.measurementSystem)
+      );
       return (unfitItems || []).map(item => {
         const metadata = exportMetadataForItem(item.id);
         const fileId = sourceFileIdForMetadata(metadata);
         if (!fileId) return null;
-        const required = `${formatFitDimension(item.width)} × ${formatFitDimension(item.height)} mm`;
+        const required = `${formatFitDimension(item.width)} × ${formatFitDimension(item.height)} ${unit}`;
         const available = Number.isFinite(usableWidth)
-          ? `${formatFitDimension(usableWidth)} × ${formatFitDimension(usableHeight)} mm`
-          : `${formatFitDimension(usableHeight)} mm usable height`;
+          ? `${formatFitDimension(usableWidth)} × ${formatFitDimension(usableHeight)} ${unit}`
+          : `${formatFitDimension(usableHeight)} ${unit} usable height`;
         return {
           fileId,
           itemId: item.id,

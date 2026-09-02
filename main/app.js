@@ -221,6 +221,12 @@ function registerAppMenuIpc() {
     },
   }));
 
+  ipcMain.handle('get-system-locale', async () => ({
+    success: true,
+    locale: app.getLocale(),
+    countryCode: typeof app.getLocaleCountryCode === 'function' ? app.getLocaleCountryCode() : '',
+  }));
+
   ipcMain.handle('get-system-theme', async () => ({
     success: true,
     theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',

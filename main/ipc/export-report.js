@@ -1,6 +1,12 @@
 'use strict';
 
 const { BrowserWindow, ipcMain } = require('electron');
+const {
+  resolveMeasurementSystem,
+  unitLabel,
+  formatLength,
+  formatLongLength,
+} = require('../../shared/units');
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -11,11 +17,6 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function roundUpDim(mm) {
-  const numeric = Number(mm);
-  return Number.isFinite(numeric) && numeric > 0 ? Math.ceil(numeric) : 0;
-}
-
 function formatUtilization(density) {
   const numeric = Number(density);
   return Number.isFinite(numeric) && numeric > 0
@@ -23,11 +24,15 @@ function formatUtilization(density) {
     : '—';
 }
 
-function formatMeters(mm) {
-  const numeric = Number(mm);
-  return Number.isFinite(numeric) && numeric > 0
-    ? `${(numeric / 1000).toFixed(2)} m`
-    : '—';
+function formatReportDimension(mm, measurementSystem) {
+  if (!(Number(mm) > 0)) return '—';
+  if (measurementSystem === 'metric') return String(Math.ceil(Number(mm)));
+  return formatLength(mm, {
+    system: measurementSystem,
+    metricPrecision: 0,
+    imperialPrecision: 2,
+    includeUnit: false,
+  });
 }
 
 function formatDateTime(date = new Date()) {
@@ -41,12 +46,15 @@ function formatDateTime(date = new Date()) {
   }
 }
 
-function buildReportHtml({ jobName, strips, summary }) {
+function buildReportHtml({ jobName, strips, summary, measurementSystem }) {
+  const lengthUnit = unitLabel(measurementSystem);
+  const pageSize = measurementSystem === 'imperial' ? 'Letter portrait' : 'A4 portrait';
+  const pageMargin = measurementSystem === 'imperial' ? '0.5in' : '12mm';
   const rows = strips.map((strip, index) => `
     <tr>
       <td class="num">${index + 1}</td>
-      <td class="num">${strip.sheetWidth || '—'}</td>
-      <td class="num">${strip.sheetLength || '—'}</td>
+      <td class="num">${formatReportDimension(strip.sheetWidth, measurementSystem)}</td>
+      <td class="num">${formatReportDimension(strip.sheetLength, measurementSystem)}</td>
       <td class="num">${strip.parts}</td>
       <td>${escapeHtml(strip.material)}</td>
       <td class="num">${escapeHtml(formatUtilization(strip.density))}</td>
@@ -70,8 +78,8 @@ function buildReportHtml({ jobName, strips, summary }) {
           }
 
           @page {
-            size: A4 portrait;
-            margin: 12mm;
+            size: ${pageSize};
+            margin: ${pageMargin};
           }
 
           * {
@@ -190,7 +198,7 @@ function buildReportHtml({ jobName, strips, summary }) {
               <span>Average utilization</span>
             </div>
             <div class="summary-card">
-              <strong>${escapeHtml(formatMeters(summary.totalLengthMm))}</strong>
+              <strong>${escapeHtml(formatLongLength(summary.totalLengthMm, measurementSystem))}</strong>
               <span>Total length</span>
             </div>
           </div>
@@ -198,8 +206,8 @@ function buildReportHtml({ jobName, strips, summary }) {
             <thead>
               <tr>
                 <th>Sheet</th>
-                <th>Sheet width (mm)</th>
-                <th>Sheet length (mm)</th>
+                <th>Sheet width (${lengthUnit})</th>
+                <th>Sheet length (${lengthUnit})</th>
                 <th>Parts</th>
                 <th>Material</th>
                 <th>Utilization</th>
@@ -265,12 +273,14 @@ function registerExportReportIpc() {
   ipcMain.handle('print-sheets-report', async (event, {
     jobName,
     sheetMaterial,
+    measurementSystem: measurementPreference,
     strips = [],
   }) => {
     try {
+      const measurementSystem = resolveMeasurementSystem(measurementPreference);
       const normalizedStrips = (Array.isArray(strips) ? strips : []).map(strip => ({
-        sheetWidth: roundUpDim(strip.strip_height),
-        sheetLength: roundUpDim(strip.sheet_width ?? strip.strip_width),
+        sheetWidth: Number(strip.strip_height) || 0,
+        sheetLength: Number(strip.sheet_width ?? strip.strip_width) || 0,
         parts: Math.max(0, Number(strip.item_count) || 0),
         material: String(strip.material || sheetMaterial || '').trim() || '—',
         density: Number(strip.density),
@@ -297,6 +307,7 @@ function registerExportReportIpc() {
         jobName: String(jobName || '').trim() || 'Nesting job',
         strips: normalizedStrips,
         summary,
+        measurementSystem,
       });
 
       return await printReportHtml(html);

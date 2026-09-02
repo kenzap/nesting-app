@@ -199,7 +199,11 @@ const settingsModalApi = window.NestSettingsModal.createSettingsModal({
   dom,
   onSettingsApplied: () => {
     if (typeof window.refreshDXFPreview === 'function') window.refreshDXFPreview();
-    if (state.nestResult && state.sheets.length) canvasViewApi.showNestResult(0);
+    sheetsPaneApi?.renderSheets();
+    sheetModalApi?.syncUnits();
+    measureToolApi?.onUnitsChanged();
+    exportServiceApi?.refreshUnits();
+    if (state.nestResult && state.sheets.length) canvasViewApi.showNestResult(state.activeStripIndex || 0);
   },
 });
 window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
@@ -622,7 +626,9 @@ function bindOverlayClose() {
 
   await settingsModalApi.loadPersistedSettings();
   measureToolApi?.setShowCursorCoords(state.settings?.showCursorCoords !== false);
+  measureToolApi?.onUnitsChanged();
   exportServiceApi.loadLastExportFolder();
+  sheetModalApi.syncUnits();
   sheetModalApi.updateSheetModeControls();
   syncViewportEmptyState(true);
 
