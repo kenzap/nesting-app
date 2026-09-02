@@ -474,8 +474,44 @@ function normalizeDroppedFiles(fileList) {
   return files;
 }
 
+// GNOME file managers can expose local drops as URI text instead of File
+// objects, particularly under Wayland or strict Snap confinement.
+function droppedFileFromUri(uri) {
+  try {
+    const url = new URL(String(uri || '').trim());
+    if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) return null;
+    let filePath = decodeURIComponent(url.pathname);
+    if (/^\/[a-z]:\//i.test(filePath)) filePath = filePath.slice(1);
+    const name = filePath.split(/[\\/]/).filter(Boolean).pop() || '';
+    if (!name) return null;
+    return { name, size: 0, path: filePath };
+  } catch {
+    return null;
+  }
+}
+
+function extractDroppedUriFiles(dt) {
+  const payloads = [];
+  ['text/uri-list', 'x-special/gnome-copied-files'].forEach(type => {
+    try {
+      const payload = dt?.getData?.(type);
+      if (payload) payloads.push(payload);
+    } catch {
+      // Continue with the standard FileList when a drag source blocks access.
+    }
+  });
+
+  return payloads
+    .flatMap(payload => String(payload).split(/\r?\n/))
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('#') && !/^(copy|cut)$/i.test(line))
+    .map(droppedFileFromUri)
+    .filter(Boolean);
+}
+
 // Some Windows drag sources populate DataTransfer.items more reliably than
-// DataTransfer.files, so we normalize from both and de-duplicate by path/name.
+// DataTransfer.files, while GNOME can provide file URIs. Normalize all three
+// representations and de-duplicate by path/name.
 function extractDroppedFileObjects(dt) {
   const files = [];
   const seen = new Set();
@@ -501,6 +537,7 @@ function extractDroppedFileObjects(dt) {
         // Ignore per-item extraction failures and keep the rest of the drop.
       }
     });
+  extractDroppedUriFiles(dt).forEach(pushFile);
 
   return files;
 }
@@ -510,7 +547,10 @@ function extractDroppedFileObjects(dt) {
 function dataTransferHasFiles(dt) {
   if (!dt) return false;
   if (dt.files?.length) return true;
-  return Array.from(dt.items || []).some(item => item.kind === 'file');
+  if (Array.from(dt.items || []).some(item => item.kind === 'file')) return true;
+  return Array.from(dt.types || []).some(type => (
+    type === 'text/uri-list' || type === 'x-special/gnome-copied-files'
+  ));
 }
 
 // Central handler for any drop event.  Extracts files from the DataTransfer,
@@ -519,7 +559,10 @@ function dataTransferHasFiles(dt) {
 function handleDroppedDataTransfer(dt) {
   showDragDebug(
     `drop received: ${dt?.files?.length || 0} file${dt?.files?.length === 1 ? '' : 's'}`,
-    Array.from(dt?.files || []).map(f => `${f.name} :: ${f.path || 'no-path'}`).join('\n')
+    [
+      `types: ${Array.from(dt?.types || []).join(', ') || 'none'}`,
+      ...Array.from(dt?.files || []).map(f => `${f.name} :: ${f.path || 'no-path'}`),
+    ].join('\n')
   );
   const files = normalizeDroppedFiles(extractDroppedFileObjects(dt));
   if (!files.length) {
