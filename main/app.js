@@ -1,6 +1,12 @@
 const { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const packageJson = require('../package.json');
+const {
+  handlePendingCrashReports,
+  logDiagnostic,
+  openDiagnosticsFolder,
+} = require('./utils/diagnostics');
 
 const productName = packageJson.productName || 'Kenzap Nesting';
 const appDescription = packageJson.description || 'DXF nesting application';
@@ -13,6 +19,47 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/kenzap';
 let mainWindow = null;
 let appMenuIpcRegistered = false;
 let nativeThemeBridgeRegistered = false;
+
+function getLinuxEnvironmentName() {
+  try {
+    const osRelease = fs.readFileSync('/etc/os-release', 'utf8');
+    const prettyName = osRelease.match(/^PRETTY_NAME=(.*)$/m)?.[1]?.trim();
+    if (prettyName) {
+      return prettyName
+        .replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+    }
+  } catch {
+    // Some packaged Linux environments do not expose /etc/os-release.
+  }
+  return 'Linux';
+}
+
+function getEnvironmentName() {
+  const systemVersion = typeof process.getSystemVersion === 'function'
+    ? process.getSystemVersion()
+    : '';
+
+  if (process.platform === 'win32') {
+    const buildNumber = Number.parseInt(String(systemVersion).split('.')[2], 10);
+    return Number.isFinite(buildNumber) && buildNumber >= 22000 ? 'Windows 11' : 'Windows 10';
+  }
+  if (process.platform === 'darwin') {
+    return systemVersion ? `macOS ${systemVersion}` : 'macOS';
+  }
+  if (process.platform === 'linux') return getLinuxEnvironmentName();
+  return systemVersion ? `${process.platform} ${systemVersion}` : process.platform;
+}
+
+function buildSupportUrl(source = 'help-menu') {
+  const url = new URL(SUPPORT_URL);
+  url.searchParams.set('environment', getEnvironmentName());
+  url.searchParams.set('version', packageJson.version);
+  url.searchParams.set('source', source);
+  url.hash = 'form';
+  return url.href;
+}
 
 function dispatchRendererMenuAction(action, targetWindow = mainWindow) {
   const win = targetWindow && !targetWindow.isDestroyed() ? targetWindow : mainWindow;
@@ -163,12 +210,17 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
       submenu: [
         {
           label: 'Support',
-          click: () => { void shell.openExternal(SUPPORT_URL); },
+          click: () => { void shell.openExternal(buildSupportUrl()); },
         },
         {
           label: 'Release Notes',
           click: () => { void shell.openExternal(RELEASES_URL); },
         },
+        {
+          label: 'Diagnostics Folder',
+          click: () => { void openDiagnosticsFolder().catch(() => {}); },
+        },
+        { type: 'separator' },
         {
           label: 'Reddit Community',
           click: () => { void shell.openExternal(REDDIT_URL); },
@@ -213,6 +265,7 @@ function registerAppMenuIpc() {
       productName,
       description: appDescription,
       version: packageJson.version,
+      environment: getEnvironmentName(),
       websiteUrl: WEBSITE_URL,
       supportUrl: SUPPORT_URL,
       releasesUrl: RELEASES_URL,
@@ -276,6 +329,9 @@ function registerAppMenuIpc() {
           if (!dispatchRendererMenuAction('open-settings', win)) {
             return { success: false, error: 'No active window to receive settings action' };
           }
+          break;
+        case 'open-diagnostics-folder':
+          await openDiagnosticsFolder();
           break;
         default:
           return { success: false, error: `Unknown app menu action: ${action}` };
@@ -358,6 +414,11 @@ function createWindow({ isDevMode = false, isDxfDebugMode = false, minimalStartu
   } else {
     const loadOptions = isDxfDebugMode ? { query: { dxfDebug: '1' } } : {};
     mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), loadOptions);
+    mainWindow.webContents.once('did-finish-load', () => {
+      void handlePendingCrashReports(mainWindow).catch(error => {
+        logDiagnostic('crash-report-flow-failed', { error });
+      });
+    });
   }
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();

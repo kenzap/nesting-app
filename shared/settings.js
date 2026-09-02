@@ -77,6 +77,7 @@
     measurementSystem: 'auto',
     colorPartsBySource: true,
     showCursorCoords: true,
+    automaticCrashReporting: false,
   };
 
   function coerceByDefault(value, fallback) {

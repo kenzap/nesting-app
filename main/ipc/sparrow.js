@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { cleanupTempArtifacts } = require('../utils/temp-retention');
+const { logDiagnostic, stderrTail } = require('../utils/diagnostics');
 
 const activeSparrowProcesses = new Map();
 const sparrowRuns = new Map();
@@ -595,6 +596,7 @@ function registerSparrowIpc() {
       }
 
       const runId = `${safeName}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const diagnosticId = Math.random().toString(36).slice(2, 10);
       const child = spawn(sparrowPath, args, { cwd: runDir });
       sparrowRuns.set(runId, {
         id: runId,
@@ -608,8 +610,24 @@ function registerSparrowIpc() {
         stopRequested: false,
         exitCode: null,
         error: null,
+        diagnosticId,
+        startedAt: Date.now(),
       });
       activeSparrowProcesses.set(runId, child);
+      logDiagnostic('nesting-helper-started', {
+        diagnosticId,
+        pid: child.pid,
+        options: {
+          globalTime: options.globalTime,
+          workers: options.workers,
+          earlyTermination: Boolean(options.earlyTermination),
+          maxStripLength: options.maxStripLength,
+          stripMargin: options.stripMargin,
+          minItemSeparation: options.minItemSeparation,
+          multiStripMode: options.multiStripMode,
+          align: options.align,
+        },
+      });
 
       child.stdout.on('data', chunk => {
         const run = sparrowRuns.get(runId);
@@ -625,11 +643,16 @@ function registerSparrowIpc() {
         if (run) {
           run.status = 'error';
           run.error = error.message;
+          logDiagnostic('nesting-helper-spawn-error', {
+            diagnosticId: run.diagnosticId,
+            durationMs: Date.now() - run.startedAt,
+            error,
+          });
         }
         activeSparrowProcesses.delete(runId);
       });
 
-      child.on('close', code => {
+      child.on('close', (code, signal) => {
         const run = sparrowRuns.get(runId);
         if (run) {
           run.exitCode = code;
@@ -639,6 +662,15 @@ function registerSparrowIpc() {
           if (code !== 0 && !run.error && run.status !== 'stopped') {
             run.error = `Sparrow exited with code ${code}`;
           }
+          logDiagnostic('nesting-helper-finished', {
+            diagnosticId: run.diagnosticId,
+            durationMs: Date.now() - run.startedAt,
+            status: run.status,
+            exitCode: code,
+            signal,
+            stopRequested: run.stopRequested,
+            stderrTail: code === 0 ? '' : stderrTail(run.stderr),
+          });
         }
         activeSparrowProcesses.delete(runId);
       });
@@ -652,6 +684,7 @@ function registerSparrowIpc() {
         stderr: '',
       };
     } catch (err) {
+      logDiagnostic('nesting-helper-run-setup-failed', { error: err });
       return { success: false, error: err.message };
     }
   });
@@ -659,6 +692,13 @@ function registerSparrowIpc() {
   ipcMain.handle('stop-sparrow', async (event, runId = null) => {
     try {
       if (runId) {
+        const run = sparrowRuns.get(runId);
+        if (run) {
+          logDiagnostic('nesting-helper-stop-requested', {
+            diagnosticId: run.diagnosticId,
+            durationMs: Date.now() - run.startedAt,
+          });
+        }
         return {
           success: true,
           stopped: terminateSparrowRun(runId, {
@@ -677,6 +717,7 @@ function registerSparrowIpc() {
         }) > 0,
       };
     } catch (err) {
+      logDiagnostic('nesting-helper-stop-failed', { error: err });
       return { success: false, error: err.message };
     }
   });

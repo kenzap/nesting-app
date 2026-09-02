@@ -33,6 +33,8 @@
       help: [
         { label: 'Support', action: 'supportUrl', type: 'url' },
         { label: 'Release Notes', action: 'releasesUrl', type: 'url' },
+        { label: 'Diagnostics Folder', action: 'open-diagnostics-folder', type: 'ipc' },
+        { type: 'separator' },
         { label: 'Reddit Community', action: 'redditUrl', type: 'url' },
         { label: 'LinkedIn', action: 'linkedInUrl', type: 'url' },
         { label: 'Kenzap Nesting Website', action: 'websiteUrl', type: 'url' },
@@ -47,6 +49,17 @@
       ...HELP_URLS,
     };
     let aboutDialog = null;
+
+    function buildSupportUrl(source) {
+      const url = new URL(appMeta.supportUrl || HELP_URLS.supportUrl);
+      const environment = String(appMeta.environment || '').trim();
+      const version = String(appMeta.version || '').trim();
+      if (environment) url.searchParams.set('environment', environment);
+      if (version) url.searchParams.set('version', version);
+      url.searchParams.set('source', source);
+      url.hash = 'form';
+      return url.href;
+    }
 
     function ensureAboutDialog() {
       if (aboutDialog) return aboutDialog;
@@ -97,7 +110,9 @@
       dialog.querySelector('.linux-about-close').addEventListener('click', close);
       dialog.querySelectorAll('[data-about-link]').forEach(button => {
         button.addEventListener('click', () => {
-          const url = appMeta[button.dataset.aboutLink] || HELP_URLS[button.dataset.aboutLink];
+          const url = button.dataset.aboutLink === 'supportUrl'
+            ? buildSupportUrl('about-dialog')
+            : appMeta[button.dataset.aboutLink] || HELP_URLS[button.dataset.aboutLink];
           if (url) window.electronAPI?.openExternalUrl?.(url);
         });
       });
@@ -136,7 +151,9 @@
         return;
       }
       if (item.type === 'url') {
-        const targetUrl = appMeta[item.action] || HELP_URLS[item.action];
+        const targetUrl = item.action === 'supportUrl'
+          ? buildSupportUrl('help-menu')
+          : appMeta[item.action] || HELP_URLS[item.action];
         if (targetUrl) await window.electronAPI?.openExternalUrl?.(targetUrl);
         return;
       }

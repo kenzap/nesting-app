@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         productName: PRODUCT_NAME,
         description: APP_DESCRIPTION,
         version: '',
+        environment: process.platform === 'win32'
+          ? 'Windows'
+          : process.platform === 'darwin'
+            ? 'macOS'
+            : 'Linux',
         websiteUrl: WEBSITE_URL,
         supportUrl: SUPPORT_URL,
         releasesUrl: RELEASES_URL,
@@ -56,6 +61,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, payload) => handler(payload);
     ipcRenderer.on('system-theme-changed', listener);
     return () => ipcRenderer.removeListener('system-theme-changed', listener);
+  },
+  onCrashReportingPreferenceChanged: (handler) => {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('crash-reporting-preference-changed', listener);
+    return () => ipcRenderer.removeListener('crash-reporting-preference-changed', listener);
   },
   loadAppSettings: () => ipcRenderer.invoke('load-app-settings'),
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const helpers = [
@@ -12,6 +13,7 @@ const helpers = [
 ];
 
 const missing = [];
+const failures = [];
 
 for (const helper of helpers) {
   try {
@@ -29,6 +31,34 @@ if (missing.length) {
   for (const item of missing) {
     console.error(`- ${item}`);
   }
+  process.exit(1);
+}
+
+for (const helper of helpers) {
+  const binary = fs.readFileSync(helper.file);
+  if (!binary.includes(Buffer.from('stop-file'))) {
+    failures.push(`${helper.label}: bundled executable does not advertise --stop-file support`);
+    continue;
+  }
+
+  if (process.platform !== 'win32') continue;
+  const probe = spawnSync(helper.file, ['--help'], {
+    encoding: 'utf8',
+    timeout: 10000,
+    windowsHide: true,
+  });
+  if (probe.error) {
+    failures.push(`${helper.label}: could not be started (${probe.error.message})`);
+  } else if (probe.status !== 0) {
+    failures.push(`${helper.label}: --help exited with code ${probe.status ?? 'unknown'}`);
+  } else if (!`${probe.stdout || ''}\n${probe.stderr || ''}`.includes('--stop-file')) {
+    failures.push(`${helper.label}: --help output does not include --stop-file`);
+  }
+}
+
+if (failures.length) {
+  console.error('Windows helper preflight failed.');
+  failures.forEach(item => console.error(`- ${item}`));
   process.exit(1);
 }
 

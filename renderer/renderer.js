@@ -142,8 +142,19 @@ function dismissFeedbackBanner() {
   setFeedbackBannerVisible(false);
 }
 
-function openFeedbackUrl(source = 'desktop-app') {
+async function openFeedbackUrl(source = 'desktop-app') {
   const url = new URL(FEEDBACK_SUPPORT_URL);
+  if (source === 'export-modal') {
+    try {
+      const result = await window.electronAPI?.getAppMeta?.();
+      const environment = String(result?.meta?.environment || '').trim();
+      const version = String(result?.meta?.version || '').trim();
+      if (environment) url.searchParams.set('environment', environment);
+      if (version) url.searchParams.set('version', version);
+    } catch (error) {
+      console.warn('[Feedback] Could not include app details in support URL:', error);
+    }
+  }
   url.searchParams.set('source', source);
   url.hash = 'form';
   if (window.electronAPI?.openExternalUrl) {
@@ -156,7 +167,7 @@ function openFeedbackUrl(source = 'desktop-app') {
 }
 
 function bindFeedbackBanner() {
-  dom.exportFeedbackAction?.addEventListener('click', () => openFeedbackUrl('export-modal'));
+  dom.exportFeedbackAction?.addEventListener('click', () => { void openFeedbackUrl('export-modal'); });
   if (!dom.feedbackBanner || !dom.feedbackBannerAction || !dom.feedbackBannerClose) return;
   let showBanner = true;
   let dismissed = false;
@@ -187,7 +198,7 @@ function bindFeedbackBanner() {
   setFeedbackBannerVisible(showBanner);
 
   dom.feedbackBannerAction.addEventListener('click', () => {
-    openFeedbackUrl('feedback-banner');
+    void openFeedbackUrl('feedback-banner');
     dismissFeedbackBanner();
   });
   dom.feedbackBannerClose.addEventListener('click', dismissFeedbackBanner);
@@ -219,6 +230,11 @@ window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
   else if (action === 'canvas-fit-view') canvasViewApi.fitView();
   else if (action === 'canvas-zoom-in') canvasViewApi.zoomIn();
   else if (action === 'canvas-zoom-out') canvasViewApi.zoomOut();
+});
+window.electronAPI?.onCrashReportingPreferenceChanged?.(({ enabled } = {}) => {
+  if (!state.settings) return;
+  state.settings.automaticCrashReporting = enabled === true;
+  settingsModalApi.applySettingsToDialog(state.settings);
 });
 
 // View → Live Coordinates. Flips state.settings.showCursorCoords, persists it
