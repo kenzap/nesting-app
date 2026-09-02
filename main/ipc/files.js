@@ -7,6 +7,7 @@ const {
   normalizeBookmark,
   withSecurityScopedAccess,
 } = require('../utils/security-scoped-bookmarks');
+const { t } = require('../i18n');
 
 function registerFileIpc({ getMainWindow }) {
   const isDev = !app.isPackaged || process.argv.includes('--dev');
@@ -74,8 +75,8 @@ function registerFileIpc({ getMainWindow }) {
   // Open file dialog for DXF files.
   ipcMain.handle('open-file-dialog', async () => {
     const result = await dialog.showOpenDialog(getMainWindow(), {
-      title: 'Select DXF Files',
-      filters: [{ name: 'DXF Files', extensions: ['dxf'] }],
+      title: t('dialog.selectDxf'),
+      filters: [{ name: t('dialog.dxfFiles'), extensions: ['dxf'] }],
       properties: ['openFile', 'multiSelections'],
       securityScopedBookmarks: isMasBuild(),
     });
@@ -217,7 +218,7 @@ function registerFileIpc({ getMainWindow }) {
   // Open a folder picker for DXF export destination.
   ipcMain.handle('choose-export-folder', async () => {
     const result = await dialog.showOpenDialog(getMainWindow(), {
-      title: 'Choose Export Folder',
+      title: t('dialog.chooseExportFolder'),
       properties: ['openDirectory', 'createDirectory'],
       securityScopedBookmarks: isMasBuild(),
     });

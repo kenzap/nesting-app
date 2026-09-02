@@ -14,6 +14,7 @@
       partsHistory = null,
       setPartFitWarnings = null,
     }) {
+      const t = globalScope.NestI18n.t;
       const {
         MULTI_SHEET_STRATEGY_OPTIONS = {
           'auto': { multiStripMode: 'barriers', bucketFillWeight: null },
@@ -34,43 +35,43 @@
     const SOLVER_ERROR_RULES = [
       {
         pattern: /barrier-mode k-discovery did not converge|tried up to k\s*=\s*\d+ sheets,? items still don'?t fit/i,
-        message: 'One or more parts cannot fit on the configured sheet. Increase the sheet dimensions or check the DXF units.',
+        messageKey: 'nesting.cannotFit',
       },
       {
         pattern: /strip[-\s]?width is running away.*does not seem to fit|item \d+ has minimum bbox dimension .*cannot fit in any sheet/is,
-        message: 'A part is larger than the sheet. Check the DXF units or increase the sheet dimensions.',
+        messageKey: 'nesting.partLarger',
       },
       {
         pattern: /requires strip length .* exceeding the configured maximum/i,
-        message: 'The parts do not fit within the sheet’s maximum length. Reduce the quantities or increase the sheet length.',
+        messageKey: 'nesting.exceedsMaxLength',
       },
       {
         pattern: /sheet margin must be less than half the sheet length/i,
-        message: 'The sheet margin is too large for the configured sheet length.',
+        messageKey: 'nesting.marginTooLarge',
       },
       {
         pattern: /strip margin .* leaves no usable strip height/i,
-        message: 'The sheet margin leaves no usable nesting area. Reduce the margin or increase the sheet height.',
+        messageKey: 'nesting.noUsableArea',
       },
       {
         pattern: /could not construct (?:any strip candidate|a valid strip bucket) under the configured constraints/i,
-        message: 'The parts could not be arranged within the current sheet constraints. Increase the sheet dimensions or use a different sheet strategy.',
+        messageKey: 'nesting.constraintsFailed',
       },
       {
         pattern: /no (?:items|parts).*placed|zero sheets|no sheets|cannot exact-fit an empty/i,
-        message: 'No parts could be placed. Check the part quantities and sheet settings.',
+        messageKey: 'nesting.nothingPlaced',
       },
       {
         pattern: /invalid (?:polygon|geometry)|self[-\s]?intersect|non[-\s]?finite coordinate/i,
-        message: 'A DXF contains invalid geometry. Repair the affected contour and try again.',
+        messageKey: 'nesting.invalidGeometry',
       },
       {
         pattern: /executable not found|enoent/i,
-        message: 'The nesting engine could not be started. Reinstall the app or verify its bundled files.',
+        messageKey: 'nesting.engineMissing',
       },
       {
         pattern: /eacces|permission denied/i,
-        message: 'The nesting engine could not be started because access was denied.',
+        messageKey: 'nesting.accessDenied',
       },
     ];
 
@@ -104,19 +105,19 @@
     // meaningful line as the visible summary.
     function translateSparrowError(raw) {
       const text = cleanErrorText(raw);
-      if (!text) return 'Nesting could not be completed.';
+      if (!text) return t('nesting.failed');
       const matchedRule = SOLVER_ERROR_RULES.find(rule => rule.pattern.test(text));
-      return matchedRule?.message || text;
+      return matchedRule ? t(matchedRule.messageKey) : text;
     }
 
     // Parses raw stdout/stderr into a clean one-line message. Known failures
     // win first, followed by Rust panic reasons and the last meaningful line.
     function extractSparrowErrorMessage(...chunks) {
       const text = cleanErrorText(chunks.map(errorChunkText).filter(Boolean).join('\n'));
-      if (!text) return 'Nesting could not be completed.';
+      if (!text) return t('nesting.failed');
 
       const knownFailure = SOLVER_ERROR_RULES.find(rule => rule.pattern.test(text));
-      if (knownFailure) return knownFailure.message;
+      if (knownFailure) return t(knownFailure.messageKey);
 
       const lines = [...new Set(text.split(/\n/)
         .map(line => line.trim().replace(/^(?:uncaught\s+)?error:\s*/i, ''))
@@ -141,7 +142,7 @@
         && !/^at\s+\S+/i.test(line)
       ));
       const summary = translateSparrowError(
-        lastMeaningful || lines[lines.length - 1] || 'Nesting could not be completed.',
+        lastMeaningful || lines[lines.length - 1] || t('nesting.failed'),
       );
       return summary.length > 220 ? `${summary.slice(0, 217)}…` : summary;
     }
@@ -162,7 +163,7 @@
     }
 
     function formatFitDimension(value) {
-      if (!Number.isFinite(Number(value))) return 'unlimited';
+      if (!Number.isFinite(Number(value))) return t('nesting.unlimited');
       return globalScope.NestUnits.formatLength(Number(value), {
         system: getCurrentNestingSettings()?.measurementSystem,
         metricPrecision: 1,
@@ -200,12 +201,12 @@
         const required = `${formatFitDimension(item.width)} × ${formatFitDimension(item.height)} ${unit}`;
         const available = Number.isFinite(usableWidth)
           ? `${formatFitDimension(usableWidth)} × ${formatFitDimension(usableHeight)} ${unit}`
-          : `${formatFitDimension(usableHeight)} ${unit} usable height`;
+          : t('nesting.usableHeight', { height: formatFitDimension(usableHeight), unit });
         return {
           fileId,
           itemId: item.id,
           shapeId: metadata?.source_shape_id || null,
-          message: `Does not fit. Best allowed rotation requires ${required}; usable sheet area is ${available}.`,
+          message: t('nesting.fitDetail', { required, available }),
         };
       }).filter(Boolean);
     }
@@ -227,7 +228,7 @@
           fileId,
           itemId,
           shapeId: metadata?.source_shape_id || null,
-          message: 'The nesting engine reported that this part does not fit on the configured sheet.',
+          message: t('nesting.engineFitWarning'),
         };
       }).filter(Boolean);
     }
@@ -237,7 +238,7 @@
     function showRunError(message, details = '') {
       setStatus('error');
       setNestStatsTone('error');
-      const summary = message || 'Nesting could not be completed.';
+      const summary = message || t('nesting.failed');
       dom.nestStats.textContent = summary;
       dom.nestStats.title = details || summary;
     }
@@ -247,8 +248,8 @@
       const reportedWarnings = warningsFromSolverError(...chunks);
       if (reportedWarnings.length) {
         setPartFitWarnings?.(reportedWarnings);
-        const subject = reportedWarnings.length === 1 ? 'The affected part is' : 'The affected parts are';
-        failure.message = `${failure.message} ${subject} highlighted in Parts.`;
+        const warningMessage = reportedWarnings.length === 1 ? t('nesting.affectedOne') : t('nesting.affectedMany');
+        failure.message = `${failure.message} ${warningMessage}`;
       }
       console.error(`[Nesting] ${failure.message}`);
       if (failure.details && failure.details !== failure.message) {
@@ -300,7 +301,7 @@
 
       const result = await window.electronAPI.pollSparrow(runId);
       if (!result?.success) {
-        const failure = normalizeRunError(result?.error || 'The nesting run could not be checked.');
+        const failure = normalizeRunError(result?.error || t('nesting.checkingFailed'));
         const err = new Error(failure.message);
         err.sparrowDetails = failure.details;
         throw err;
@@ -347,7 +348,7 @@
         showNestResult(state.activeStripIndex || 0);
       } else if (result.status === 'running') {
         setNestStatsTone('');
-        dom.nestStats.textContent = 'Running placement… waiting for first preview';
+        dom.nestStats.textContent = t('nesting.waitingPreview');
       }
 
       if (result.status === 'completed') {
@@ -392,8 +393,8 @@
         setStatus(finalSummaryReady ? 'done' : 'idle');
         setNestStatsTone(finalSummaryReady ? '' : 'warning');
         dom.nestStats.textContent = finalSummaryReady
-          ? 'Stopped · best placement ready to export'
-          : 'Stopped before an exportable placement was ready';
+          ? t('nesting.stoppedReady')
+          : t('nesting.stoppedEarly');
         dom.nestStats.title = '';
         dom.startBtn.classList.remove('running');
         dom.startBtn.disabled = false;
@@ -417,15 +418,15 @@
         const hasFiles = state.files.length > 0;
         const hasSheets = state.sheets.length > 0;
         if (!hasFiles && !hasSheets) {
-          showStartRequirementsWarning('Add DXF parts and at least one sheet, then press Run.');
+          showStartRequirementsWarning(t('nesting.addPartsAndSheet'));
           return;
         }
         if (!hasFiles) {
-          showStartRequirementsWarning('Add one or more DXF parts before running nesting.');
+          showStartRequirementsWarning(t('nesting.addParts'));
           return;
         }
         if (!hasSheets) {
-          showStartRequirementsWarning('Add at least one sheet before running nesting.');
+          showStartRequirementsWarning(t('nesting.addSheet'));
           return;
         }
 
@@ -442,13 +443,13 @@
         try {
           exported = await exportPlacementJSON();
           setNestStatsTone('');
-          dom.nestStats.textContent = 'Placement data prepared';
+          dom.nestStats.textContent = t('nesting.placementPrepared');
           dom.nestStats.title = exported.path || '';
         } catch (err) {
           console.error('[Placement JSON] Export failed:', err);
           setStatus('error');
           setNestStatsTone('error');
-          dom.nestStats.textContent = `Export failed: ${err.message}`;
+          dom.nestStats.textContent = t('nesting.placementExportFailed', { message: err.message });
           return;
         }
 
@@ -489,7 +490,7 @@
           const usableSheetLength = configuredSheetLength - (sheetMargin * 2);
           if (primarySheet.widthMode !== 'unlimited' &&
               (!Number.isFinite(usableSheetLength) || usableSheetLength <= 0)) {
-            throw new Error('Sheet margin must be less than half the sheet length.');
+            throw new Error(t('nesting.marginTooLarge'));
           }
           const sparrowOptions = {
             globalTime: Number(settings.timeLimit) || 60,
@@ -526,21 +527,21 @@
             const firstMetadata = exportMetadataForItem(unfitItems[0].id);
             const firstName = firstMetadata?.source_name;
             const message = unfitItems.length === 1
-              ? `${firstName ? `“${firstName}”` : 'One part'} is larger than the usable sheet area. It is highlighted in Parts.`
-              : `${unfitItems.length} parts are larger than the usable sheet area. Their source files are highlighted in Parts.`;
+              ? t('nesting.onePartTooLarge', { name: firstName ? `“${firstName}”` : t('parts.pieceCount', { count: 1 }) })
+              : t('nesting.manyPartsTooLarge', { count: unfitItems.length });
             throw new Error(message);
           }
           const result = await window.electronAPI.runSparrow(exported.payload, sparrowOptions);
 
           if (!result?.success || !result.runId) {
-            const failure = normalizeRunError(result?.error || 'The nesting engine could not be started.');
+            const failure = normalizeRunError(result?.error || t('nesting.engineMissing'));
             const err = new Error(failure.message);
             err.sparrowDetails = failure.details;
             throw err;
           }
           activeSparrowRunId = result.runId;
           setNestStatsTone('');
-          dom.nestStats.textContent = 'Placement running…';
+          dom.nestStats.textContent = t('nesting.placementRunning');
           dom.nestStats.title = result.inputPath || '';
 
           if (nestInterval) clearInterval(nestInterval);
@@ -587,17 +588,17 @@
         clearInterval(nestInterval);
         nestInterval = null;
         setNestStatsTone('');
-        dom.nestStats.textContent = 'Stopping · preparing best placement…';
+        dom.nestStats.textContent = t('nesting.stopping');
         dom.nestStats.title = '';
         dom.stopBtn.disabled = true;
 
         try {
           if (!window.electronAPI?.stopSparrow) {
-            throw new Error('The nesting engine cannot be stopped from this build.');
+            throw new Error(t('nesting.stopUnavailable'));
           }
           const stopResult = await window.electronAPI.stopSparrow(runId);
           if (!stopResult?.success) {
-            throw new Error(stopResult?.error || 'The stop request failed.');
+            throw new Error(stopResult?.error || t('nesting.stopFailed'));
           }
 
           for (let attempt = 0; attempt < MAX_STOP_FINALIZATION_POLLS; attempt += 1) {
@@ -606,7 +607,7 @@
             if (result?.status === 'stopped' || result?.status === 'completed') return;
           }
 
-          throw new Error('The nesting engine did not finish preparing the stopped placement.');
+          throw new Error(t('nesting.stopFinalizationFailed'));
         } catch (err) {
           activeSparrowRunId = null;
           presentRunError('Stop', err);

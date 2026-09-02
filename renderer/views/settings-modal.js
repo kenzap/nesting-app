@@ -118,7 +118,7 @@
       return { ...dialogDefaults(), ...state.settings };
     }
 
-    function applyAppearanceSettings() {
+    async function applyAppearanceSettings() {
       if (globalScope.NestThemeManager?.applyTheme) {
         globalScope.NestThemeManager.applyTheme(state.settings?.theme);
       }
@@ -127,6 +127,9 @@
       globalScope.dispatchEvent(new CustomEvent('nest-units-changed', {
         detail: { measurementSystem },
       }));
+      if (globalScope.NestI18n?.changeLanguage) {
+        await globalScope.NestI18n.changeLanguage(state.settings?.language || 'auto');
+      }
     }
 
     // Reads the form, normalises the values, saves them to state, and writes through to disk via Electron IPC.
@@ -137,7 +140,7 @@
       if (!window.electronAPI?.saveAppSettings) return;
       const result = await window.electronAPI.saveAppSettings(state.settings);
       if (!result?.success) {
-        throw new Error(result?.error || 'Failed to save settings');
+        throw new Error(result?.error || globalScope.NestI18n.t('settings.saveFailed'));
       }
     }
 
@@ -171,18 +174,20 @@
 
       state.settings = normalizeDialogSettings(defaults);
       applySettingsToDialog(state.settings);
-      applyAppearanceSettings();
-
-      if (!window.electronAPI?.loadAppSettings) return;
+      if (!window.electronAPI?.loadAppSettings) {
+        await applyAppearanceSettings();
+        return;
+      }
       const result = await window.electronAPI.loadAppSettings();
       if (!result?.success) {
         console.warn('[Settings] Failed to load persisted settings:', result?.error);
+        await applyAppearanceSettings();
         return;
       }
 
       state.settings = normalizeDialogSettings(result.settings || {});
       applySettingsToDialog(state.settings);
-      applyAppearanceSettings();
+      await applyAppearanceSettings();
     }
 
     // Wires open, close, apply, and reset buttons for the settings modal.
@@ -201,7 +206,7 @@
       dom.applySettings.addEventListener('click', async () => {
         try {
           await persistCurrentSettings();
-          applyAppearanceSettings();
+          await applyAppearanceSettings();
           closeSettingsDialog();
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
@@ -213,7 +218,7 @@
         applySettingsToDialog(state.settings);
         try {
           await persistCurrentSettings();
-          applyAppearanceSettings();
+          await applyAppearanceSettings();
           if (typeof onSettingsApplied === 'function') onSettingsApplied();
         } catch (err) {
           console.error('[Settings] Failed to reset settings:', err);

@@ -2,6 +2,7 @@
 
 (function defineExportService(globalScope) {
   function createExportService({ state, dom, getCurrentNestingSettings = () => ({}) }) {
+    const t = globalScope.NestI18n.t;
     const { resolveMeasurementSystem, unitLabel, formatLength, formatLongLength } = globalScope.NestUnits;
     let exportFolderPath = null;
     let exportFolderBookmark = null;
@@ -112,13 +113,13 @@
       if (dom.printReportBtn) {
         dom.printReportBtn.disabled = !canPrint;
         dom.printReportBtn.classList.remove('btn-success');
-        setActionButtonLabel(dom.printReportBtn, 'Print', PRINT_ICON);
+        setActionButtonLabel(dom.printReportBtn, t('export.print'), PRINT_ICON);
       }
 
       if (dom.exportSheetsBtn) {
         dom.exportSheetsBtn.disabled = !canExport;
         dom.exportSheetsBtn.classList.remove('btn-success');
-        setActionButtonLabel(dom.exportSheetsBtn, 'Export', DOWNLOAD_ICON);
+        setActionButtonLabel(dom.exportSheetsBtn, t('export.export'), DOWNLOAD_ICON);
       }
     }
 
@@ -227,10 +228,10 @@
       const unitSystem = measurementSystem();
       dom.exportSummaryLength.textContent = formatLongLength(totalMm, unitSystem);
       const sizeHeading = document.getElementById('exportSheetSizeHeading');
-      if (sizeHeading) sizeHeading.textContent = `Sheet Size (${unitLabel(unitSystem)})`;
+      if (sizeHeading) sizeHeading.textContent = t('export.sheetSize', { unit: unitLabel(unitSystem) });
       dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
       if (isPreview) {
-        dom.exportFolderLabel.textContent = 'Finalizing sheets…';
+        dom.exportFolderLabel.textContent = t('export.finalizing');
       }
 
       dom.exportTableBody.innerHTML = '';
@@ -262,12 +263,12 @@
     // restores the saved folder if available, and shows the modal.
     function openExportModal() {
       if (!state.nestResult?.strips?.length) return;
-      if (dom.exportFeedbackPrompt) dom.exportFeedbackPrompt.textContent = 'How did this nest turn out?';
+      if (dom.exportFeedbackPrompt) dom.exportFeedbackPrompt.textContent = t('export.feedbackPrompt');
       populateExportModal();
       if (exportFolderPath && canExportFinalSheets()) {
         applyExportFolder(exportFolderPath, exportFolderBookmark);
       } else if (!state.nestResult?.is_preview) {
-        dom.exportFolderLabel.textContent = 'No export folder selected';
+        dom.exportFolderLabel.textContent = t('export.noFolder');
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
         refreshActionButtons();
       } else {
@@ -302,7 +303,7 @@
         if (!canExportFinalSheets()) return;
         if (!window.electronAPI?.printSheetsReport) return;
         dom.printReportBtn.disabled = true;
-        setActionButtonLabel(dom.printReportBtn, 'Opening…', PRINT_ICON);
+        setActionButtonLabel(dom.printReportBtn, t('export.printing'), PRINT_ICON);
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
         try {
           const sheet = state.sheets[0] || {};
@@ -315,21 +316,21 @@
 
           if (result?.canceled) {
             refreshActionButtons();
-            dom.exportFolderLabel.textContent = 'Print canceled';
+            dom.exportFolderLabel.textContent = t('export.printCanceled');
             dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
             return;
           }
-          if (!result?.success) throw new Error(result?.error || 'Print failed');
+          if (!result?.success) throw new Error(result?.error || t('export.printFailed'));
 
           dom.printReportBtn.classList.add('btn-success');
-          setActionButtonLabel(dom.printReportBtn, 'Printed', PRINT_ICON);
+          setActionButtonLabel(dom.printReportBtn, t('export.printed'), PRINT_ICON);
           setTimeout(() => {
             refreshActionButtons();
           }, 2000);
         } catch (err) {
           console.error('[Print Report]', err);
           refreshActionButtons();
-          dom.exportFolderLabel.textContent = `Error: ${err.message}`;
+          dom.exportFolderLabel.textContent = t('export.error', { message: err.message });
           dom.exportFolderLabel.classList.add('export-folder-error');
         }
       });
@@ -341,7 +342,7 @@
           if (!chosenFolder) return;
         }
         dom.exportSheetsBtn.disabled = true;
-        setActionButtonLabel(dom.exportSheetsBtn, 'Exporting…', DOWNLOAD_ICON);
+        setActionButtonLabel(dom.exportSheetsBtn, t('export.exporting'), DOWNLOAD_ICON);
         dom.exportFolderLabel.classList.remove('export-folder-success', 'export-folder-error');
         try {
           const result = await window.electronAPI.exportSheetsDXF({
@@ -353,14 +354,17 @@
             strips: buildExportStrips(),
             includeSheetOutline: !!getCurrentNestingSettings()?.includeSheetOutline,
           });
-          if (!result?.success) throw new Error(result?.error || 'Export failed');
+          if (!result?.success) throw new Error(result?.error || t('export.exportFailed'));
 
           dom.exportSheetsBtn.classList.add('btn-success');
-          setActionButtonLabel(dom.exportSheetsBtn, 'Exported', DOWNLOAD_ICON);
-          dom.exportFolderLabel.textContent = `${result.fileCount} file${result.fileCount !== 1 ? 's' : ''} saved to ${shortPath(result.outputDir)}`;
+          setActionButtonLabel(dom.exportSheetsBtn, t('export.exported'), DOWNLOAD_ICON);
+          dom.exportFolderLabel.textContent = t('export.filesSaved', {
+            count: result.fileCount,
+            folder: shortPath(result.outputDir),
+          });
           dom.exportFolderLabel.classList.add('export-folder-success');
           if (dom.exportFeedbackPrompt) {
-            dom.exportFeedbackPrompt.textContent = 'DXF exported. Anything unexpected?';
+            dom.exportFeedbackPrompt.textContent = t('export.feedbackAfterExport');
           }
 
           setTimeout(() => {
@@ -369,7 +373,7 @@
         } catch (err) {
           console.error('[Export DXF]', err);
           refreshActionButtons();
-          dom.exportFolderLabel.textContent = `Error: ${err.message}`;
+          dom.exportFolderLabel.textContent = t('export.error', { message: err.message });
           dom.exportFolderLabel.classList.add('export-folder-error');
         }
       });

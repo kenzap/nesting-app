@@ -18,6 +18,7 @@
 
 (function defineMeasureTool(globalScope) {
   function createMeasureTool({ state, dom }) {
+    const t = globalScope.NestI18n.t;
     const { resolveMeasurementSystem, unitLabel, formatLength } = globalScope.NestUnits;
     let coordChipEl = null;
     let modeChipEl = null;
@@ -408,8 +409,8 @@
       modeChipEl.className = 'measure-mode-chip';
       modeChipEl.hidden = true;
       modeChipEl.innerHTML = `
-        <span class="measure-mode-label">Measure</span>
-        <button class="measure-mode-close" type="button" aria-label="Exit measure mode" title="Exit">
+        <span class="measure-mode-label">${t('measure.label')}</span>
+        <button class="measure-mode-close" type="button" aria-label="${t('measure.exitMode')}" title="${t('measure.exit')}">
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
             <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
           </svg>
@@ -444,8 +445,8 @@
       rulerBtn = document.createElement('button');
       rulerBtn.className = 'icon-btn-sm measure-btn';
       rulerBtn.type = 'button';
-      rulerBtn.title = 'Measure';
-      rulerBtn.setAttribute('aria-label', 'Toggle measure tool');
+      rulerBtn.title = t('measure.label');
+      rulerBtn.setAttribute('aria-label', t('measure.toggle'));
       rulerBtn.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M1.5 8.5 L8.5 1.5 L12.5 5.5 L5.5 12.5 Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/>
@@ -918,6 +919,18 @@
       onUnitsChanged() {
         if (cursorSheet) updateCoordChip(cursorSheet);
         redrawOverlay();
+      },
+      onLanguageChanged() {
+        if (modeChipEl) {
+          modeChipEl.querySelector('.measure-mode-label').textContent = t('measure.label');
+          const closeButton = modeChipEl.querySelector('.measure-mode-close');
+          closeButton.title = t('measure.exit');
+          closeButton.setAttribute('aria-label', t('measure.exitMode'));
+        }
+        if (rulerBtn) {
+          rulerBtn.title = t('measure.label');
+          rulerBtn.setAttribute('aria-label', t('measure.toggle'));
+        }
       },
       /** Called by canvas-view after rendering or resizing the SVG so the
        *  overlay and committed measurement follow its current transform. */

@@ -686,6 +686,7 @@
     // (b) snap the scroll position back to the active tab on every poll —
     // making manual navigation between sheets impossible.
     function renderTabs() {
+      const t = globalScope.NestI18n.t;
       if (!state.nestResult?.strips?.length) {
         dom.canvasTabs.innerHTML = '';
         return;
@@ -705,7 +706,7 @@
       for (let i = initialCount; i < stripCount; i++) {
         const btn = document.createElement('button');
         btn.className = 'canvas-tab';
-        btn.textContent = `Sheet ${i + 1}`;
+        btn.textContent = t('canvas.sheetNumber', { number: i + 1 });
         btn.addEventListener('click', () => {
           dom.canvasTabs.querySelectorAll('.canvas-tab').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
@@ -849,6 +850,7 @@
     // during barrier-mode optimization, which re-centers the viewport and
     // makes pan/zoom feel jittery.
     function showNestResult(sheetIndex) {
+      const t = globalScope.NestI18n.t;
       const strip = state.nestResult?.strips?.[sheetIndex] || null;
       if (strip?.svg) {
         const sheet = currentSheetConfig();
@@ -879,11 +881,11 @@
         const densityValue = displayStripDensity(strip, sheet);
         const density = Number.isFinite(densityValue) ? `${(densityValue * 100).toFixed(1)}%` : null;
         const usedWidth = formatLongLength(displayStripWidth(strip, sheet), measurementSystem());
-        const previewPrefix = strip.is_preview || state.nestResult.is_preview ? 'Preview · ' : '';
+        const previewPrefix = strip.is_preview || state.nestResult.is_preview ? `${t('canvas.preview')} · ` : '';
         setNestStatsTone('');
-        const partsText = placed > 0 ? ` · ${placed} parts` : '';
-        const utilText = density ? ` · Utilization: ${density}` : '';
-        dom.nestStats.textContent = `${previewPrefix}Sheet ${sheetIndex + 1} of ${state.nestResult.strips.length}${partsText}${utilText} · Width: ${usedWidth}`;
+        const partsText = placed > 0 ? ` · ${t('canvas.partsPlaced', { count: placed })}` : '';
+        const utilText = density ? ` · ${t('canvas.utilization', { value: density })}` : '';
+        dom.nestStats.textContent = `${previewPrefix}${t('canvas.sheetOf', { number: sheetIndex + 1, total: state.nestResult.strips.length })}${partsText}${utilText} · ${t('canvas.widthValue', { value: usedWidth })}`;
         // Only re-center the viewport when the SVG actually got swapped — a
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.
@@ -896,9 +898,9 @@
         hideSheetDimensionBadge();
         state.activeStripIndex = sheetIndex;
         const totalSheets = state.nestResult?.strips?.length || state.nestResult?.strip_count || 0;
-        const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? 'Preview · ' : '';
+        const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? `${t('canvas.preview')} · ` : '';
         setNestStatsTone('');
-        dom.nestStats.textContent = `${waitingPrefix}Sheet ${sheetIndex + 1} of ${totalSheets} · Waiting for geometry`;
+        dom.nestStats.textContent = `${waitingPrefix}${t('canvas.sheetOf', { number: sheetIndex + 1, total: totalSheets })} · ${t('canvas.waitingGeometry')}`;
         return;
       }
 
@@ -916,7 +918,7 @@
       const placed = state.files.reduce((a, f) => a + f.qty, 0);
       const mockWidth = formatLongLength(state.sheets[sheetIndex]?.width, measurementSystem());
       setNestStatsTone('');
-      dom.nestStats.textContent = `Sheet ${sheetIndex + 1} of ${state.sheets.length} · ${placed} parts placed · Utilization: ${result.utilization}% · Width: ${mockWidth}`;
+      dom.nestStats.textContent = `${t('canvas.sheetOf', { number: sheetIndex + 1, total: state.sheets.length })} · ${t('canvas.partsPlaced', { count: placed })} · ${t('canvas.utilization', { value: `${result.utilization}%` })} · ${t('canvas.widthValue', { value: mockWidth })}`;
       applyZoom(true);
     }
 

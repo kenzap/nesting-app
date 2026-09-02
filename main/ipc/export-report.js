@@ -7,6 +7,7 @@ const {
   formatLength,
   formatLongLength,
 } = require('../../shared/units');
+const { t, getLocalizationState } = require('../i18n');
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -37,7 +38,7 @@ function formatReportDimension(mm, measurementSystem) {
 
 function formatDateTime(date = new Date()) {
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(getLocalizationState().language, {
       dateStyle: 'medium',
       timeStyle: 'short',
     }).format(date);
@@ -63,10 +64,10 @@ function buildReportHtml({ jobName, strips, summary, measurementSystem }) {
 
   return `
     <!doctype html>
-    <html lang="en">
+    <html lang="${getLocalizationState().language}" dir="${getLocalizationState().language === 'ar' ? 'rtl' : 'ltr'}">
       <head>
         <meta charset="utf-8">
-        <title>${escapeHtml('Nesting Sheet Report')}</title>
+        <title>${escapeHtml(t('report.title'))}</title>
         <style>
           :root {
             color-scheme: light;
@@ -157,7 +158,7 @@ function buildReportHtml({ jobName, strips, summary, measurementSystem }) {
           td {
             border: 1px solid var(--border);
             padding: 10px 12px;
-            text-align: left;
+            text-align: start;
             vertical-align: top;
           }
 
@@ -179,38 +180,38 @@ function buildReportHtml({ jobName, strips, summary, measurementSystem }) {
       <body>
         <main class="page">
           <p class="eyebrow">Kenzap Nesting</p>
-          <h1>${escapeHtml('Nesting Sheet Report')}</h1>
+          <h1>${escapeHtml(t('report.title'))}</h1>
           <div class="meta">
-            <div><strong>Job:</strong> ${escapeHtml(jobName || '—')}</div>
-            <div><strong>Generated:</strong> ${escapeHtml(formatDateTime())}</div>
+            <div><strong>${escapeHtml(t('report.job'))}:</strong> ${escapeHtml(jobName || '—')}</div>
+            <div><strong>${escapeHtml(t('report.generated'))}:</strong> ${escapeHtml(formatDateTime())}</div>
           </div>
           <div class="summary">
             <div class="summary-card">
               <strong>${summary.sheetCount}</strong>
-              <span>Sheets</span>
+              <span>${escapeHtml(t('report.sheets'))}</span>
             </div>
             <div class="summary-card">
               <strong>${summary.totalParts}</strong>
-              <span>Parts</span>
+              <span>${escapeHtml(t('report.parts'))}</span>
             </div>
             <div class="summary-card">
               <strong>${escapeHtml(formatUtilization(summary.avgUtilization))}</strong>
-              <span>Average utilization</span>
+              <span>${escapeHtml(t('report.averageUtilization'))}</span>
             </div>
             <div class="summary-card">
               <strong>${escapeHtml(formatLongLength(summary.totalLengthMm, measurementSystem))}</strong>
-              <span>Total length</span>
+              <span>${escapeHtml(t('report.totalLength'))}</span>
             </div>
           </div>
           <table>
             <thead>
               <tr>
-                <th>Sheet</th>
-                <th>Sheet width (${lengthUnit})</th>
-                <th>Sheet length (${lengthUnit})</th>
-                <th>Parts</th>
-                <th>Material</th>
-                <th>Utilization</th>
+                <th>${escapeHtml(t('report.sheet'))}</th>
+                <th>${escapeHtml(t('report.sheetWidth', { unit: lengthUnit }))}</th>
+                <th>${escapeHtml(t('report.sheetLength', { unit: lengthUnit }))}</th>
+                <th>${escapeHtml(t('report.parts'))}</th>
+                <th>${escapeHtml(t('report.material'))}</th>
+                <th>${escapeHtml(t('report.utilization'))}</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -263,7 +264,7 @@ async function printReportHtml(html) {
           resolve({ success: true, canceled: true });
           return;
         }
-        reject(new Error(errorType || 'Print failed'));
+        reject(new Error(errorType || t('export.printFailed')));
       }
     );
   }));
@@ -287,7 +288,7 @@ function registerExportReportIpc() {
       }));
 
       if (!normalizedStrips.length) {
-        return { success: false, error: 'No sheets available to print' };
+        return { success: false, error: t('report.noSheets') };
       }
 
       const densities = normalizedStrips
@@ -304,7 +305,7 @@ function registerExportReportIpc() {
       };
 
       const html = buildReportHtml({
-        jobName: String(jobName || '').trim() || 'Nesting job',
+        jobName: String(jobName || '').trim() || t('report.defaultJob'),
         strips: normalizedStrips,
         summary,
         measurementSystem,

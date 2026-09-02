@@ -9,6 +9,7 @@
   const MAX_ENTRIES = 10;
 
   function createPartsHistory({ state, dom, renderFiles, schedulePersistJobState }) {
+    const t = globalScope.NestI18n.t;
     state.partsHistory = Array.isArray(state.partsHistory) ? state.partsHistory : [];
     let initialSnapshot = deepClone(state.files || []);
     let initialSnapshotRecorded = false;
@@ -57,9 +58,7 @@
           partCount += perFileQty;
         }
       });
-      const fileWord = fileCount === 1 ? 'file' : 'files';
-      const partWord = partCount === 1 ? 'part' : 'parts';
-      return `${fileCount} ${fileWord} · ${partCount} ${partWord}`;
+      return `${t('history.fileCount', { count: fileCount })} · ${t('history.partCount', { count: partCount })}`;
     }
 
     function pushEntry(files = state.files, source = 'run') {
@@ -129,8 +128,8 @@
       const btn = document.createElement('button');
       btn.className = 'icon-btn-sm parts-history-btn';
       btn.type = 'button';
-      btn.setAttribute('aria-label', 'Parts history');
-      btn.title = 'Parts history';
+      btn.setAttribute('aria-label', t('history.title'));
+      btn.title = t('history.title');
       btn.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M2 7a5 5 0 1 0 1.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>
@@ -154,8 +153,8 @@
       const disabled = count === 0;
       dom.partsHistoryBtn.disabled = disabled;
       dom.partsHistoryBtn.title = disabled
-        ? 'No parts history yet'
-        : `Parts history (${count})`;
+        ? t('history.none')
+        : t('history.withCount', { count });
       dom.partsHistoryBtn.classList.toggle('has-history', !disabled);
       dom.partsHistoryBtn.classList.toggle('active', popoverOpen);
     }
@@ -212,12 +211,12 @@
 
     function formatRelative(ts) {
       const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000));
-      if (seconds < 5) return 'just now';
-      if (seconds < 60) return `${seconds}s ago`;
+      if (seconds < 5) return t('history.justNow');
+      if (seconds < 60) return t('history.secondsAgo', { count: seconds });
       const minutes = Math.round(seconds / 60);
-      if (minutes < 60) return `${minutes}m ago`;
+      if (minutes < 60) return t('history.minutesAgo', { count: minutes });
       const hours = Math.round(minutes / 60);
-      return `${hours}h ago`;
+      return t('history.hoursAgo', { count: hours });
     }
 
     function escapeHtml(str) {
@@ -241,28 +240,28 @@
         const isNewest = i === 0;
         const badge = isNewest
           ? (isModifiedSinceLastRun
-              ? '<span class="parts-history-badge modified">edited since</span>'
-              : '<span class="parts-history-badge current">current</span>')
+              ? `<span class="parts-history-badge modified">${t('history.editedSince')}</span>`
+              : `<span class="parts-history-badge current">${t('history.current')}</span>`)
           : '';
         return `
           <li class="parts-history-item${isNewest ? ' newest' : ''}" data-entry-id="${entry.id}" role="button" tabindex="0">
             <span class="parts-history-dot-marker"></span>
             <span class="parts-history-action">
-              <strong>${escapeHtml(entry.summary)}</strong>
-              <span>${entry.source === 'loaded' ? 'Loaded' : 'Run'} · ${formatRelative(entry.timestamp)}</span>
+              <strong>${escapeHtml(summaryOfFiles(entry.snapshot))}</strong>
+              <span>${entry.source === 'loaded' ? t('history.loaded') : t('history.run')} · ${formatRelative(entry.timestamp)}</span>
             </span>
             ${badge}
           </li>`;
       }).join('');
       popoverEl.innerHTML = `
         <div class="parts-history-header">
-          <span>Parts history</span>
-          <span class="parts-history-count">${state.partsHistory.length} ${state.partsHistory.length === 1 ? 'entry' : 'entries'}</span>
+          <span>${t('history.title')}</span>
+          <span class="parts-history-count">${t('history.entryCount', { count: state.partsHistory.length })}</span>
         </div>
         <ul class="parts-history-list">${items}</ul>
         <div class="parts-history-footer">
-          <button class="parts-history-link" data-history-action="restore-initial">Restore to first load</button>
-          <button class="parts-history-link danger" data-history-action="clear">Clear history</button>
+          <button class="parts-history-link" data-history-action="restore-initial">${t('history.restoreInitial')}</button>
+          <button class="parts-history-link danger" data-history-action="clear">${t('history.clear')}</button>
         </div>`;
 
       popoverEl.querySelectorAll('.parts-history-item').forEach(node => {
@@ -296,6 +295,10 @@
       captureBaseline() {
         initialSnapshot = deepClone(state.files);
         initialSnapshotRecorded = false;
+      },
+      onLanguageChanged() {
+        syncIcon();
+        if (popoverOpen) renderPopover();
       },
     };
   }

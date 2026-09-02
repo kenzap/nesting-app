@@ -2,6 +2,7 @@
 
 (function defineLinuxAppMenu(globalScope) {
   function createLinuxAppMenu() {
+    const t = globalScope.NestI18n.t;
     const isLinux = document.body.classList.contains('platform-linux');
     const HELP_URLS = {
       supportUrl: 'https://kenzap.com/nesting-support/',
@@ -13,31 +14,31 @@
 
     const MENUS = {
       app: [
-        { label: 'About Kenzap Nesting', action: 'about', type: 'local' },
+        { key: 'menu.about', options: { product: 'Kenzap Nesting' }, action: 'about', type: 'local' },
         { type: 'separator' },
-        { label: 'Exit Kenzap Nesting', action: 'quit', type: 'ipc' },
+        { key: 'menu.exit', options: { product: 'Kenzap Nesting' }, action: 'quit', type: 'ipc' },
       ],
       edit: [
-        { label: 'Settings…', action: 'open-settings', type: 'ipc' },
+        { key: 'menu.settings', action: 'open-settings', type: 'ipc' },
       ],
       view: [
-        { label: 'Fit to View', action: 'canvas-fit-view', type: 'ipc' },
-        { label: 'Zoom In', action: 'canvas-zoom-in', type: 'ipc' },
-        { label: 'Zoom Out', action: 'canvas-zoom-out', type: 'ipc' },
+        { key: 'menu.fitToView', action: 'canvas-fit-view', type: 'ipc' },
+        { key: 'menu.zoomIn', action: 'canvas-zoom-in', type: 'ipc' },
+        { key: 'menu.zoomOut', action: 'canvas-zoom-out', type: 'ipc' },
       ],
       window: [
-        { label: 'Minimize', action: 'minimize-window', type: 'ipc' },
-        { label: 'Zoom', action: 'toggle-maximize-window', type: 'ipc' },
-        { label: 'Close', action: 'close-window', type: 'ipc' },
+        { key: 'menu.minimize', action: 'minimize-window', type: 'ipc' },
+        { key: 'menu.zoom', action: 'toggle-maximize-window', type: 'ipc' },
+        { key: 'menu.close', action: 'close-window', type: 'ipc' },
       ],
       help: [
-        { label: 'Support', action: 'supportUrl', type: 'url' },
-        { label: 'Release Notes', action: 'releasesUrl', type: 'url' },
-        { label: 'Diagnostics Folder', action: 'open-diagnostics-folder', type: 'ipc' },
+        { key: 'menu.support', action: 'supportUrl', type: 'url' },
+        { key: 'menu.releaseNotes', action: 'releasesUrl', type: 'url' },
+        { key: 'menu.diagnosticsFolder', action: 'open-diagnostics-folder', type: 'ipc' },
         { type: 'separator' },
-        { label: 'Reddit Community', action: 'redditUrl', type: 'url' },
+        { key: 'menu.redditCommunity', action: 'redditUrl', type: 'url' },
         { label: 'LinkedIn', action: 'linkedInUrl', type: 'url' },
-        { label: 'Kenzap Nesting Website', action: 'websiteUrl', type: 'url' },
+        { key: 'menu.website', options: { product: 'Kenzap Nesting' }, action: 'websiteUrl', type: 'url' },
       ],
     };
 
@@ -72,7 +73,7 @@
       dialog.className = 'linux-about-dialog';
 
       dialog.innerHTML = `
-        <button type="button" class="linux-about-close" aria-label="Close about dialog">×</button>
+        <button type="button" class="linux-about-close" aria-label="${t('common.close')}">×</button>
         <div class="linux-about-logo" aria-hidden="true">
           <svg width="46" height="46" viewBox="0 0 22 22" fill="none">
             <rect x="1" y="1" width="9" height="6" rx="1.5" fill="#4f8ef7"/>
@@ -86,8 +87,8 @@
         <div class="linux-about-description"></div>
         <div class="linux-about-copy">Copyright © Kenzap Pte Ltd</div>
         <div class="linux-about-actions">
-          <button type="button" class="linux-about-btn" data-about-link="websiteUrl">Website</button>
-          <button type="button" class="linux-about-btn" data-about-link="supportUrl">Support</button>
+          <button type="button" class="linux-about-btn" data-about-link="websiteUrl">${t('menu.websiteShort')}</button>
+          <button type="button" class="linux-about-btn" data-about-link="supportUrl">${t('menu.support')}</button>
         </div>
       `;
 
@@ -128,9 +129,9 @@
     function updateAboutDialog() {
       const dialog = ensureAboutDialog().dialog;
       dialog.querySelector('.linux-about-name').textContent = appMeta.productName || 'Kenzap Nesting';
-      dialog.querySelector('.linux-about-version').textContent = appMeta.version ? `Version ${appMeta.version}` : '';
+      dialog.querySelector('.linux-about-version').textContent = appMeta.version ? t('common.version', { version: appMeta.version }) : '';
       dialog.querySelector('.linux-about-description').textContent =
-        appMeta.description || 'DXF nesting desktop application with live preview and production DXF export.';
+        t('app.description');
     }
 
     async function preloadAppMeta() {
@@ -206,7 +207,7 @@
         const entry = document.createElement('button');
         entry.type = 'button';
         entry.className = 'linux-menu-item';
-        entry.textContent = item.label;
+        entry.textContent = t(item.key, item.options);
         entry.setAttribute('role', 'menuitem');
         entry.addEventListener('click', async () => {
           closeOpenMenu();
@@ -255,6 +256,10 @@
       menuBar.hidden = false;
       preloadAppMeta();
       ensureAboutDialog();
+      globalScope.addEventListener('nest-language-changed', () => {
+        closeOpenMenu();
+        updateAboutDialog();
+      });
       menuBar.querySelectorAll('[data-linux-menu]').forEach(button => {
         button.setAttribute('aria-haspopup', 'menu');
         button.setAttribute('aria-expanded', 'false');

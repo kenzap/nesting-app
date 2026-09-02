@@ -10,6 +10,7 @@
     "dev:crash-dialog": "electron . --dev --preview-crash-dialog",
     "dev:dxf": "electron . --dev --dxf-debug",
     "debug:dxf-contour": "node scripts/debug-dxf-contour.js",
+    "verify:i18n": "node scripts/verify-locales.js",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",
     "preflight:win-helpers": "node scripts/verify-win-helpers.js",
@@ -35,6 +36,7 @@
     "@flatten-js/core": "^1.6.12",
     "concaveman": "^2.0.0",
     "dxf-parser": "^1.1.2",
+    "i18next": "^25.10.10",
     "jsts": "^2.12.1",
     "makerjs": "^0.18.2",
     "planar-face-discovery": "^2.0.7",
@@ -134,7 +136,20 @@
       "backgroundColor": "#111827",
       "showNameOnTiles": false,
       "languages": [
-        "en-US"
+        "en-US",
+        "es-ES",
+        "zh-CN",
+        "hi-IN",
+        "ar-SA",
+        "pt-BR",
+        "ru-RU",
+        "ja-JP",
+        "de-DE",
+        "fr-FR",
+        "id-ID",
+        "pl-PL",
+        "tr-TR",
+        "it-IT"
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },

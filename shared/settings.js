@@ -51,6 +51,24 @@
     'first-three-chars',
   ];
 
+  const LANGUAGE_PREFERENCES = [
+    'auto',
+    'en',
+    'es',
+    'zh',
+    'hi',
+    'ar',
+    'pt',
+    'ru',
+    'ja',
+    'de',
+    'fr',
+    'id',
+    'pl',
+    'tr',
+    'it',
+  ];
+
   const SETTINGS_DEFAULTS = {
     partSpacing: 0,
     sheetMargin: 0,
@@ -74,6 +92,7 @@
     // legacy values is handled in `normalizeSettings`.
     multiSheetStrategy: 'auto',
     theme: 'system',
+    language: 'auto',
     measurementSystem: 'auto',
     colorPartsBySource: true,
     showCursorCoords: true,
@@ -170,6 +189,10 @@
       normalized.theme = SETTINGS_DEFAULTS.theme;
     }
 
+    if (!LANGUAGE_PREFERENCES.includes(normalized.language)) {
+      normalized.language = SETTINGS_DEFAULTS.language;
+    }
+
     if (!['auto', 'metric', 'imperial'].includes(normalized.measurementSystem)) {
       normalized.measurementSystem = SETTINGS_DEFAULTS.measurementSystem;
     }
@@ -201,6 +224,7 @@
     MULTI_SHEET_STRATEGY_OPTIONS,
     PREFERRED_ALIGNMENTS,
     ENGRAVING_STYLES,
+    LANGUAGE_PREFERENCES,
     normalizeSettings,
   };
 

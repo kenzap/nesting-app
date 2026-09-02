@@ -9,6 +9,14 @@ const REDDIT_URL = 'https://www.reddit.com/r/kenzap/';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/kenzap';
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  getLocalization: () => ipcRenderer.invoke('get-localization'),
+  setAppLanguage: (preference) => ipcRenderer.invoke('set-app-language', preference),
+  onAppLanguageChanged: (handler) => {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('app-language-changed', listener);
+    return () => ipcRenderer.removeListener('app-language-changed', listener);
+  },
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
   getPathForDroppedFile: (file) => {
     try {

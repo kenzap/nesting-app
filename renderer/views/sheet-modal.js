@@ -15,6 +15,7 @@
   ];
 
   function createSheetModal({ state, dom, schedulePersistJobState, renderSheets }) {
+    const t = globalScope.NestI18n.t;
     const {
       resolveMeasurementSystem,
       unitLabel,
@@ -80,7 +81,7 @@
       if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
       setDefaultSheetDimensions();
       dom.sheetMaterial.value = '';
-      dom.confirmSheet.textContent = 'Add Sheet';
+      dom.confirmSheet.textContent = t('sheet.add');
       updateSheetModeControls();
     }
 
@@ -103,7 +104,7 @@
       setLengthInput(dom.sheetHeight, sheet.height ?? 1250);
       setLengthInput(dom.sheetWidth, sheet.width ?? 3000);
       dom.sheetMaterial.value = sheet.material || '';
-      dom.confirmSheet.textContent = 'Save Sheet';
+      dom.confirmSheet.textContent = t('sheet.save');
       updateSheetModeControls();
       dom.sheetModal.classList.add('open');
     }
@@ -126,16 +127,16 @@
       dom.sheetWidth.disabled = unlimited;
 
       if (unlimited) {
-        dom.sheetModeHelp.textContent = 'Strip length has no limit; the engine uses whatever it needs.';
+        dom.sheetModeHelp.textContent = t('sheet.unlimitedHelp');
       } else if (mode === 'max') {
-        dom.sheetModeHelp.textContent = 'Length is the maximum; sheets may be shorter and the count is calculated automatically.';
+        dom.sheetModeHelp.textContent = t('sheet.maxHelp');
       } else {
-        dom.sheetModeHelp.textContent = 'Fixed sheet size; the number of sheets is calculated automatically.';
+        dom.sheetModeHelp.textContent = t('sheet.fixedHelp');
       }
 
       const lengthLabelEl = document.getElementById('sheetLengthLabel');
       if (lengthLabelEl) {
-        lengthLabelEl.textContent = unlimited ? 'Length (∞)' : (mode === 'max' ? 'Up to' : 'Length');
+        lengthLabelEl.textContent = unlimited ? t('sheet.lengthInfinite') : (mode === 'max' ? t('sheet.upTo') : t('sheet.length'));
       }
       const lengthWrap = document.getElementById('sheetLengthWrap');
       if (lengthWrap) lengthWrap.classList.toggle('length-infinite', unlimited);

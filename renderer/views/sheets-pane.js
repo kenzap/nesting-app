@@ -2,6 +2,7 @@
 
 (function defineSheetsPane(globalScope) {
   function createSheetsPane({ state, dom, schedulePersistJobState, getOpenSheetEditor, renderTabs }) {
+    const t = globalScope.NestI18n.t;
     const { resolveMeasurementSystem, unitLabel, formatLength, formatDimensions } = globalScope.NestUnits;
 
     // Rebuilds the sheets sidebar so it reflects current state.
@@ -17,13 +18,13 @@
       const measurementSystem = resolveMeasurementSystem(state.settings?.measurementSystem);
       state.sheets.forEach(s => {
         const widthLabel = s.widthMode === 'unlimited'
-          ? `${formatLength(s.height, { system: measurementSystem, includeUnit: false })} × Unlimited ${unitLabel(measurementSystem)}`
+          ? `${formatLength(s.height, { system: measurementSystem, includeUnit: false })} × ${t('sheet.unlimited')} ${unitLabel(measurementSystem)}`
           : formatDimensions(s.height, s.width, { system: measurementSystem });
         const modeLabel = s.widthMode === 'unlimited'
-          ? 'Auto sheets · continuous strip'
+          ? t('sheet.continuousStrip')
           : s.widthMode === 'max'
-            ? 'Auto sheets · length capped'
-            : 'Auto sheets · fixed size';
+            ? t('sheet.lengthCapped')
+            : t('sheet.fixedMode');
         const li = document.createElement('li');
         li.className = 'sheet-item';
         li.innerHTML = `
@@ -34,9 +35,9 @@
           </div>
           <div class="sheet-info">
             <div class="sheet-dims">${widthLabel}</div>
-            <div class="sheet-material">${s.material || 'No material'} · ${modeLabel}</div>
+            <div class="sheet-material">${s.material || t('sheet.noMaterial')} · ${modeLabel}</div>
           </div>
-          <button class="file-remove" data-id="${s.id}" title="Remove">
+          <button class="file-remove" data-id="${s.id}" title="${t('common.remove')}">
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M9 1L1 9M1 1l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>

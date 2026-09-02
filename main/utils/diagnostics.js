@@ -6,6 +6,7 @@ const https = require('https');
 const path = require('path');
 const { randomBytes } = require('crypto');
 const { app, crashReporter, dialog, shell } = require('electron');
+const { t } = require('../i18n');
 
 const MAX_LOG_FILES = 20;
 const MAX_DETAIL_LENGTH = 12000;
@@ -290,17 +291,17 @@ async function handlePendingCrashReports(parentWindow = null) {
   let explicitRequest = false;
   if (previewOnly || !automaticCrashReporting) {
     const pendingSummary = pendingCrashReports.length > 1
-      ? ` ${pendingCrashReports.length} reports are waiting and will be sent together.`
+      ? t('diagnostics.pendingReports', { count: pendingCrashReports.length })
       : '';
     const previewSummary = previewOnly
-      ? ' This is a preview; no report will be sent and no setting will be changed.'
+      ? t('diagnostics.preview')
       : '';
     const messageOptions = {
       type: 'warning',
-      title: 'Unexpected closure',
-      message: 'Kenzap Nesting closed unexpectedly. Send a diagnostic report to help us investigate?',
-      detail: `The report contains technical crash information. DXF files, nesting projects, and job history are not intentionally included.${pendingSummary}${previewSummary}`,
-      buttons: ['Send', 'Not now', 'Always send crash reports'],
+      title: t('diagnostics.unexpectedTitle'),
+      message: t('diagnostics.unexpectedMessage'),
+      detail: t('diagnostics.detail', { pending: pendingSummary, preview: previewSummary }),
+      buttons: [t('diagnostics.send'), t('diagnostics.notNow'), t('diagnostics.alwaysSend')],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
@@ -338,10 +339,10 @@ async function handlePendingCrashReports(parentWindow = null) {
   if (failures.length > 0 && explicitRequest) {
     const errorOptions = {
       type: 'warning',
-      title: 'Report not sent',
-      message: 'The diagnostic report could not be sent.',
-      detail: 'It remains in the Diagnostics Folder and can be sent again the next time the app opens.',
-      buttons: ['OK'],
+      title: t('diagnostics.notSentTitle'),
+      message: t('diagnostics.notSentMessage'),
+      detail: t('diagnostics.notSentDetail'),
+      buttons: [t('diagnostics.ok')],
       defaultId: 0,
       noLink: true,
     };

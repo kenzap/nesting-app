@@ -1102,6 +1102,7 @@ body.platform-linux .linux-menubar {
   overflow: auto;
   position: relative;
   display: block;
+  direction: ltr;
   cursor: grab;
   scrollbar-gutter: stable both-edges;
   background: var(--bg);
@@ -1823,6 +1824,7 @@ body.platform-linux .linux-menubar {
   flex: 1;
   overflow: auto;          /* both axes — key for large DXF files */
   background: var(--bg-dxf-preview);
+  direction: ltr;
   cursor: crosshair;
   position: relative;
   /* Ensure the SVG inside can grow beyond the container */

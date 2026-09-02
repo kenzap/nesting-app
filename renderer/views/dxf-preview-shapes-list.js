@@ -3,6 +3,7 @@
 
   const { f } = global.NestDxfSvg;
   const { adjustHexColorForTheme, adjustSvgTextForTheme } = global.NestDxfColor;
+  const t = global.NestI18n.t;
 
   function formatShapeDimensions(shape) {
     const settings = typeof global.getCurrentNestingSettings === 'function'
@@ -23,8 +24,13 @@
       const visible = pv.shapes.filter(shape => shape.visible);
       const total = visible.reduce((acc, shape) => acc + shape.qty, 0);
       getShapeCount().textContent = `${visible.length}/${pv.shapes.length}`;
-      getFileMeta().textContent = `${pv.shapes.length} shape${pv.shapes.length !== 1 ? 's' : ''} · ${pv.layers.length} layer${pv.layers.length !== 1 ? 's' : ''}`;
-      getStats().textContent = `${total} piece${total !== 1 ? 's' : ''} queued for nesting`;
+      getFileMeta().textContent = t('preview.fileMeta', {
+        shapes: t('parts.shapeCount', { count: pv.shapes.length }),
+        layers: t('parts.layerCount', { count: pv.layers.length }),
+      });
+      getStats().textContent = t('preview.queued', {
+        pieces: t('parts.pieceCount', { count: total }),
+      });
 
       const listEl = getShapesList();
       listEl.innerHTML = '';
@@ -73,14 +79,14 @@
           <div class="pvw-thumb">${thumb}</div>
           <div class="pvw-info">
             <div class="pvw-name">${shape.name}${fitWarning ? `
-              <span class="fit-pill" role="status">Too large</span>` : ''}</div>
-            <div class="pvw-dims">${formatShapeDimensions(shape)}${shape.visible === false ? ' · removed' : ''}</div>
+              <span class="fit-pill" role="status">${t('parts.tooLarge')}</span>` : ''}</div>
+            <div class="pvw-dims">${formatShapeDimensions(shape)}${shape.visible === false ? ` · ${t('preview.removed')}` : ''}</div>
           </div>
           <div class="pvw-controls">
             ${shape.visible === false
-              ? `<button class="qty-btn pvw-restore" data-id="${shape.id}" title="Restore shape">↺</button>`
+              ? `<button class="qty-btn pvw-restore" data-id="${shape.id}" title="${t('preview.restoreShape')}">↺</button>`
               : `<button class="qty-btn pvw-dec" data-id="${shape.id}">−</button>
-                 <input class="qty-value qty-input pvw-qty-input" data-id="${shape.id}" type="number" min="1" step="1" value="${shape.qty}" aria-label="Quantity for ${shape.name}">
+                 <input class="qty-value qty-input pvw-qty-input" data-id="${shape.id}" type="number" min="1" step="1" value="${shape.qty}" aria-label="${t('preview.quantityFor', { name: shape.name })}">
                  <button class="qty-btn pvw-inc" data-id="${shape.id}">+</button>`}
           </div>`;
         const fitPill = row.querySelector('.fit-pill');

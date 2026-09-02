@@ -2,6 +2,7 @@
 
 (function defineFilesPane(globalScope) {
   function createFilesPane({ state, dom, schedulePersistJobState, hydrateFileShapesForList }) {
+    const t = globalScope.NestI18n.t;
     const { uid, formatBytes, effectiveFileQty } = globalScope.NestHelpers;
     state.partFitWarnings = Array.isArray(state.partFitWarnings) ? state.partFitWarnings : [];
 
@@ -25,7 +26,7 @@
         const shapeCount = Array.isArray(f.shapes)
           ? f.shapes.filter(shape => shape.visible !== false).length
           : 0;
-        const shapeLabel = `${shapeCount} shape${shapeCount === 1 ? '' : 's'}`;
+        const shapeLabel = t('parts.shapeCount', { count: shapeCount });
         const li = document.createElement('li');
         li.className = `file-item${fitWarning ? ' part-fit-error' : ''}`;
         if (fitWarning) {
@@ -36,11 +37,11 @@
           <div class="file-icon">DXF</div>
           <div class="file-info">
             <div class="file-name" title="${f.name}">${f.name}${fitWarning ? `
-              <span class="fit-pill" role="status">Too large</span>` : ''}</div>
+              <span class="fit-pill" role="status">${t('parts.tooLarge')}</span>` : ''}</div>
             <div class="file-size">${shapeLabel} · ${formatBytes(f.size)}</div>
           </div>
           <div class="file-qty-total">${effectiveFileQty(f)}</div>
-          <button class="file-remove" data-id="${f.id}" title="Remove">
+          <button class="file-remove" data-id="${f.id}" title="${t('common.remove')}">
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M9 1L1 9M1 1l8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>

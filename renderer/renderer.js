@@ -109,7 +109,13 @@ function setStatus(status) {
   const dot = dom.statusChip.querySelector('.status-dot');
   const label = dom.statusChip.querySelector('.status-label');
   dot.className = 'status-dot ' + status;
-  const labels = { idle: 'Idle', running: 'Running…', done: 'Complete', error: 'Error' };
+  const t = window.NestI18n.t;
+  const labels = {
+    idle: t('app.status.idle'),
+    running: t('app.status.running'),
+    done: t('app.status.done'),
+    error: t('app.status.error'),
+  };
   label.textContent = labels[status] || status;
 }
 
@@ -219,6 +225,8 @@ const settingsModalApi = window.NestSettingsModal.createSettingsModal({
     sheetsPaneApi?.renderSheets();
     sheetModalApi?.syncUnits();
     measureToolApi?.onUnitsChanged();
+    measureToolApi?.onLanguageChanged();
+    partsHistoryApi?.onLanguageChanged();
     exportServiceApi?.refreshUnits();
     if (state.nestResult && state.sheets.length) canvasViewApi.showNestResult(state.activeStripIndex || 0);
   },
@@ -426,6 +434,21 @@ window.openDXFPreview = dxfPreviewModalApi.openDXFPreview;
 window.parseDXFToShapes = window.NestDxfPreviewService.parseDXFToShapes;
 window.refreshDXFPreview = dxfPreviewModalApi.refreshDXFPreview;
 
+window.addEventListener('nest-language-changed', () => {
+  setStatus(state.status || 'idle');
+  filesPaneApi.renderFiles();
+  sheetsPaneApi.renderSheets();
+  sheetModalApi.updateSheetModeControls();
+  measureToolApi.onLanguageChanged();
+  partsHistoryApi.onLanguageChanged();
+  exportServiceApi.refreshUnits();
+  if (state.nestResult?.strips?.length) {
+    canvasViewApi.renderTabs();
+    canvasViewApi.showNestResult(state.activeStripIndex || 0);
+  }
+  dxfPreviewModalApi.refreshLabels();
+});
+
 // ─── Drag-and-drop helpers ────────────────────────────────────────────────────
 
 // Shows lightweight, user-facing import status during drag-and-drop without
@@ -434,11 +457,12 @@ function showDragDebug(message, details = '') {
   const normalized = String(message || '');
   const previousText = dom.nestStats.textContent;
   const previousTitle = dom.nestStats.title;
-  let userMessage = 'Drop DXF files here to import';
+  let userMessage = window.NestI18n.t('parts.dropToImport');
   if (/^added\s+\d+/i.test(normalized)) {
-    userMessage = normalized.replace(/^added/i, 'Imported');
+    const count = Number.parseInt(normalized.match(/^added\s+(\d+)/i)?.[1], 10) || 0;
+    userMessage = window.NestI18n.t('parts.imported', { count });
   } else if (/^drop ignored:/i.test(normalized)) {
-    userMessage = 'No DXF files found in the drop';
+    userMessage = window.NestI18n.t('parts.noneInDrop');
   }
 
   if (details) console.debug('[DND]', normalized, details);
@@ -450,7 +474,7 @@ function showDragDebug(message, details = '') {
   if (dragDebugTimer) window.clearTimeout(dragDebugTimer);
   dragDebugTimer = window.setTimeout(() => {
     if (dom.nestStats.textContent === userMessage) {
-      dom.nestStats.textContent = previousText || 'Drag DXF files here to import';
+      dom.nestStats.textContent = previousText || window.NestI18n.t('parts.dropToImport');
       dom.nestStats.title = previousTitle || '';
     }
   }, 5000);
@@ -674,6 +698,7 @@ function bindOverlayClose() {
 // to life.  Order matters: sheets must render before tabs, and settings must
 // load before the first preview attempt.
 (async function bootstrapRenderer() {
+  await window.NestI18n?.initialize?.();
   filesPaneApi.bind();
   sheetsPaneApi.renderSheets();
   sheetModalApi.bind();

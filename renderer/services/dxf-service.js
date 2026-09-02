@@ -157,7 +157,7 @@
       }
 
       if (!items.length) {
-        throw new Error('No exportable shapes available');
+        throw new Error(globalScope.NestI18n.t('nesting.noExportableShapes'));
       }
 
       state.lastPlacementExportItems = exportItems;
@@ -183,12 +183,12 @@
     async function exportPlacementJSON() {
       const payload = await buildPlacementPayload();
       if (!window.electronAPI?.savePlacementJSON) {
-        throw new Error('Placement JSON export is not available');
+        throw new Error(globalScope.NestI18n.t('nesting.placementExportUnavailable'));
       }
 
       const result = await window.electronAPI.savePlacementJSON(payload);
       if (!result?.success) {
-        throw new Error(result?.error || 'Failed to save placement JSON');
+        throw new Error(result?.error || globalScope.NestI18n.t('nesting.placementSaveFailed'));
       }
 
       state.lastExportPath = result.path;

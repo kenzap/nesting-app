@@ -7,6 +7,13 @@ const {
   logDiagnostic,
   openDiagnosticsFolder,
 } = require('./utils/diagnostics');
+const {
+  t,
+  applyLanguage,
+  getLocalizationState,
+  getTranslationResources,
+  initializeMainI18n,
+} = require('./i18n');
 
 const productName = packageJson.productName || 'Kenzap Nesting';
 const appDescription = packageJson.description || 'DXF nesting application';
@@ -19,6 +26,7 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/kenzap';
 let mainWindow = null;
 let appMenuIpcRegistered = false;
 let nativeThemeBridgeRegistered = false;
+let lastMenuOptions = {};
 
 function getLinuxEnvironmentName() {
   try {
@@ -78,11 +86,12 @@ function configureAppMetadata() {
     applicationVersion: packageJson.version,
     version: packageJson.version,
     copyright: 'Copyright © Kenzap Pte Ltd',
-    credits: `${appDescription}\n\nDXF nesting desktop application with live preview and production DXF export.\n\nAll nesting and preprocessing run locally using bundled helper executables. The app does not download code at runtime, does not require network access for core functionality, and terminates helper processes when quitting.`,
+    credits: `${t('app.description')}\n\n${t('app.localProcessing')}`,
   });
 }
 
 function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}) {
+  lastMenuOptions = { isDevMode, isDxfDebugMode };
   if (process.platform === 'linux') {
     Menu.setApplicationMenu(null);
     return;
@@ -90,21 +99,21 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
 
   const viewSubmenu = [
     {
-      label: 'Fit to View',
+      label: t('menu.fitToView'),
       accelerator: 'CmdOrCtrl+0',
       click: (_menuItem, browserWindow) => {
         dispatchRendererMenuAction('canvas-fit-view', browserWindow || mainWindow);
       },
     },
     {
-      label: 'Zoom In',
+      label: t('menu.zoomIn'),
       accelerator: 'CmdOrCtrl+=',
       click: (_menuItem, browserWindow) => {
         dispatchRendererMenuAction('canvas-zoom-in', browserWindow || mainWindow);
       },
     },
     {
-      label: 'Zoom Out',
+      label: t('menu.zoomOut'),
       accelerator: 'CmdOrCtrl+-',
       click: (_menuItem, browserWindow) => {
         dispatchRendererMenuAction('canvas-zoom-out', browserWindow || mainWindow);
@@ -112,19 +121,19 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
     },
     { type: 'separator' },
     {
-      label: 'Measure',
+      label: t('menu.measure'),
       click: (_menuItem, browserWindow) => {
         dispatchRendererMenuAction('toggle-measure', browserWindow || mainWindow);
       },
     },
     {
-      label: 'Live Coordinates',
+      label: t('menu.liveCoordinates'),
       click: (_menuItem, browserWindow) => {
         dispatchRendererMenuAction('toggle-cursor-coords', browserWindow || mainWindow);
       },
     },
     { type: 'separator' },
-    { role: 'togglefullscreen' },
+    { role: 'togglefullscreen', label: t('menu.fullScreen') },
   ];
 
   if (isDevMode) {
@@ -140,53 +149,53 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
     {
       label: productName,
       submenu: [
-        { role: 'about', label: `About ${productName}` },
+        { role: 'about', label: t('menu.about', { product: productName }) },
         { type: 'separator' },
-        { role: 'services' },
+        { role: 'services', label: t('menu.services') },
         { type: 'separator' },
-        { role: 'hide', label: `Hide ${productName}` },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
+        { role: 'hide', label: t('menu.hide', { product: productName }) },
+        { role: 'hideOthers', label: t('menu.hideOthers') },
+        { role: 'unhide', label: t('menu.showAll') },
         { type: 'separator' },
-        { role: 'quit', label: `Quit ${productName}` },
+        { role: 'quit', label: t('menu.quit', { product: productName }) },
       ],
     },
     {
-      label: 'File',
+      label: t('menu.file'),
       submenu: [
-        { role: 'close' },
+        { role: 'close', label: t('menu.closeWindow') },
       ],
     },
     {
-      label: 'Edit',
+      label: t('menu.edit'),
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { role: 'undo', label: t('menu.undo') },
+        { role: 'redo', label: t('menu.redo') },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
+        { role: 'cut', label: t('menu.cut') },
+        { role: 'copy', label: t('menu.copy') },
+        { role: 'paste', label: t('menu.paste') },
         { type: 'separator' },
         {
-          label: 'Settings…',
+          label: t('menu.settings'),
           accelerator: 'CmdOrCtrl+,',
           click: (_menuItem, browserWindow) => {
             dispatchRendererMenuAction('open-settings', browserWindow || mainWindow);
           },
         },
         { type: 'separator' },
-        { role: 'selectAll' },
+        { role: 'selectAll', label: t('menu.selectAll') },
       ],
     },
     {
-      label: 'View',
+      label: t('menu.view'),
       submenu: viewSubmenu,
     },
     {
-      label: 'Window',
+      label: t('menu.window'),
       submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
+        { role: 'minimize', label: t('menu.minimize') },
+        { role: 'zoom', label: t('menu.zoom') },
         { type: 'separator' },
         {
           label: productName,
@@ -202,27 +211,27 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
           },
         },
         { type: 'separator' },
-        { role: 'front' },
+        { role: 'front', label: t('menu.bringAllToFront') },
       ],
     },
     {
-      label: 'Help',
+      label: t('menu.help'),
       submenu: [
         {
-          label: 'Support',
+          label: t('menu.support'),
           click: () => { void shell.openExternal(buildSupportUrl()); },
         },
         {
-          label: 'Release Notes',
+          label: t('menu.releaseNotes'),
           click: () => { void shell.openExternal(RELEASES_URL); },
         },
         {
-          label: 'Diagnostics Folder',
+          label: t('menu.diagnosticsFolder'),
           click: () => { void openDiagnosticsFolder().catch(() => {}); },
         },
         { type: 'separator' },
         {
-          label: 'Reddit Community',
+          label: t('menu.redditCommunity'),
           click: () => { void shell.openExternal(REDDIT_URL); },
         },
         {
@@ -230,7 +239,7 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
           click: () => { void shell.openExternal(LINKEDIN_URL); },
         },
         {
-          label: `${productName} Website`,
+          label: t('menu.website', { product: productName }),
           click: () => { void shell.openExternal(WEBSITE_URL); },
         },
       ],
@@ -241,14 +250,14 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
     template[0] = {
       label: productName,
       submenu: [
-        { role: 'about', label: `About ${productName}` },
+        { role: 'about', label: t('menu.about', { product: productName }) },
         { type: 'separator' },
-        { role: 'quit', label: `Exit ${productName}` },
+        { role: 'quit', label: t('menu.exit', { product: productName }) },
       ],
     };
     template[4].submenu = [
-      { role: 'minimize' },
-      { role: 'close' },
+      { role: 'minimize', label: t('menu.minimize') },
+      { role: 'close', label: t('menu.close') },
     ];
   }
 
@@ -279,6 +288,22 @@ function registerAppMenuIpc() {
     locale: app.getLocale(),
     countryCode: typeof app.getLocaleCountryCode === 'function' ? app.getLocaleCountryCode() : '',
   }));
+
+  ipcMain.handle('get-localization', async () => ({
+    success: true,
+    ...getLocalizationState(),
+    resources: getTranslationResources(),
+  }));
+
+  ipcMain.handle('set-app-language', async (_event, preference) => {
+    const localization = applyLanguage(preference);
+    configureAppMetadata();
+    buildApplicationMenu(lastMenuOptions);
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) win.webContents.send('app-language-changed', localization);
+    });
+    return { success: true, ...localization };
+  });
 
   ipcMain.handle('get-system-theme', async () => ({
     success: true,
@@ -431,9 +456,11 @@ function createWindow({ isDevMode = false, isDxfDebugMode = false, minimalStartu
 }
 
 function initializeApp({ isDevMode = false, isDxfDebugMode = false, minimalStartup = false } = {}) {
-  configureAppMetadata();
+  app.setName(productName);
 
   app.whenReady().then(() => {
+    initializeMainI18n();
+    configureAppMetadata();
     if (!minimalStartup) {
       buildApplicationMenu({ isDevMode, isDxfDebugMode });
     }

@@ -57,7 +57,10 @@
         const menu = document.createElement('div');
         menu.className = 'custom-select-menu';
         menu.setAttribute('role', 'listbox');
-        menu.setAttribute('aria-label', select.getAttribute('aria-label') || select.id || 'Select options');
+        menu.setAttribute(
+          'aria-label',
+          select.getAttribute('aria-label') || select.id || globalScope.NestI18n.t('common.selectOptions'),
+        );
 
         Array.from(select.options).forEach(option => {
           const item = document.createElement('button');
