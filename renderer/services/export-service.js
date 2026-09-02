@@ -262,6 +262,7 @@
     // restores the saved folder if available, and shows the modal.
     function openExportModal() {
       if (!state.nestResult?.strips?.length) return;
+      if (dom.exportFeedbackPrompt) dom.exportFeedbackPrompt.textContent = 'How did this nest turn out?';
       populateExportModal();
       if (exportFolderPath && canExportFinalSheets()) {
         applyExportFolder(exportFolderPath, exportFolderBookmark);
@@ -358,6 +359,9 @@
           setActionButtonLabel(dom.exportSheetsBtn, 'Exported', DOWNLOAD_ICON);
           dom.exportFolderLabel.textContent = `${result.fileCount} file${result.fileCount !== 1 ? 's' : ''} saved to ${shortPath(result.outputDir)}`;
           dom.exportFolderLabel.classList.add('export-folder-success');
+          if (dom.exportFeedbackPrompt) {
+            dom.exportFeedbackPrompt.textContent = 'DXF exported. Anything unexpected?';
+          }
 
           setTimeout(() => {
             refreshActionButtons();

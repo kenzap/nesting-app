@@ -75,6 +75,8 @@ const dom = {
   exportSummaryUtil: document.getElementById('exportSummaryUtil'),
   exportSummaryParts: document.getElementById('exportSummaryParts'),
   exportSummaryLength: document.getElementById('exportSummaryLength'),
+  exportFeedbackPrompt: document.getElementById('exportFeedbackPrompt'),
+  exportFeedbackAction: document.getElementById('exportFeedbackAction'),
   openExportBtn: document.getElementById('openExport'),
   canvasArea: document.getElementById('canvasArea'),
 };
@@ -140,17 +142,21 @@ function dismissFeedbackBanner() {
   setFeedbackBannerVisible(false);
 }
 
-function openFeedbackUrl() {
+function openFeedbackUrl(source = 'desktop-app') {
+  const url = new URL(FEEDBACK_SUPPORT_URL);
+  url.searchParams.set('source', source);
+  url.hash = 'form';
   if (window.electronAPI?.openExternalUrl) {
-    window.electronAPI.openExternalUrl(FEEDBACK_SUPPORT_URL).catch(error => {
-      console.error('[Feedback Banner] Failed to open support URL:', error);
+    window.electronAPI.openExternalUrl(url.href).catch(error => {
+      console.error('[Feedback] Failed to open support URL:', error);
     });
     return;
   }
-  window.open(FEEDBACK_SUPPORT_URL, '_blank', 'noopener');
+  window.open(url.href, '_blank', 'noopener');
 }
 
 function bindFeedbackBanner() {
+  dom.exportFeedbackAction?.addEventListener('click', () => openFeedbackUrl('export-modal'));
   if (!dom.feedbackBanner || !dom.feedbackBannerAction || !dom.feedbackBannerClose) return;
   let showBanner = true;
   let dismissed = false;
@@ -181,7 +187,7 @@ function bindFeedbackBanner() {
   setFeedbackBannerVisible(showBanner);
 
   dom.feedbackBannerAction.addEventListener('click', () => {
-    openFeedbackUrl();
+    openFeedbackUrl('feedback-banner');
     dismissFeedbackBanner();
   });
   dom.feedbackBannerClose.addEventListener('click', dismissFeedbackBanner);
