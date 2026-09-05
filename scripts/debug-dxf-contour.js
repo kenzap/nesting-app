@@ -9,7 +9,7 @@ const Flatten = require('@flatten-js/core');
 const projectRoot = path.resolve(__dirname, '..');
 const inputPath = process.argv[2] ? path.resolve(process.argv[2]) : null;
 
-if (!inputPath || !fs.existsSync(inputPath)) {
+if (!inputPath || path.extname(inputPath).toLowerCase() !== '.dxf' || !fs.existsSync(inputPath)) {
   console.error('Usage: npm run debug:dxf-contour -- "/absolute/path/to/file.dxf"');
   process.exitCode = 1;
   return;
@@ -40,30 +40,30 @@ sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
-function loadBrowserScript(relativePath) {
-  const absolutePath = path.join(projectRoot, relativePath);
+function loadBrowserScript(absolutePath) {
+  if (!absolutePath.startsWith(projectRoot + path.sep)) throw new Error(`Invalid script path`);
   const source = fs.readFileSync(absolutePath, 'utf8');
   vm.runInContext(source, sandbox, { filename: absolutePath });
 }
 
 [
-  'shared/constants.js',
-  'shared/settings.js',
-  'node_modules/jsts/dist/jsts.min.js',
-  'renderer/vendor/concaveman.js',
-  'renderer/utils/dxf-color.js',
-  'renderer/utils/dxf-geometry.js',
-  'renderer/utils/dxf-svg.js',
-  'renderer/utils/dxf-preview-state.js',
-  'renderer/services/dxf-layer-service.js',
-  'renderer/services/dxf-export-metadata-service.js',
-  'renderer/services/dxf-flatten-service.js',
-  'renderer/services/dxf-shape-detection-service.js',
-  'renderer/utils/contour-helpers.js',
-  'renderer/services/contour-detection-jsts-service.js',
-  'renderer/services/contour-detection-service.js',
-  'renderer/services/dxf-shape-structure-service.js',
-  'renderer/services/dxf-preview-service.js',
+  path.resolve(projectRoot, 'shared/constants.js'),
+  path.resolve(projectRoot, 'shared/settings.js'),
+  path.resolve(projectRoot, 'node_modules/jsts/dist/jsts.min.js'),
+  path.resolve(projectRoot, 'renderer/vendor/concaveman.js'),
+  path.resolve(projectRoot, 'renderer/utils/dxf-color.js'),
+  path.resolve(projectRoot, 'renderer/utils/dxf-geometry.js'),
+  path.resolve(projectRoot, 'renderer/utils/dxf-svg.js'),
+  path.resolve(projectRoot, 'renderer/utils/dxf-preview-state.js'),
+  path.resolve(projectRoot, 'renderer/services/dxf-layer-service.js'),
+  path.resolve(projectRoot, 'renderer/services/dxf-export-metadata-service.js'),
+  path.resolve(projectRoot, 'renderer/services/dxf-flatten-service.js'),
+  path.resolve(projectRoot, 'renderer/services/dxf-shape-detection-service.js'),
+  path.resolve(projectRoot, 'renderer/utils/contour-helpers.js'),
+  path.resolve(projectRoot, 'renderer/services/contour-detection-jsts-service.js'),
+  path.resolve(projectRoot, 'renderer/services/contour-detection-service.js'),
+  path.resolve(projectRoot, 'renderer/services/dxf-shape-structure-service.js'),
+  path.resolve(projectRoot, 'renderer/services/dxf-preview-service.js'),
 ].forEach(loadBrowserScript);
 
 function round(value, digits = 6) {
