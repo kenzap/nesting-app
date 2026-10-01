@@ -565,7 +565,7 @@
 
     const initialGroups = options.singleSketch
       ? [renderableEntities]
-      : buildSketchGroups(renderableEntities);
+      : (options.initialGroups || buildSketchGroups(renderableEntities));
     const groupRecords = options.singleSketch
       ? initialGroups
       : mergeClosedGroupsIntoOpenOwners(splitGroupsByClosedness(initialGroups));

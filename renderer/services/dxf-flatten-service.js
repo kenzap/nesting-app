@@ -2,6 +2,7 @@
   'use strict';
 
   const Flatten = global.Flatten || global['@flatten-js/core'];
+  const RBush = global.RBush;
   const geometry = global.NestDxfGeometry;
 
   if (!Flatten || !geometry) {
@@ -376,8 +377,22 @@
       if (ra !== rb) parent[rb] = ra;
     };
 
+    if (!RBush) throw new Error('DXF grouping requires the RBush spatial index');
+    const index = new RBush();
+    index.load(records.map((record, id) => ({ ...record.bbox, id })));
+    const tolerance = LOOP_TOLERANCE * 20;
+
     for (let i = 0; i < records.length; i++) {
-      for (let j = i + 1; j < records.length; j++) {
+      const bbox = records[i].bbox;
+      const nearby = index.search({
+        minX: bbox.minX - tolerance,
+        minY: bbox.minY - tolerance,
+        maxX: bbox.maxX + tolerance,
+        maxY: bbox.maxY + tolerance,
+      });
+      for (const candidate of nearby) {
+        const j = candidate.id;
+        if (j <= i || find(i) === find(j)) continue;
         if (recordsConnected(records[i], records[j])) union(i, j);
       }
     }

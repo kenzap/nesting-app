@@ -483,6 +483,21 @@ body.platform-linux .linux-menubar {
   color: #fff;
 }
 
+/* The dark-theme button uses a pale near-white text color, tuned for a deep
+   background. On light theme the banner gradient is itself near-white, so
+   that pale text reads as washed-out/grayed. Switch to solid accent text on
+   a filled accent pill instead, matching the light theme's own accent hue. */
+[data-theme="light"] .feedback-banner-btn {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+[data-theme="light"] .feedback-banner-btn:hover {
+  background: #2f6fd6;
+  border-color: #2f6fd6;
+  color: #ffffff;
+}
+
 .feedback-banner-close {
   width: 30px;
   height: 30px;

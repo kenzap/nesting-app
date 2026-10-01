@@ -782,6 +782,7 @@
       ? []
       : detectStructuredShapes(renderableEntities, {
         singleSketch: false,
+        initialGroups: groups,
       });
     debugDXF('Sketch contour method', {
       rawSetting: settingsInput?.sketchContourMethod ?? null,

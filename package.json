@@ -10,6 +10,7 @@
     "dev:crash-dialog": "electron . --dev --preview-crash-dialog",
     "dev:dxf": "electron . --dev --dxf-debug",
     "debug:dxf-contour": "node scripts/debug-dxf-contour.js",
+    "test:dxf-grouping": "node scripts/test-dxf-grouping.js",
     "verify:i18n": "node scripts/verify-locales.js",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",
@@ -40,6 +41,7 @@
     "jsts": "^2.12.1",
     "makerjs": "^0.18.2",
     "planar-face-discovery": "^2.0.7",
+    "rbush": "^4.0.1",
     "to-planar-graph": "^3.0.1"
   },
   "build": {
