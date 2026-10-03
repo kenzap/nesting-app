@@ -465,9 +465,16 @@ function initializeApp({ isDevMode = false, isDxfDebugMode = false, minimalStart
     // window's own chrome on macOS — the Dock/Cmd+Tab icon is a separate API
     // that otherwise falls back to Electron's generic default when running
     // unpackaged (a built .app bundle instead reads CFBundleIconFile, which
-    // already points at the same icon-square.icns).
+    // points at icon-square.icns). Uses the macOS-specific squircle asset —
+    // not the shared icon-square.png used for Windows/Linux — because macOS
+    // (pre-Tahoe) renders .icns/dock artwork literally with no system mask:
+    // the rounded-square shape and transparent margin have to be baked into
+    // the art itself, or the icon shows as a jarring hard-edged square next
+    // to every native app's icon. Windows/Linux expect the opposite (a plain
+    // full-bleed square; the OS applies its own mask), so that asset stays
+    // untouched for those platforms.
     if (process.platform === 'darwin' && app.dock) {
-      app.dock.setIcon(path.join(__dirname, '..', 'assets', 'icon-square.png'));
+      app.dock.setIcon(path.join(__dirname, '..', 'assets', 'icon-square-macos.png'));
     }
     if (!minimalStartup) {
       buildApplicationMenu({ isDevMode, isDxfDebugMode });

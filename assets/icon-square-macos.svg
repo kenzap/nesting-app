@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <title>KENZAP Nest Blocks Icon (macOS squircle)</title>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#0f1117"/>
+  <rect x="193.64" y="193.64" width="286.53" height="191.02" rx="47.75" fill="#4f8ef7" opacity="1"/>
+  <rect x="543.84" y="193.64" width="286.53" height="286.53" rx="47.75" fill="#4f8ef7" opacity="0.7"/>
+  <rect x="193.64" y="448.33" width="159.18" height="382.04" rx="47.75" fill="#4f8ef7" opacity="0.5"/>
+  <rect x="416.49" y="543.84" width="413.87" height="286.53" rx="47.75" fill="#4f8ef7" opacity="0.85"/>
+</svg>
