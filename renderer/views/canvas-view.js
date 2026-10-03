@@ -19,6 +19,7 @@
     const MIN_ZOOM = 0.2;
     const MAX_ZOOM = 4;
     const ZOOM_STEP = 0.15;
+    let displayedRemainderSvg = null;
 
     function isLightTheme() {
       return typeof document !== 'undefined'
@@ -839,6 +840,17 @@
       };
     }
 
+    function stripPlacementLabel(strip, sheetIndex) {
+      const t = globalScope.NestI18n.t;
+      const sheetLabel = t('canvas.sheetOf', { number: sheetIndex + 1, total: state.nestResult.strips.length });
+      if (strip.is_retained_preview) return `${t('canvas.lastCompleteLayout')} · ${sheetLabel}`;
+      if (strip.preview_stage === 'single_sheet_probe') return t('canvas.testingSingleSheet');
+      if (strip.preview_stage === 'sheet_count_probe') {
+        return t('canvas.testingSheetCount', { count: strip.preview_target_sheet_count });
+      }
+      return sheetLabel;
+    }
+
     // Central display function for a given sheet index.
     // Prefers a real solver result (styled via styleStripSVG) and falls back to the mock
     // preview when none is available yet. Updates the status bar with parts count,
@@ -860,8 +872,12 @@
         const sameStrip = previousIndex === String(sheetIndex);
         const sourcePath = String(strip.svg_path || '');
         const sourcePreviewState = String(!!(strip.is_preview || state.nestResult.is_preview));
+        const isRemainder = !!(strip.is_remainder_preview || strip.is_retained_preview);
+        // Sparse sheets can move between sampled hash positions without
+        // changing the signature. Check their actual rendered content too.
         const sameSvg = sameStrip && dom.svgContainer.dataset.svgLen === String(styled.length)
-          && dom.svgContainer.dataset.svgHash === quickSvgHash(styled);
+          && dom.svgContainer.dataset.svgHash === quickSvgHash(styled)
+          && (!isRemainder || displayedRemainderSvg === styled);
         const sameSource = sameStrip
           && dom.svgContainer.dataset.svgSource === sourcePath
           && dom.svgContainer.dataset.svgPreview === sourcePreviewState;
@@ -873,6 +889,7 @@
           dom.svgContainer.dataset.svgHash = quickSvgHash(styled);
           dom.svgContainer.dataset.svgSource = sourcePath;
           dom.svgContainer.dataset.svgPreview = sourcePreviewState;
+          displayedRemainderSvg = isRemainder ? styled : null;
         }
         dom.svgContainer.style.display = 'grid';
         dom.emptyState.style.display = 'none';
@@ -882,10 +899,11 @@
         const density = Number.isFinite(densityValue) ? `${(densityValue * 100).toFixed(1)}%` : null;
         const usedWidth = formatLongLength(displayStripWidth(strip, sheet), measurementSystem());
         const previewPrefix = strip.is_preview || state.nestResult.is_preview ? `${t('canvas.preview')} · ` : '';
+        const placementLabel = stripPlacementLabel(strip, sheetIndex);
         setNestStatsTone('');
         const partsText = placed > 0 ? ` · ${t('canvas.partsPlaced', { count: placed })}` : '';
         const utilText = density ? ` · ${t('canvas.utilization', { value: density })}` : '';
-        dom.nestStats.textContent = `${previewPrefix}${t('canvas.sheetOf', { number: sheetIndex + 1, total: state.nestResult.strips.length })}${partsText}${utilText} · ${t('canvas.widthValue', { value: usedWidth })}`;
+        dom.nestStats.textContent = `${previewPrefix}${placementLabel}${partsText}${utilText} · ${t('canvas.widthValue', { value: usedWidth })}`;
         // Only re-center the viewport when the SVG actually got swapped — a
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.
@@ -897,6 +915,14 @@
       if (strip) {
         hideSheetDimensionBadge();
         state.activeStripIndex = sheetIndex;
+        // Never leave the previous sheet's geometry under a queued sheet tab.
+        dom.svgContainer.innerHTML = '';
+        displayedRemainderSvg = null;
+        dom.svgContainer.style.display = 'none';
+        dom.emptyState.style.display = 'none';
+        delete dom.svgContainer.dataset.activeIndex;
+        delete dom.svgContainer.dataset.svgHash;
+        syncViewportEmptyState(true);
         const totalSheets = state.nestResult?.strips?.length || state.nestResult?.strip_count || 0;
         const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? `${t('canvas.preview')} · ` : '';
         setNestStatsTone('');
@@ -907,6 +933,7 @@
       const result = generateMockNestSVG(sheetIndex);
       if (!result) return;
       dom.svgContainer.innerHTML = result.svg;
+      displayedRemainderSvg = null;
       dom.svgContainer.dataset.activeIndex = String(sheetIndex);
       dom.svgContainer.dataset.svgLen = String(result.svg.length);
       dom.svgContainer.dataset.svgHash = quickSvgHash(result.svg);

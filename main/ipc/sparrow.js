@@ -201,24 +201,53 @@ function collectLiveArtifacts(runDir, safeName) {
 
   const manifestPath = path.join(liveDir, '.live_manifest.js');
   const manifest = readLiveManifestIfExists(manifestPath);
-  if (manifest?.mode === 'multi_strip' && Array.isArray(manifest.strips) && manifest.strips.length) {
-    const strips = manifest.strips
+  const isSheetCountProbe = manifest?.mode === 'single_sheet_probe' || manifest?.mode === 'sheet_count_probe';
+  const declaredCount = Number(manifest?.strip_count);
+  const liveSheetCount = Number.isSafeInteger(declaredCount) && declaredCount > 0
+    ? declaredCount : Math.max(1, manifest?.strips?.length || 1);
+  const declaredProbeCount = Number(manifest?.probe_sheet_count);
+  const probeSheetCount = Number.isSafeInteger(declaredProbeCount) && declaredProbeCount > 0
+    ? declaredProbeCount : liveSheetCount;
+  if ((manifest?.mode === 'multi_strip' || isSheetCountProbe)
+      && Array.isArray(manifest.strips) && manifest.strips.length) {
+    const stripsByIndex = new Map(manifest.strips.map(strip => [Number(strip.index), strip]));
+    // Keep every trial sheet selectable, including queued batches and sparse
+    // manifests from older helpers. Only identical batches share an SVG.
+    const liveStrips = isSheetCountProbe
+      ? Array.from({ length: liveSheetCount }, (_, index) => stripsByIndex.get(index + 1)
+        || { index: index + 1, state: 'queued' })
+      : manifest.strips;
+    const svgByPath = new Map();
+    const strips = liveStrips
       .map(strip => {
         const relativeSvgPath = String(strip.svg_path || '').trim();
-        if (!relativeSvgPath) return null;
-        const svgPath = path.resolve(liveDir, relativeSvgPath);
-        if (!fs.existsSync(svgPath)) return null;
-        const svgText = fs.readFileSync(svgPath, 'utf-8');
+        const svgPath = relativeSvgPath ? path.resolve(liveDir, relativeSvgPath) : null;
+        const hasSvg = svgPath && fs.existsSync(svgPath);
+        if (!hasSvg && !isSheetCountProbe) return null;
+        if (hasSvg && !svgByPath.has(svgPath)) {
+          const svg = fs.readFileSync(svgPath, 'utf-8');
+          svgByPath.set(svgPath, { svg, item_count: countPlacedItemsInSvg(svg) });
+        }
+        const svgArtifact = svgByPath.get(svgPath) || { svg: '', item_count: 0 };
         return {
           index: Number(strip.index) || 0,
           svg_path: svgPath,
           json_path: null,
-          svg: svgText,
+          svg: svgArtifact.svg,
           strip_width: Number.isFinite(Number(strip.strip_width)) ? Number(strip.strip_width) : null,
           density: Number.isFinite(Number(strip.density)) ? Number(strip.density) : null,
-          item_count: countPlacedItemsInSvg(svgText),
+          item_count: svgArtifact.item_count,
           state: strip.state || null,
           is_preview: true,
+          ...(strip.state === 'retained' ? { is_retained_preview: true } : {}),
+          ...(strip.state === 'remainder_active' ? { is_remainder_preview: true } : {}),
+          // Full-sheet count trials may exceed the cap. Remainders already
+          // have a bounded profile and keep their physical frame and margins.
+          ...(isSheetCountProbe && strip.state !== 'retained' && strip.state !== 'remainder_active' ? {
+            preview_stage: manifest.mode,
+            preview_target_sheet_count: probeSheetCount,
+            sheet_width_mode: 'unlimited',
+          } : {}),
         };
       })
       .filter(Boolean)
@@ -233,6 +262,10 @@ function collectLiveArtifacts(runDir, safeName) {
         current_strip: Number.isFinite(Number(manifest.current_strip)) ? Number(manifest.current_strip) : null,
         strips,
         is_preview: true,
+        ...(isSheetCountProbe ? {
+          preview_stage: manifest.mode,
+          preview_target_sheet_count: probeSheetCount,
+        } : {}),
       },
     };
   }

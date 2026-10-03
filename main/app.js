@@ -461,6 +461,14 @@ function initializeApp({ isDevMode = false, isDxfDebugMode = false, minimalStart
   app.whenReady().then(() => {
     initializeMainI18n();
     configureAppMetadata();
+    // BrowserWindow's `icon` option (set in createWindow) only affects the
+    // window's own chrome on macOS — the Dock/Cmd+Tab icon is a separate API
+    // that otherwise falls back to Electron's generic default when running
+    // unpackaged (a built .app bundle instead reads CFBundleIconFile, which
+    // already points at the same icon-square.icns).
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.setIcon(path.join(__dirname, '..', 'assets', 'icon-square.png'));
+    }
     if (!minimalStartup) {
       buildApplicationMenu({ isDevMode, isDxfDebugMode });
     }
