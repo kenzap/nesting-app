@@ -133,9 +133,15 @@ of the configured search time (at most two seconds for the entire job) for a
 finishing pass, shared across all sheets. It tries contact translations on
 nearby parts, maximizing shared straight-edge length within the existing
 occupied envelope. Rotations, item quantities, sheet assignments, and margins
-are preserved. Stop skips or interrupts this optional pass. This first version
-does not rotate parts, move groups, increase occupied dimensions, or merge
-DXF toolpaths. Positive spacing disables the option without forgetting the
+are preserved. The same budget also covers contact-preserving alignment:
+touching parts move as connected groups, while independent parts move alone.
+It tries both axis orders toward Preferred alignment, retains the smaller
+occupied length first, and uses alignment to break ties. Every accepted move
+checks both original and collision contours and preserves existing shared
+contacts. This is a bounded heuristic, not a guarantee of optimal compaction.
+Stop skips or interrupts this optional pass. It does not rotate parts,
+increase occupied dimensions, or merge DXF toolpaths.
+Positive spacing disables the option without forgetting the
 saved preference. Input `shared_edge_segments` identifies actual straight
 DXF segments so sampled curve chords do not earn contact credit; only segments
 that also belong to the outer nesting contour are eligible. The log reports

@@ -598,7 +598,7 @@
         : Number(config.height);
       if (!Number.isFinite(sheetW) || !Number.isFinite(sheetH) || sheetW <= 0 || sheetH <= 0) return null;
       return {
-        text: formatDimensions(sheetW, sheetH, {
+        text: formatDimensions(sheetH, sheetW, {
           system: measurementSystem(),
           metricPrecision: 0,
           imperialPrecision: 2,

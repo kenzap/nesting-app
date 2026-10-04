@@ -27,7 +27,7 @@ const window = {
   NestHelpers: {},
   NestUnits: {
     resolveMeasurementSystem: () => 'metric',
-    formatDimensions: () => '',
+    formatDimensions: require('../shared/units').formatDimensions,
     formatLongLength: value => String(value),
     formatLength: require('../shared/units').formatLength,
   },
@@ -57,7 +57,7 @@ const document = { documentElement: { getAttribute: () => 'dark' }, createElemen
     remove() { buttons.splice(buttons.indexOf(this), 1); },
   };
 } };
-vm.runInNewContext(canvasSource.replace('      renderTabs,\n', '      displayStripWidth,\n      stripPlacementLabel,\n      styleStripSVG,\n      quickSvgHash,\n      renderTabs,\n'), {
+vm.runInNewContext(canvasSource.replace('      renderTabs,\n', '      sheetDimensionLabel,\n      displayStripWidth,\n      stripPlacementLabel,\n      styleStripSVG,\n      quickSvgHash,\n      renderTabs,\n'), {
   window, document, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
   DOMParser: class { parseFromString() { return { querySelector: () => null }; } },
 });
@@ -73,6 +73,13 @@ const view = window.NestCanvasView.createCanvasView({
   state, dom, setNestStatsTone() {}, syncViewportEmptyState() {},
   getCurrentNestingSettings: () => ({ sheetMargin: 10 }),
 });
+
+const badge = view.sheetDimensionLabel({ getAttribute: name => ({
+  'data-sheet-width': '3000', 'data-sheet-height': '1250',
+})[name] });
+assert.equal(badge.text, '1250 × 3000 mm');
+assert.equal(badge.width, 3000, 'label order must not change positioning geometry');
+assert.equal(badge.height, 1250);
 
 const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nesting-preview-test-'));
 const liveDir = path.join(runDir, 'data/live');
