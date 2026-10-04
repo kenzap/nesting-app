@@ -81,6 +81,8 @@
     "bringAllToFront": "إحضار الكل إلى المقدمة"
   },
   "settings": {
+    "favorSharedEdges": "تفضيل الحواف المشتركة",
+    "favorSharedEdgesHelp": "يحاول زيادة طول الحواف المستقيمة المشتركة دون استخدام مواد إضافية. يتطلب أن تكون المسافة بين القطع صفراً. لا يدمج مسارات القطع في DXF.",
     "title": "الإعدادات",
     "close": "إغلاق الإعدادات",
     "appearance": "المظهر",
@@ -238,6 +240,8 @@
     "lastCompleteLayout": "آخر تخطيط مكتمل",
     "utilization": "نسبة الاستغلال: {{value}}",
     "widthValue": "العرض: {{value}}",
+    "sharedEdgesTotal": "إجمالي طول الحواف المشتركة: {{value}}",
+    "sharedEdgesUnavailable": "غير متاح",
     "waitingGeometry": "في انتظار الهندسة",
     "partsPlaced_zero": "تم وضع {{count}} قطع",
     "partsPlaced_one": "تم وضع {{count}} قطعة",

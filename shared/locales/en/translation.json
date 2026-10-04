@@ -81,6 +81,8 @@
     "bringAllToFront": "Bring All to Front"
   },
   "settings": {
+    "favorSharedEdges": "Favor shared edges",
+    "favorSharedEdgesHelp": "Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.",
     "title": "Settings",
     "close": "Close settings",
     "appearance": "Appearance",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "Last complete layout",
     "utilization": "Utilization: {{value}}",
     "widthValue": "Width: {{value}}",
+    "sharedEdgesTotal": "Shared edges (total): {{value}}",
+    "sharedEdgesUnavailable": "unavailable",
     "waitingGeometry": "Waiting for geometry",
     "partsPlaced_one": "{{count}} part placed",
     "partsPlaced_other": "{{count}} parts placed"

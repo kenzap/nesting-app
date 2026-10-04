@@ -81,6 +81,8 @@
     "bringAllToFront": "Alles nach vorne bringen"
   },
   "settings": {
+    "favorSharedEdges": "Gemeinsame Kanten bevorzugen",
+    "favorSharedEdgesHelp": "Versucht, gemeinsame gerade Kanten ohne zusätzlichen Materialverbrauch zu verlängern. Erfordert einen Teileabstand von null. DXF-Schnittpfade werden nicht zusammengeführt.",
     "title": "Einstellungen",
     "close": "Einstellungen schließen",
     "appearance": "Darstellung",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "Letzte vollständige Anordnung",
     "utilization": "Auslastung: {{value}}",
     "widthValue": "Breite: {{value}}",
+    "sharedEdgesTotal": "Gemeinsame Kanten (gesamt): {{value}}",
+    "sharedEdgesUnavailable": "nicht verfügbar",
     "waitingGeometry": "Warten auf Geometrie",
     "partsPlaced_one": "{{count}} Teil platziert",
     "partsPlaced_other": "{{count}} Teile platziert"

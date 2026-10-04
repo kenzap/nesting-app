@@ -127,6 +127,22 @@ complete-plan validation, Stop recovery, and finalization. Running remainder
 previews keep the physical sheet mode and margins and never enable export.
 Only sheets without geometry show a waiting state.
 
+The optional **Settings > Algorithm > Favor shared edges** toggle defaults to
+off. With zero part spacing it passes `--favor-shared-edges` and reserves 5%
+of the configured search time (at most two seconds for the entire job) for a
+finishing pass, shared across all sheets. It tries contact translations on
+nearby parts, maximizing shared straight-edge length within the existing
+occupied envelope. Rotations, item quantities, sheet assignments, and margins
+are preserved. Stop skips or interrupts this optional pass. This first version
+does not rotate parts, move groups, increase occupied dimensions, or merge
+DXF toolpaths. Positive spacing disables the option without forgetting the
+saved preference. Input `shared_edge_segments` identifies actual straight
+DXF segments so sampled curve chords do not earn contact credit; only segments
+that also belong to the outer nesting contour are eligible. The log reports
+accepted moves and gained shared-edge length. This metric is not a machine
+cut-time estimate. macOS and Windows helpers include the new flag; Linux
+must be rebuilt before using it. The app checks support before requesting it.
+
 From the Rust workspace:
 
 ```bash
@@ -153,6 +169,20 @@ copy `target/release/sparrow` into `native/linux/bin/`. Helpers for other
 platforms do not receive an engine fix until they are rebuilt too.
 
 ## Running locally
+
+Completed results include `shared_edge_length_mm` per sheet and
+`total_shared_edge_length_mm` in multi-sheet summaries. These measure shared
+straight outer edges once per contact (0.001 mm contact tolerance), whether
+Favor shared edges is enabled or disabled. They are geometric contact lengths,
+not a guarantee that a CAM tool will merge cuts or save an equivalent amount
+of cutting time. Curves and internal contours are excluded.
+
+The app supplies `shared_edge_segments` on every input item so comparisons use
+actual straight DXF segments rather than tessellated curves. Missing metadata
+or an exhausted measurement budget yields `null` (shown as unavailable), never
+a misleading zero or partial sum. Measurement is bounded to two seconds across
+the job and also runs on finalized early-stop results. Older native helpers
+must be rebuilt to provide these statistics.
 
 Start the Electron app as usual:
 

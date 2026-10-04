@@ -9,7 +9,7 @@
     syncViewportEmptyState,
   }) {
     const { partLabelFromName } = globalScope.NestHelpers;
-    const { resolveMeasurementSystem, formatDimensions, formatLongLength } = globalScope.NestUnits;
+    const { resolveMeasurementSystem, formatDimensions, formatLongLength, formatLength } = globalScope.NestUnits;
     const { DEFAULT_ENGRAVING_COLOR } = globalScope.NestConstants;
     const { FALLBACK_PALETTE = [] } = globalScope.NestDxfLayerService || {};
     const FIT_INSET_X = 40;
@@ -903,7 +903,14 @@
         setNestStatsTone('');
         const partsText = placed > 0 ? ` · ${t('canvas.partsPlaced', { count: placed })}` : '';
         const utilText = density ? ` · ${t('canvas.utilization', { value: density })}` : '';
-        dom.nestStats.textContent = `${previewPrefix}${placementLabel}${partsText}${utilText} · ${t('canvas.widthValue', { value: usedWidth })}`;
+        const sharedLength = state.nestResult.total_shared_edge_length_mm;
+        const sharedText = previewPrefix ? '' : ` · ${t('canvas.sharedEdgesTotal', {
+          value: Number.isFinite(sharedLength) && sharedLength >= 0
+            ? formatLength(sharedLength, { system: measurementSystem() })
+            : t('canvas.sharedEdgesUnavailable'),
+        })}`;
+        dom.nestStats.textContent = `${previewPrefix}${placementLabel}${partsText}${utilText} · ${t('canvas.widthValue', { value: usedWidth })}${sharedText}`;
+        dom.nestStats.title = dom.nestStats.textContent;
         // Only re-center the viewport when the SVG actually got swapped — a
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.

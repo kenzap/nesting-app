@@ -81,6 +81,8 @@
     "bringAllToFront": "全部置于前面"
   },
   "settings": {
+    "favorSharedEdges": "优先共边",
+    "favorSharedEdgesHelp": "尝试增加共用直边的长度，而不增加材料用量。要求零件间距为零。不会合并 DXF 切割路径。",
     "title": "设置",
     "close": "关闭设置",
     "appearance": "外观",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "上一次完整排版",
     "utilization": "利用率：{{value}}",
     "widthValue": "宽度：{{value}}",
+    "sharedEdgesTotal": "共边总长度：{{value}}",
+    "sharedEdgesUnavailable": "不可用",
     "waitingGeometry": "等待几何数据",
     "partsPlaced_one": "已放置 {{count}} 个零件",
     "partsPlaced_other": "已放置 {{count}} 个零件"

@@ -134,7 +134,38 @@
     return out;
   }
 
+  // Only actual straight DXF segments may earn shared-edge credit. Curves
+  // remain in collision geometry but their tessellated chords are excluded.
+  function sharedStraightSegments(entities) {
+    const segments = [];
+    const add = (a, b) => {
+      if ([a?.x, a?.y, b?.x, b?.y].every(Number.isFinite) &&
+          Math.hypot(b.x - a.x, b.y - a.y) > 0.001) {
+        segments.push([a.x, a.y, b.x, b.y]);
+      }
+    };
+    for (const entity of entities || []) {
+      if (entity.type === 'LINE') {
+        add(entity.start || entity.vertices?.[0], entity.end || entity.vertices?.[1]);
+      } else if (['LWPOLYLINE', 'POLYLINE'].includes(entity.type) &&
+          !entity.includesCurveFitVertices && !entity.includesSplineFitVertices &&
+          !entity.is3dPolyline && !entity.is3dPolygonMesh && !entity.isPolyfaceMesh) {
+        const vertices = entity.vertices || [];
+        const closed = entity.closed || entity.shape;
+        const count = closed ? vertices.length : vertices.length - 1;
+        for (let i = 0; i < count; i++) {
+          const a = vertices[i];
+          if (!a.bulge && !a.curveFittingVertex && !a.splineVertex) {
+            add(a, vertices[(i + 1) % vertices.length]);
+          }
+        }
+      }
+    }
+    return segments;
+  }
+
   global.NestDxfExportMetadataService = {
+    sharedStraightSegments,
     serializePoint,
     serializeEntityForExport,
   };

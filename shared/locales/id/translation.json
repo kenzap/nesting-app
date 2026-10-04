@@ -81,6 +81,8 @@
     "bringAllToFront": "Bawa semua ke depan"
   },
   "settings": {
+    "favorSharedEdges": "Utamakan sisi bersama",
+    "favorSharedEdgesHelp": "Mencoba menambah panjang sisi lurus bersama tanpa menggunakan lebih banyak bahan. Memerlukan jarak antarbagian nol. Tidak menggabungkan jalur potong DXF.",
     "title": "Pengaturan",
     "close": "Tutup pengaturan",
     "appearance": "Penampilan",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "Tata letak lengkap terakhir",
     "utilization": "Pemanfaatan: {{value}}",
     "widthValue": "Lebar: {{value}}",
+    "sharedEdgesTotal": "Tepi bersama (total): {{value}}",
+    "sharedEdgesUnavailable": "tidak tersedia",
     "waitingGeometry": "Menunggu geometri",
     "partsPlaced_one": "{{count}} komponen ditempatkan",
     "partsPlaced_other": "{{count}} komponen ditempatkan"

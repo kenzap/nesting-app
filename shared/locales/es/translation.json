@@ -81,6 +81,8 @@
     "bringAllToFront": "Traer todo al frente"
   },
   "settings": {
+    "favorSharedEdges": "Favorecer bordes compartidos",
+    "favorSharedEdgesHelp": "Intenta aumentar los bordes rectos compartidos sin usar más material. Requiere separación cero entre piezas. No fusiona las trayectorias de corte del DXF.",
     "title": "Configuración",
     "close": "Cerrar configuración",
     "appearance": "Apariencia",
@@ -220,6 +222,8 @@
     "lastCompleteLayout": "Última distribución completa",
     "utilization": "Aprovechamiento: {{value}}",
     "widthValue": "Anchura: {{value}}",
+    "sharedEdgesTotal": "Bordes compartidos (total): {{value}}",
+    "sharedEdgesUnavailable": "no disponible",
     "waitingGeometry": "Esperando la geometría",
     "partsPlaced_one": "{{count}} pieza colocada",
     "partsPlaced_other": "{{count}} piezas colocadas",

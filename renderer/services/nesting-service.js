@@ -367,7 +367,7 @@
         activeSparrowRunId = null;
         setStatus('done');
         setNestStatsTone('');
-        dom.nestStats.title = '';
+        dom.nestStats.title = dom.nestStats.textContent;
         dom.startBtn.classList.remove('running');
         dom.startBtn.disabled = false;
         dom.stopBtn.disabled = true;
@@ -392,10 +392,9 @@
         activeSparrowRunId = null;
         setStatus(finalSummaryReady ? 'done' : 'idle');
         setNestStatsTone(finalSummaryReady ? '' : 'warning');
-        dom.nestStats.textContent = finalSummaryReady
-          ? t('nesting.stoppedReady')
-          : t('nesting.stoppedEarly');
-        dom.nestStats.title = '';
+        if (!finalSummaryReady) dom.nestStats.textContent = t('nesting.stoppedEarly');
+        dom.nestStats.title = finalSummaryReady
+          ? `${t('nesting.stoppedReady')}\n${dom.nestStats.textContent}` : '';
         dom.startBtn.classList.remove('running');
         dom.startBtn.disabled = false;
         dom.stopBtn.disabled = true;
@@ -504,6 +503,7 @@
             minItemSeparation: partSpacing,
             exactCoedge: partSpacing === 0,
             align: String(settings.preferredAlignment || 'bottom-left'),
+            favorSharedEdges: !!settings.favorSharedEdges && partSpacing === 0,
             multiStripMode,
             ...(Number.isFinite(bucketFillWeight) ? { bucketFillWeight } : {}),
           };

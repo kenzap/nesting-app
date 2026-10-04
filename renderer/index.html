@@ -231,6 +231,13 @@
           </select>
         </div>
         <div class="setting-row">
+          <label for="favorSharedEdges" data-i18n="settings.favorSharedEdges" data-i18n-title="settings.favorSharedEdgesHelp" title="Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.">Favor shared edges</label>
+          <label class="toggle">
+            <input id="favorSharedEdges" type="checkbox" data-setting-key="favorSharedEdges" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-row">
           <label data-i18n="settings.timeLimit">Time limit</label>
           <div class="input-with-unit">
             <input type="number" value="60" min="10" step="10" data-setting-key="timeLimit" />

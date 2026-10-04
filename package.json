@@ -12,6 +12,8 @@
     "debug:dxf-contour": "node scripts/debug-dxf-contour.js",
     "test:dxf-grouping": "node scripts/test-dxf-grouping.js",
     "test:nesting-previews": "node scripts/test-sparrow-previews.js",
+    "test:shared-edges": "node scripts/test-shared-edges.js",
+    "test:shared-edges:native": "node scripts/test-shared-edges-native.js",
     "verify:i18n": "node scripts/verify-locales.js",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",

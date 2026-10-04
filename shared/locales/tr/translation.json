@@ -81,6 +81,8 @@
     "bringAllToFront": "Tümünü Öne Getir"
   },
   "settings": {
+    "favorSharedEdges": "Ortak kenarları tercih et",
+    "favorSharedEdgesHelp": "Daha fazla malzeme kullanmadan ortak düz kenarları artırmayı dener. Parçalar arası mesafe sıfır olmalıdır. DXF kesim yollarını birleştirmez.",
     "title": "Ayarlar",
     "close": "Ayarları kapat",
     "appearance": "Görünüm",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "Son eksiksiz yerleşim",
     "utilization": "Kullanım: {{value}}",
     "widthValue": "Genişlik: {{value}}",
+    "sharedEdgesTotal": "Ortak kenarlar (toplam): {{value}}",
+    "sharedEdgesUnavailable": "kullanılamıyor",
     "waitingGeometry": "Geometri bekleniyor",
     "partsPlaced_one": "{{count}} parça yerleştirildi",
     "partsPlaced_other": "{{count}} parça yerleştirildi"

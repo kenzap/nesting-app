@@ -81,6 +81,8 @@
     "bringAllToFront": "Porta tutto in primo piano"
   },
   "settings": {
+    "favorSharedEdges": "Favorisci i bordi condivisi",
+    "favorSharedEdgesHelp": "Cerca di aumentare i bordi rettilinei condivisi senza usare più materiale. Richiede una distanza tra i pezzi pari a zero. Non unisce i percorsi di taglio DXF.",
     "title": "Impostazioni",
     "close": "Chiudi impostazioni",
     "appearance": "Aspetto",
@@ -220,6 +222,8 @@
     "lastCompleteLayout": "Ultima disposizione completa",
     "utilization": "Utilizzo: {{value}}",
     "widthValue": "Larghezza: {{value}}",
+    "sharedEdgesTotal": "Bordi condivisi (totale): {{value}}",
+    "sharedEdgesUnavailable": "non disponibile",
     "waitingGeometry": "In attesa della geometria",
     "partsPlaced_one": "{{count}} parte posizionata",
     "partsPlaced_many": "{{count}} parti posizionate",

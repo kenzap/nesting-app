@@ -76,6 +76,7 @@
     mirrorParts: false,
     earlyStopping: true,
     preferredAlignment: 'bottom-left',
+    favorSharedEdges: false,
     timeLimit: 60,
     rngSeed: 42,
     workers: 3,

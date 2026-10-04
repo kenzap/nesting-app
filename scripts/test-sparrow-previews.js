@@ -8,7 +8,7 @@ const root = path.join(__dirname, '..');
 const ipcPath = path.join(root, 'main/ipc/sparrow.js');
 const ipcModule = { exports: {} };
 vm.runInNewContext(`${fs.readFileSync(ipcPath, 'utf8')}
-module.exports = { collectRunningSparrowArtifacts, collectSparrowArtifacts, attachRunSheetMetadata };`, {
+module.exports = { collectContinuousFinalArtifacts, collectRunningSparrowArtifacts, collectSparrowArtifacts, attachRunSheetMetadata };`, {
   module: ipcModule,
   __dirname: path.dirname(ipcPath),
   require(name) {
@@ -29,6 +29,7 @@ const window = {
     resolveMeasurementSystem: () => 'metric',
     formatDimensions: () => '',
     formatLongLength: value => String(value),
+    formatLength: require('../shared/units').formatLength,
   },
   NestConstants: {},
   NestI18n: { t(key, values = {}) {
@@ -36,6 +37,7 @@ const window = {
     if (key === 'canvas.sheetOf') return `Sheet ${values.number} of ${values.total}`;
     if (key === 'canvas.testingSheetCount') return `Testing sheet count: ${values.count}`;
     if (key === 'canvas.lastCompleteLayout') return 'Last complete layout';
+    if (key === 'canvas.sharedEdgesTotal') return `Shared edges (total): ${values.value}`;
     return key;
   } },
 };
@@ -291,7 +293,7 @@ try {
   fs.writeFileSync(path.join(finalDir, 'strip_01.svg'), svg);
   fs.writeFileSync(path.join(finalDir, 'strip_01.json'), '{}');
   fs.writeFileSync(path.join(finalDir, 'summary.json'), JSON.stringify({
-    name: 'job', strip_count: 1, strips: [{
+    name: 'job', strip_count: 1, total_shared_edge_length_mm: 1234.5, strips: [{
       index: 1, svg_path: 'output/final_job/strip_01.svg',
       json_path: 'output/final_job/strip_01.json', strip_width: 2450, item_count: 2,
     }],
@@ -303,6 +305,35 @@ try {
   assert.equal(final.strips[0].sheet_width_mode, 'fixed');
   assert.equal(view.displayStripWidth(final.strips[0]), 2500, 'final must restore fixed sheet dimensions');
   assert.ok(final.strips[0].json_path.endsWith('strip_01.json'));
+  state.nestResult = final;
+  view.showNestResult(0);
+  assert.match(dom.nestStats.textContent, /Shared edges \(total\): 1234.5 mm/);
+  final.total_shared_edge_length_mm = 0;
+  view.showNestResult(0);
+  assert.match(dom.nestStats.textContent, /Shared edges \(total\): 0 mm/);
+  final.total_shared_edge_length_mm = null;
+  view.showNestResult(0);
+  assert.match(dom.nestStats.textContent, /canvas.sharedEdgesUnavailable/);
+  final.total_shared_edge_length_mm = 254;
+  window.NestUnits.resolveMeasurementSystem = () => 'imperial';
+  // The view captures the resolver, so instantiate another view for imperial units.
+  const imperialView = window.NestCanvasView.createCanvasView({
+    state, dom, setNestStatsTone() {}, syncViewportEmptyState() {},
+    getCurrentNestingSettings: () => ({ sheetMargin: 10 }),
+  });
+  imperialView.showNestResult(0);
+  assert.match(dom.nestStats.textContent, /Shared edges \(total\): 10 in/);
+
+  const outputDir = path.join(runDir, 'output');
+  fs.writeFileSync(path.join(outputDir, 'final_continuous.svg'), svg);
+  for (const length of [0, 1234.5, null, undefined]) {
+    fs.writeFileSync(path.join(outputDir, 'final_continuous.json'), JSON.stringify({
+      name: 'continuous', solution: { strip_width: 1000 }, shared_edge_length_mm: length,
+    }));
+    const collected = ipcModule.exports.collectContinuousFinalArtifacts(outputDir, 'continuous');
+    assert.equal(collected.summary.total_shared_edge_length_mm, length ?? null);
+    assert.equal(collected.summary.strips[0].shared_edge_length_mm, length ?? null);
+  }
 
   let firstSvg;
   let nextSvg;
@@ -323,6 +354,7 @@ try {
   state.nestResult = { is_preview: true, strips: [sparseRemainder] };
   view.showNestResult(0);
   const displayed = dom.svgContainer.innerHTML;
+  assert.ok(!dom.nestStats.textContent.includes('Shared edges'), 'do not show a final total on live previews');
   sparseRemainder.svg = nextSvg;
   view.showNestResult(0);
   assert.notEqual(dom.svgContainer.innerHTML, displayed, 'small remainder movements must reach the canvas even when their sampled hashes collide');

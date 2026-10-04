@@ -12,6 +12,8 @@
     const settingsFields = dom.settingsFields;
     const lengthSettingKeys = new Set(['partSpacing', 'sheetMargin']);
     const measurementSystemField = settingsFields.find(field => field.dataset.settingKey === 'measurementSystem');
+    const sharedEdgesField = settingsFields.find(field => field.dataset.settingKey === 'favorSharedEdges');
+    const partSpacingField = settingsFields.find(field => field.dataset.settingKey === 'partSpacing');
     const devOnlyRows = Array.from(document.querySelectorAll('[data-dev-only-setting]'));
     let isDevBuild = false;
     let dialogUnitSystem = resolveMeasurementSystem(SETTINGS_DEFAULTS.measurementSystem);
@@ -101,6 +103,13 @@
         if (field === measurementSystemField) return;
         applySettingFieldValue(field, settings[field.dataset.settingKey], dialogUnitSystem);
       });
+      updateSharedEdgesAvailability();
+    }
+
+    function updateSharedEdgesAvailability() {
+      if (sharedEdgesField && partSpacingField) {
+        sharedEdgesField.disabled = settingFieldValue(partSpacingField) !== 0;
+      }
     }
 
     function openSettingsDialog() {
@@ -193,6 +202,7 @@
     // Wires open, close, apply, and reset buttons for the settings modal.
     // Apply persists the form values and fires onSettingsApplied so previews refresh immediately.
     function bind() {
+      partSpacingField?.addEventListener('input', updateSharedEdgesAvailability);
       dom.openSettings.addEventListener('click', openSettingsDialog);
       dom.closeSettings.addEventListener('click', closeSettingsDialog);
       measurementSystemField?.addEventListener('change', () => {

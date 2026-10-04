@@ -81,6 +81,8 @@
     "bringAllToFront": "सभी को सामने लाएँ"
   },
   "settings": {
+    "favorSharedEdges": "साझे किनारों को प्राथमिकता दें",
+    "favorSharedEdgesHelp": "अधिक सामग्री उपयोग किए बिना साझा सीधे किनारों की लंबाई बढ़ाने का प्रयास करता है। पार्ट्स के बीच की दूरी शून्य होनी चाहिए। DXF कटिंग पथों को नहीं जोड़ता।",
     "title": "सेटिंग्स",
     "close": "सेटिंग्स बंद करें",
     "appearance": "दिखावट",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "पिछला पूर्ण लेआउट",
     "utilization": "उपयोग दर: {{value}}",
     "widthValue": "चौड़ाई: {{value}}",
+    "sharedEdgesTotal": "साझा किनारों की कुल लंबाई: {{value}}",
+    "sharedEdgesUnavailable": "उपलब्ध नहीं",
     "waitingGeometry": "ज्योमेट्री का इंतज़ार है",
     "partsPlaced_one": "{{count}} पार्ट रखा गया",
     "partsPlaced_other": "{{count}} पार्ट्स रखे गए"

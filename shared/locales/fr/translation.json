@@ -81,6 +81,8 @@
     "bringAllToFront": "Tout ramener au premier plan"
   },
   "settings": {
+    "favorSharedEdges": "Favoriser les bords communs",
+    "favorSharedEdgesHelp": "Cherche à augmenter les bords droits communs sans utiliser plus de matière. Nécessite un espacement nul entre les pièces. Ne fusionne pas les trajectoires de découpe DXF.",
     "title": "Paramètres",
     "close": "Fermer les paramètres",
     "appearance": "Apparence",
@@ -220,6 +222,8 @@
     "lastCompleteLayout": "Dernier placement complet",
     "utilization": "Utilisation : {{value}}",
     "widthValue": "Largeur : {{value}}",
+    "sharedEdgesTotal": "Arêtes communes (total) : {{value}}",
+    "sharedEdgesUnavailable": "indisponible",
     "waitingGeometry": "En attente de la géométrie",
     "partsPlaced_one": "{{count}} pièce placée",
     "partsPlaced_other": "{{count}} pièces placées",

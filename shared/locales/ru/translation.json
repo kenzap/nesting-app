@@ -81,6 +81,8 @@
     "bringAllToFront": "Все окна на передний план"
   },
   "settings": {
+    "favorSharedEdges": "Предпочитать общие кромки",
+    "favorSharedEdgesHelp": "Увеличивает длину общих прямых кромок без дополнительного расхода материала. Требуется нулевое расстояние между деталями. Траектории резки в DXF не объединяются.",
     "title": "Настройки",
     "close": "Закрыть настройки",
     "appearance": "Внешний вид",
@@ -226,6 +228,8 @@
     "lastCompleteLayout": "Последняя полная раскладка",
     "utilization": "Использование материала: {{value}}",
     "widthValue": "Ширина: {{value}}",
+    "sharedEdgesTotal": "Общие кромки (всего): {{value}}",
+    "sharedEdgesUnavailable": "недоступно",
     "waitingGeometry": "Ожидание геометрии",
     "partsPlaced_one": "Размещена {{count}} деталь",
     "partsPlaced_few": "Размещено {{count}} детали",

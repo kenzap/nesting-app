@@ -81,6 +81,8 @@
     "bringAllToFront": "Przenieś wszystkie na wierzch"
   },
   "settings": {
+    "favorSharedEdges": "Preferuj wspólne krawędzie",
+    "favorSharedEdgesHelp": "Próbuje wydłużyć wspólne proste krawędzie bez zwiększania zużycia materiału. Wymaga zerowego odstępu między częściami. Nie scala ścieżek cięcia DXF.",
     "title": "Ustawienia",
     "close": "Zamknij ustawienia",
     "appearance": "Wygląd",
@@ -226,6 +228,8 @@
     "lastCompleteLayout": "Ostatni kompletny układ",
     "utilization": "Wykorzystanie: {{value}}",
     "widthValue": "Szerokość: {{value}}",
+    "sharedEdgesTotal": "Wspólne krawędzie (łącznie): {{value}}",
+    "sharedEdgesUnavailable": "niedostępne",
     "waitingGeometry": "Oczekiwanie na geometrię",
     "partsPlaced_one": "Rozmieszczono {{count}} część",
     "partsPlaced_few": "Rozmieszczono {{count}} części",

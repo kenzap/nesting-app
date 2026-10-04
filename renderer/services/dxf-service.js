@@ -131,6 +131,8 @@
             demand: Math.max(1, parseInt(shape.qty || 1, 10)),
             dxf: file.path || file.name,
             allowed_orientations: [...allowedOrientations],
+            shared_edge_segments: globalScope.NestDxfExportMetadataService
+              .sharedStraightSegments(shape.exportEntities || []),
             shape: {
               type: 'simple_polygon',
               data: points.map(point => [point.x, point.y]),

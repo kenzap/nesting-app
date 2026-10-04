@@ -1,12 +1,27 @@
 const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const { cleanupTempArtifacts } = require('../utils/temp-retention');
 const { logDiagnostic, stderrTail } = require('../utils/diagnostics');
 
 const activeSparrowProcesses = new Map();
 const sparrowRuns = new Map();
+const sharedEdgeSupport = new Map();
+
+async function supportsSharedEdges(executable, cwd) {
+  const key = `${executable}:${fs.statSync(executable).mtimeMs}`;
+  if (!sharedEdgeSupport.has(key)) {
+    const help = await new Promise((resolve, reject) => {
+      execFile(executable, ['--help'], { cwd, timeout: 5000, windowsHide: true }, (error, stdout) => {
+        if (error) reject(error);
+        else resolve(stdout);
+      });
+    });
+    sharedEdgeSupport.set(key, help.includes('--favor-shared-edges'));
+  }
+  return sharedEdgeSupport.get(key);
+}
 
 function isDevMode() {
   return !app.isPackaged || process.argv.includes('--dev');
@@ -170,6 +185,8 @@ function collectContinuousFinalArtifacts(outputDir, safeName) {
   const svgText = fs.readFileSync(finalSvgPath, 'utf-8');
   const stripWidth = Number(solution.strip_width);
   const density = Number(solution.density ?? finalJson?.density);
+  const sharedLength = finalJson?.shared_edge_length_mm;
+  const sharedEdgeLength = Number.isFinite(sharedLength) && sharedLength >= 0 ? sharedLength : null;
   const itemCount = Array.isArray(solution.placed_items)
     ? solution.placed_items.length
     : countPlacedItemsInSvg(svgText);
@@ -178,6 +195,7 @@ function collectContinuousFinalArtifacts(outputDir, safeName) {
     summaryPath: finalJsonPath,
     summary: {
       name: finalJson?.name || safeName,
+      total_shared_edge_length_mm: sharedEdgeLength,
       strip_count: 1,
       density: Number.isFinite(density) ? density : null,
       is_preview: false,
@@ -189,6 +207,7 @@ function collectContinuousFinalArtifacts(outputDir, safeName) {
         strip_width: Number.isFinite(stripWidth) ? stripWidth : null,
         density: Number.isFinite(density) ? density : null,
         item_count: Number.isFinite(itemCount) ? itemCount : 0,
+        shared_edge_length_mm: sharedEdgeLength,
         is_preview: false,
       }],
     },
@@ -585,6 +604,12 @@ function registerSparrowIpc() {
       if (options.earlyTermination) {
         args.push('--early-termination');
       }
+      if (options.favorSharedEdges && options.minItemSeparation === 0) {
+        if (!await supportsSharedEdges(sparrowPath, runDir)) {
+          throw new Error('Favor shared edges requires an updated nesting engine. Update the app or turn this setting off.');
+        }
+        args.push('--favor-shared-edges');
+      }
       if (Number.isFinite(options.maxStripLength) && options.maxStripLength > 0) {
         args.push('--max-strip-length', String(options.maxStripLength));
       }
@@ -654,6 +679,7 @@ function registerSparrowIpc() {
           globalTime: options.globalTime,
           workers: options.workers,
           earlyTermination: Boolean(options.earlyTermination),
+          favorSharedEdges: !!options.favorSharedEdges && options.minItemSeparation === 0,
           maxStripLength: options.maxStripLength,
           stripMargin: options.stripMargin,
           minItemSeparation: options.minItemSeparation,

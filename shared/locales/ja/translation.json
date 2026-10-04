@@ -81,6 +81,8 @@
     "bringAllToFront": "すべてを前面に出す"
   },
   "settings": {
+    "favorSharedEdges": "共通エッジを優先",
+    "favorSharedEdgesHelp": "材料使用量を増やさずに共有する直線エッジを増やします。パーツ間隔をゼロにする必要があります。DXF の切断パスは結合しません。",
     "title": "設定",
     "close": "設定を閉じる",
     "appearance": "外観",
@@ -214,6 +216,8 @@
     "lastCompleteLayout": "直近の完全な配置",
     "utilization": "使用率: {{value}}",
     "widthValue": "幅: {{value}}",
+    "sharedEdgesTotal": "共有辺の合計長さ: {{value}}",
+    "sharedEdgesUnavailable": "取得できません",
     "waitingGeometry": "ジオメトリを待っています",
     "partsPlaced_one": "{{count}} パーツを配置",
     "partsPlaced_other": "{{count}} パーツを配置"
