@@ -222,6 +222,7 @@
         <div class="setting-row">
           <label data-i18n="settings.preferredAlignment">Preferred alignment</label>
           <select data-setting-key="preferredAlignment">
+            <option value="none" data-i18n="settings.alignmentNone">None</option>
             <option value="top" data-i18n="settings.top">Top</option>
             <option value="top-left" data-i18n="settings.topLeft">Top left</option>
             <option value="top-right" data-i18n="settings.topRight">Top right</option>
@@ -284,9 +285,9 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title" data-i18n="settings.output">Output</div>
+        <div class="settings-section-title" data-i18n="settings.output">Export</div>
         <div class="setting-row">
-          <label data-i18n="settings.exportFormat">Export format</label>
+          <label data-i18n="settings.exportFormat">File format</label>
           <select data-setting-key="exportFormat">
             <option value="dxf">DXF</option>
           </select>
@@ -299,9 +300,16 @@
           </label>
         </div>
         <div class="setting-row">
-          <label title="Best effort. Joins end-to-end LINE entities into larger polylines during DXF export to help CNC and laser software follow connected sketch linework more predictably. Does not bridge gaps or merge truly separate bodies." data-i18n="settings.joinLinework" data-i18n-title="settings.joinLineworkHelp">Join connected linework</label>
+          <label title="Joins connected lines and arcs within each part, using a 0.001 mm endpoint tolerance. Removes exact duplicate lines. Does not merge neighboring parts." data-i18n="settings.joinLinework" data-i18n-title="settings.joinLineworkHelp">Join connected paths</label>
           <label class="toggle">
             <input type="checkbox" data-setting-key="joinConnectedLinework" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <label title="Exports overlapping straight outer edges once, including partial overlaps, using a 0.001 mm tolerance. Curved polylines are unchanged. May produce open contours; enable only if your CAM supports this workflow." data-i18n="settings.removeSharedEdges" data-i18n-title="settings.removeSharedEdgesHelp">Deduplicate shared edges</label>
+          <label class="toggle">
+            <input type="checkbox" data-setting-key="removeSharedEdges" />
             <span class="toggle-track"></span>
           </label>
         </div>
@@ -324,7 +332,7 @@
           </select>
         </div>
         <div class="setting-row">
-          <label data-i18n="settings.engravingStyle">Engraving style</label>
+          <label data-i18n="settings.engravingStyle">Label format</label>
           <select data-setting-key="engravingStyle">
             <option value="simple" selected data-i18n="settings.fullLabelSingle">Full label (single line)</option>
             <option value="stroked" data-i18n="settings.fullLabelOutlined">Full label (outlined)</option>

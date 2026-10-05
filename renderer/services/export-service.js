@@ -353,6 +353,8 @@
             exportItems: state.lastPlacementExportItems || {},
             strips: buildExportStrips(),
             includeSheetOutline: !!getCurrentNestingSettings()?.includeSheetOutline,
+            joinConnectedLinework: !!getCurrentNestingSettings()?.joinConnectedLinework,
+            removeSharedEdges: !!getCurrentNestingSettings()?.removeSharedEdges,
           });
           if (!result?.success) throw new Error(result?.error || t('export.exportFailed'));
 

@@ -164,7 +164,96 @@
     return segments;
   }
 
+  // Recover original straight cuts from small contour-extraction rounding.
+  // This is a correspondence limit, NOT the shared-cut/contact tolerance.
+  // Require a complete unambiguous match; never turn curve chords into cuts.
+  function recoverStraightContour(points, entities, engravingLayer = null) {
+    const original = points;
+    const limit = 0.05;
+    const epsilon = 1e-7;
+    if (!Array.isArray(points) || points.length < 3) return original;
+    let ring = points.map(p => ({ x: p.x, y: p.y }));
+    if (ring.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return original;
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const closed = distance(ring[0], ring.at(-1)) < epsilon;
+    if (closed) ring.pop();
+    if (ring.length < 3 || ring.length > 2048) return original;
+    const cuts = (entities || []).filter(e => e.layer !== engravingLayer);
+    // Conservative fallback for mixed curved/3D linework: even a tiny arc
+    // must not be mistaken for a nearby tangent or engraving segment.
+    if (cuts.some(e => !['LINE', 'LWPOLYLINE', 'POLYLINE'].includes(e.type)
+      || e.includesCurveFitVertices || e.includesSplineFitVertices || e.is3dPolyline
+      || e.is3dPolygonMesh || e.isPolyfaceMesh
+      || e.width || e.elevation || e.depth || e.thickness
+      || e.extrusionDirectionX || e.extrusionDirectionY
+      || (e.extrusionDirectionZ !== undefined && e.extrusionDirectionZ !== 1)
+      || (e.extrusionDirection && (e.extrusionDirection.x || e.extrusionDirection.y || e.extrusionDirection.z !== 1))
+      || (e.vertices || []).some(p => p.bulge || p.z || p.curveFittingVertex || p.splineVertex)
+      || e.start?.z || e.end?.z)) return original;
+    const sourceSegments = sharedStraightSegments(cuts);
+    if (sourceSegments.length > 4096) return original;
+    const segments = sourceSegments
+      .map(([x, y, bx, by]) => {
+        const length = Math.hypot(bx - x, by - y);
+        return { x, y, ux: (bx - x) / length, uy: (by - y) / length, length };
+      });
+    const along = (s, p) => (p.x - s.x) * s.ux + (p.y - s.y) * s.uy;
+    const offset = (s, p) => (p.y - s.y) * s.ux - (p.x - s.x) * s.uy;
+    const covers = (s, p, tolerance) => Math.abs(offset(s, p)) <= tolerance
+      && along(s, p) >= -tolerance && along(s, p) <= s.length + tolerance;
+    const matched = [];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]; const b = ring[(i + 1) % ring.length];
+      if (distance(a, b) <= epsilon) return original;
+      const candidates = segments.filter(s => covers(s, a, limit) && covers(s, b, limit))
+        .map(s => ({ s, error: Math.max(Math.abs(offset(s, a)), Math.abs(offset(s, b))) }))
+        .sort((a, b) => a.error - b.error);
+      if (!candidates.length) return original;
+      const best = candidates[0];
+      // Duplicate/overlapping source segments on the same line are harmless.
+      if (candidates.some(c => c.error <= best.error + epsilon
+        && (Math.abs(best.s.ux * c.s.uy - best.s.uy * c.s.ux) > epsilon
+          || Math.abs(offset(best.s, c.s)) > epsilon))) return original;
+      matched.push(best.s);
+    }
+    const corrected = ring.map((p, i) => {
+      const a = matched[(i + ring.length - 1) % ring.length]; const b = matched[i];
+      const cross = a.ux * b.uy - a.uy * b.ux;
+      if (Math.abs(cross) <= epsilon) {
+        if (Math.abs(offset(a, b)) > epsilon) return null;
+        const t = along(b, p);
+        return { x: b.x + t * b.ux, y: b.y + t * b.uy };
+      }
+      const t = ((b.x - a.x) * b.uy - (b.y - a.y) * b.ux) / cross;
+      return { x: a.x + t * a.ux, y: a.y + t * a.uy };
+    });
+    if (corrected.some((p, i) => !p || distance(p, ring[i]) > limit
+      || !covers(matched[i], p, epsilon)
+      || !covers(matched[(i + ring.length - 1) % ring.length], p, epsilon))) return original;
+    const area = r => r.reduce((sum, p, i) => {
+      const q = r[(i + 1) % r.length]; return sum + p.x * q.y - p.y * q.x;
+    }, 0);
+    if (area(ring) * area(corrected) <= 0) return original;
+    // Do not introduce crossings or collapse a narrow feature.
+    const orient = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    const onSegment = (a, b, p) => Math.abs(orient(a, b, p)) <= epsilon
+      && p.x >= Math.min(a.x, b.x) - epsilon && p.x <= Math.max(a.x, b.x) + epsilon
+      && p.y >= Math.min(a.y, b.y) - epsilon && p.y <= Math.max(a.y, b.y) + epsilon;
+    for (let i = 0; i < corrected.length; i++) {
+      const a = corrected[i]; const b = corrected[(i + 1) % corrected.length];
+      if (distance(a, b) <= epsilon) return original;
+      for (let j = i + 2; j < corrected.length; j++) {
+        if (i === 0 && j === corrected.length - 1) continue;
+        const c = corrected[j]; const d = corrected[(j + 1) % corrected.length];
+        if ((orient(a, b, c) * orient(a, b, d) < 0 && orient(c, d, a) * orient(c, d, b) < 0)
+          || onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b)) return original;
+      }
+    }
+    return closed ? [...corrected, { ...corrected[0] }] : corrected;
+  }
+
   global.NestDxfExportMetadataService = {
+    recoverStraightContour,
     sharedStraightSegments,
     serializePoint,
     serializeEntityForExport,

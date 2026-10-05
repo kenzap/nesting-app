@@ -633,6 +633,8 @@ function registerSparrowIpc() {
       // normalized Y-down sheet orientation. Swap the vertical preference at
       // the engine boundary so the setting label matches what users see.
       const sparrowAlignment = {
+        none: null,
+        auto: 'top-left', // Legacy Auto uses the default Bottom Left anchor.
         top: 'bottom',
         'top-left': 'bottom-left',
         'top-right': 'bottom-right',

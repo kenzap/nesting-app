@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { normalizeSettings } = require('../../shared/settings');
 const { withSecurityScopedAccess } = require('../utils/security-scoped-bookmarks');
+const { removeSharedEdges: removeDuplicateSharedEdges } = require('../utils/dxf-shared-edges');
 const {
   layoutEngravingLabel,
   DEFAULT_LAYOUT: ENGRAVING_LAYOUT_DEFAULTS,
@@ -26,6 +27,8 @@ function registerExportDxfIpc() {
     exportItems = {},
     strips,
     includeSheetOutline,
+    joinConnectedLinework,
+    removeSharedEdges,
   }) => {
     try {
       return await withSecurityScopedAccess(outputDirBookmark, async () => {
@@ -44,6 +47,8 @@ function registerExportDxfIpc() {
       if (typeof includeSheetOutline === 'boolean') {
         exportSettings.includeSheetOutline = includeSheetOutline;
       }
+      if (typeof joinConnectedLinework === 'boolean') exportSettings.joinConnectedLinework = joinConnectedLinework;
+      if (typeof removeSharedEdges === 'boolean') exportSettings.removeSharedEdges = removeSharedEdges;
 
       const RAD = Math.PI / 180;
       const DEG = 180 / Math.PI;
@@ -216,10 +221,11 @@ function registerExportDxfIpc() {
       }
 
       function pointsAlmostEqual(a, b, epsilon = LINEWORK_JOIN_EPSILON) {
-        return !!a && !!b &&
-          Math.abs(Number(a.x || 0) - Number(b.x || 0)) <= epsilon &&
-          Math.abs(Number(a.y || 0) - Number(b.y || 0)) <= epsilon &&
-          Math.abs((Number.isFinite(a.z) ? Number(a.z) : 0) - (Number.isFinite(b.z) ? Number(b.z) : 0)) <= epsilon;
+        return !!a && !!b && Math.hypot(
+          Number(a.x || 0) - Number(b.x || 0),
+          Number(a.y || 0) - Number(b.y || 0),
+          (Number.isFinite(a.z) ? Number(a.z) : 0) - (Number.isFinite(b.z) ? Number(b.z) : 0)
+        ) <= epsilon;
       }
 
       function lineEndpoints(entity) {
@@ -362,18 +368,43 @@ function registerExportDxfIpc() {
         const merged = [];
 
         groups.forEach(records => {
+          const exactLines = new Set();
+          records = records.filter(record => {
+            if (record.entity.type !== 'LINE') return true;
+            const key = [JSON.stringify(record.start), JSON.stringify(record.end)].sort().join('|');
+            if (exactLines.has(key)) return false;
+            exactLines.add(key);
+            return true;
+          });
           if (records.length < 2) {
             merged.push(...records.map(record => record.entity));
             return;
           }
 
           const byId = new Map(records.map(record => [record.id, record]));
+          const endpointBuckets = new Map();
+          let nextEndpoint = 0;
+          const endpointKey = point => {
+            const cell = pointKey(point).split(':').map(Number);
+            for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+              const bucket = endpointBuckets.get([cell[0] + dx, cell[1] + dy, cell[2] + dz].join(':')) || [];
+              const match = bucket.find(entry => pointsAlmostEqual(point, entry.point));
+              if (match) return match.key;
+            }
+            const bucketKey = cell.join(':');
+            if (!endpointBuckets.has(bucketKey)) endpointBuckets.set(bucketKey, []);
+            const key = String(nextEndpoint++);
+            endpointBuckets.get(bucketKey).push({ point, key });
+            return key;
+          };
           const adjacency = new Map();
           const addAdjacency = (key, id) => {
             if (!adjacency.has(key)) adjacency.set(key, []);
             adjacency.get(key).push(id);
           };
           records.forEach(record => {
+            record.startKey = endpointKey(record.start);
+            record.endKey = endpointKey(record.end);
             addAdjacency(record.startKey, record.id);
             addAdjacency(record.endKey, record.id);
           });
@@ -1349,7 +1380,7 @@ function registerExportDxfIpc() {
         }
 
         const placedItems = stripData.solution?.layout?.placed_items || [];
-        const sheetEntities = [];
+        let sheetEntities = [];
         const engravings = [];
         const debugRows = [];
         const emitDebug = { emitted: {}, skipped: [] };
@@ -1366,7 +1397,7 @@ function registerExportDxfIpc() {
             }
           : null;
 
-        placedItems.forEach(placement => {
+        placedItems.forEach((placement, owner) => {
           const exportItem = exportItems?.[placement.item_id] || null;
           const item = {
             ...globalItemsById[placement.item_id],
@@ -1398,6 +1429,7 @@ function registerExportDxfIpc() {
             label: labelForItem(item),
           });
           const rawEntities = (item.export?.entities || []).filter(isRenderableExportEntity);
+          const edgeMetadata = { owner, outerContour: pts, engravingLayer: getEngravingLayer(item)?.name || null };
           const entities = exportSettings.joinConnectedLinework
             ? joinConnectedLineworkEntities(rawEntities)
             : rawEntities;
@@ -1405,6 +1437,7 @@ function registerExportDxfIpc() {
           if (entities.length) {
             entities.forEach(entity => {
               sheetEntities.push({
+                ...edgeMetadata,
                 entity,
                 rotation,
                 tx,
@@ -1414,6 +1447,7 @@ function registerExportDxfIpc() {
           } else {
             usedFallback = true;
             sheetEntities.push({
+              ...edgeMetadata,
               entity: {
                 type: 'LWPOLYLINE',
                 layer: '0',
@@ -1447,6 +1481,22 @@ function registerExportDxfIpc() {
           });
         });
 
+        let removedSharedLengthMm = 0;
+        if (exportSettings.removeSharedEdges) {
+          const cleanup = removeDuplicateSharedEdges(sheetEntities, { transformPoint, signature: lineworkJoinSignature });
+          sheetEntities = cleanup.records;
+          removedSharedLengthMm = cleanup.removedLengthMm;
+          if (exportSettings.joinConnectedLinework && cleanup.affectedOwners.size) {
+            const byOwner = new Map();
+            for (const record of sheetEntities) {
+              if (!byOwner.has(record.owner)) byOwner.set(record.owner, []);
+              byOwner.get(record.owner).push(record);
+            }
+            sheetEntities = [...byOwner.values()].flatMap(records => cleanup.affectedOwners.has(records[0].owner)
+              ? joinConnectedLineworkEntities(records.map(r => r.entity)).map(entity => ({ ...records[0], entity }))
+              : records);
+          }
+        }
         const includeSheetOutline = !!exportSettings.includeSheetOutline && !!sheetFrame;
         const layerDefs = includeSheetOutline
           ? ensureLayerDef(collectLayerDefs([{ placedItems }]), SHEET_BOUNDARY_LAYER)
@@ -1477,6 +1527,7 @@ function registerExportDxfIpc() {
             export_item_key_count: Object.keys(exportItems || {}).length,
             placed_item_count: placedItems.length,
             sheet_entity_count: sheetEntities.length,
+            removed_shared_edge_length_mm: removedSharedLengthMm,
             engraving_count: engravings.length,
             emitted_entity_counts: emitDebug.emitted,
             skipped_entity_count: emitDebug.skipped.length,

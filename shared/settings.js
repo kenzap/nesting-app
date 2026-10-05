@@ -32,6 +32,7 @@
   };
 
   const PREFERRED_ALIGNMENTS = [
+    'none',
     'top',
     'top-left',
     'top-right',
@@ -83,6 +84,7 @@
     exportFormat: 'dxf',
     exportDebug: false,
     joinConnectedLinework: false,
+    removeSharedEdges: false,
     includeSheetOutline: false,
     engravingLayer: '2',
     engravingStyle: 'simple',
@@ -160,6 +162,8 @@
       normalized.sketchContourMethod = 'auto';
     }
 
+    // Auto direction search now belongs to Favor shared edges. Legacy Auto
+    // selections use the standard final placement anchor.
     if (!PREFERRED_ALIGNMENTS.includes(normalized.preferredAlignment)) {
       normalized.preferredAlignment = SETTINGS_DEFAULTS.preferredAlignment;
     }

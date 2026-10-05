@@ -36,7 +36,21 @@ function rectangle(id, width, height, demand) {
     shared_edge_segments: points.map((a, i) => [...a, ...points[(i + 1) % points.length]]) };
 }
 
-async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, spacing = 0, stop = false, enabled = true } = {}) {
+function sharedContacts(boxes, tolerance) {
+  let total = 0;
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i]; const b = boxes[j];
+    if (Math.abs(a.x1 - b.x0) <= tolerance || Math.abs(b.x1 - a.x0) <= tolerance) {
+      total += Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    }
+    if (Math.abs(a.y1 - b.y0) <= tolerance || Math.abs(b.y1 - a.y0) <= tolerance) {
+      total += Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0));
+    }
+  }
+  return total;
+}
+
+async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, spacing = 0, stop = false, enabled = true, auto = false, align = 'top-left' } = {}) {
   const cwd = path.join(temp, name);
   fs.mkdirSync(cwd);
   const input = { name: 'contacts', strip_height: 100,
@@ -49,7 +63,7 @@ async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, sp
   const stopFile = path.join(cwd, 'stop');
   const args = ['--input', inputPath, '--global-time', stop ? '30' : '3', '--workers', '1',
     '--rng-seed', '42', '--min-item-separation', String(spacing), '--strip-margin', String(margin),
-    '--align-top-left', '--stop-file', stopFile];
+    auto ? '--align-auto' : `--align-${align}`, '--stop-file', stopFile];
   if (enabled) args.push('--favor-shared-edges');
   if (mode !== 'unlimited') args.push('--max-strip-length', String(100 - margin * 2), '--multi-strip-mode', strategy);
   const child = spawn(binary, args, { cwd });
@@ -65,6 +79,27 @@ async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, sp
   if (!enabled) assert.ok(!log.includes('[SHARED-EDGES]'));
   else if (spacing > 0) assert.match(log, /skipped: part spacing must be zero/);
   else if (!stop) assert.match(log, /\[SHARED-EDGES\] accepted/);
+  if (enabled && spacing === 0 && !stop) {
+    const baselines = [...log.matchAll(/\[SHARED-EDGES\] baseline occupied length ([\d.]+) mm, shared edges ([\d.]+) mm/g)];
+    const finals = [...log.matchAll(/\[ALIGNMENT-AUTO\] evaluated \d+ corners; selected .*occupied length ([\d.]+) mm, height [\d.]+ mm, shared edges ([\d.]+) mm/g)];
+    assert.ok(baselines.length > 0, `${name}: missing ordinary alignment baseline`);
+    assert.equal(finals.length, baselines.length);
+    baselines.forEach((baseline, index) => {
+      const length = Number(baseline[1]);
+      const allowance = Math.max(0.001, Math.min(0.5, length * 0.0001));
+      assert.ok(Number(finals[index][1]) <= length + allowance + 0.000002,
+        `${name}: shared finishing increased material consumption`);
+      assert.ok(Number(finals[index][2]) + 0.011 >= Number(baseline[2]),
+        `${name}: shared finishing lost ordinary shared cuts`);
+    });
+  }
+  if ((!enabled || spacing > 0) && !stop) assert.match(log, /\[ALIGNMENT\] bounded per-part finishing pass/);
+  if (auto && !stop) assert.match(log, /\[ALIGNMENT-AUTO\] evaluated 4 corners/);
+  if (auto && !stop && spacing === 0) {
+    const candidateScores = [...log.matchAll(/\[ALIGNMENT-AUTO\] candidate .*shared edges ([\d.]+) mm/g)];
+    assert.ok(candidateScores.some(match => Number(match[1]) > 0),
+      `${name}: Auto must measure contacts even when Favor shared edges is off`);
+  }
   const artifacts = collect.attachRunSheetMetadata(collect.collectSparrowArtifacts(cwd, 'contacts'), cwd, 'contacts');
   const strips = artifacts.summary.strips;
   assert.ok(Number.isFinite(artifacts.summary.total_shared_edge_length_mm), `${name}: missing job total`);
@@ -73,11 +108,21 @@ async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, sp
   if (spacing > 0) assert.equal(artifacts.summary.total_shared_edge_length_mm, 0);
   assert.ok(strips.every(strip => !strip.is_preview && strip.svg && strip.json_path));
   const counts = [0, 0];
+  let preciseSharedLength = 0;
   for (const strip of strips) {
     const data = JSON.parse(fs.readFileSync(strip.json_path));
     assert.ok(Number.isFinite(strip.shared_edge_length_mm) && strip.shared_edge_length_mm >= 0);
     assert.equal(data.shared_edge_length_mm, strip.shared_edge_length_mm);
     for (const placed of data.solution.layout.placed_items) counts[placed.item_id]++;
+    const boxes = data.solution.layout.placed_items.map(placed => {
+      const item = input.items.find(item => item.id === placed.item_id);
+      const [tx, ty] = placed.transformation.translation;
+      const angle = placed.transformation.rotation * Math.PI / 180;
+      const xs = item.shape.data.map(([x, y]) => x * Math.cos(angle) - y * Math.sin(angle) + tx);
+      const ys = item.shape.data.map(([x, y]) => x * Math.sin(angle) + y * Math.cos(angle) + ty);
+      return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+    });
+    preciseSharedLength += sharedContacts(boxes, 0.001 + 1e-9);
   }
   assert.deepEqual(counts, [6, 4]);
   const outputDir = path.join(cwd, 'dxf');
@@ -85,7 +130,8 @@ async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, sp
   assert.equal(result.success, true, result.error);
   const files = fs.readdirSync(outputDir).filter(name => name.endsWith('.dxf')).sort();
   let exportedCount = 0;
-  let exportedSharedLength = 0;
+  let exportedSharedMin = 0;
+  let exportedSharedMax = 0;
   for (const filename of files) {
     const dxf = new DxfParser().parseSync(fs.readFileSync(path.join(outputDir, filename), 'utf8'));
     const shapes = dxf.entities.filter(e => e.type === 'LWPOLYLINE');
@@ -103,30 +149,44 @@ async function run(name, { mode = 'fixed', strategy = 'barriers', margin = 0, sp
       const dx = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
       const dy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
       assert.ok(dx < 0.03 || dy < 0.03, 'exported parts overlap');
-      // Export rounds coordinates; allow floating-point noise at the contact threshold.
-      const contactTolerance = 0.001 + 1e-9;
-      if (Math.abs(a.x1 - b.x0) <= contactTolerance || Math.abs(b.x1 - a.x0) <= contactTolerance) {
-        exportedSharedLength += Math.max(0, dy);
-      }
-      if (Math.abs(a.y1 - b.y0) <= contactTolerance || Math.abs(b.y1 - a.y0) <= contactTolerance) {
-        exportedSharedLength += Math.max(0, dx);
-      }
     }
+    if (enabled && !stop && align === 'bottom-right') {
+      assert.ok(Math.abs(Math.max(...boxes.map(b => b.y1)) - (100 - margin)) < 0.01,
+        `${name}: complete placement must reach the requested vertical edge`);
+      if (mode === 'fixed') assert.ok(Math.abs(Math.max(...boxes.map(b => b.x1)) - (100 - margin)) < 0.01,
+        `${name}: complete placement must reach the fixed sheet's right edge`);
+    }
+    // Each endpoint is rounded to four decimals when written to DXF. Contacts
+    // within 0.0001 mm of the threshold can change classification after writing.
+    exportedSharedMin += sharedContacts(boxes, 0.0009 - 1e-9);
+    exportedSharedMax += sharedContacts(boxes, 0.0011 + 1e-9);
   }
   assert.equal(exportedCount, 10);
-  assert.ok(Math.abs(exportedSharedLength - artifacts.summary.total_shared_edge_length_mm) < 0.1,
-    `${name}: native shared length ${artifacts.summary.total_shared_edge_length_mm} does not match exported contacts ${exportedSharedLength}`);
+  assert.ok(Math.abs(preciseSharedLength - artifacts.summary.total_shared_edge_length_mm) < 0.1,
+    `${name}: native shared length ${artifacts.summary.total_shared_edge_length_mm} does not match export-precision contacts ${preciseSharedLength}`);
+  assert.ok(preciseSharedLength >= exportedSharedMin - 0.1 && preciseSharedLength <= exportedSharedMax + 0.1,
+    `${name}: DXF contacts differ beyond coordinate rounding`);
   console.log(`${name}: total shared edges ${artifacts.summary.total_shared_edge_length_mm.toFixed(1)} mm`);
-  console.log(`${name}: ${strips.length} sheets, all 10 parts exported within margins, no overlaps; ${log.match(/shared straight-edge gain [\d.]+ mm/g)?.join(', ') || 'finishing pass skipped'}`);
+  console.log(`${name}: ${strips.length} sheets, all 10 parts exported within margins, no overlaps; ${log.match(/shared straight-edge gain [\d.]+ mm/g)?.join(', ') || (log.includes('[ALIGNMENT]') ? 'alignment-only pass' : 'finishing pass skipped')}`);
 }
 
 (async () => {
   await run('disabled', { enabled: false });
+  await run('optimized-disabled', { enabled: false, mode: 'max' });
+  await run('unlimited-disabled', { enabled: false, mode: 'unlimited' });
+  await run('prebucket-disabled', { enabled: false, strategy: 'prebucket' });
   await run('fixed');
   await run('optimized-margin', { mode: 'max', margin: 5 });
   await run('unlimited', { mode: 'unlimited' });
   await run('prebucket', { strategy: 'prebucket' });
   await run('spacing', { spacing: 2 });
   await run('early-stop', { stop: true });
+  await run('auto-fixed', { auto: true });
+  await run('auto-max', { auto: true, mode: 'max', enabled: false });
+  await run('auto-unlimited', { auto: true, mode: 'unlimited' });
+  await run('auto-spacing', { auto: true, spacing: 2, margin: 5 });
+  await run('auto-stop', { auto: true, stop: true });
+  await run('rigid-fixed-right', { align: 'bottom-right' });
+  await run('rigid-max-margin', { mode: 'max', margin: 5, align: 'bottom-right' });
   fs.rmSync(temp, { recursive: true, force: true });
 })().catch(error => { console.error(`Artifacts retained at ${temp}`, error); process.exitCode = 1; });

@@ -122,7 +122,11 @@
       for (const file of state.files) {
         const shapes = (await ensureFileShapes(file)).filter(shape => shape.visible !== false);
         shapes.forEach(shape => {
-          const points = sanitizePolygonPoints(shape.polygonPoints);
+          const extractedPoints = sanitizePolygonPoints(shape.polygonPoints);
+          const engravingIndex = engravingLayerIndex(settings);
+          const engravingLayer = engravingIndex === null ? null : file.layers?.[engravingIndex - 1]?.name;
+          const points = globalScope.NestDxfExportMetadataService.recoverStraightContour(
+            extractedPoints, shape.exportEntities || [], engravingLayer);
           if (points.length < 3) return;
           const itemId = nextId++;
 

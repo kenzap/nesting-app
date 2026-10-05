@@ -98,6 +98,38 @@ subsequent sheet-count trials add extra items around the validated layout
 instead of starting over. No particular part count is hard-coded.
 Both each batch and the combined layout must be complete,
 collision-free, and inside the usable sheet dimensions.
+Copying tight batches into distant sheet slots can lose tiny gaps to f32
+rounding. Assembly first preserves coordinates, then, only if needed, retries
+bounded placement separations (at most 0.008 mm per axis, without scaling
+parts). Both the combined layout and its sheet-local round trip must pass the
+unchanged collision and size checks. Final batch candidates are ranked against
+the retained best complete plan instead of unconditionally replacing it.
+The optional shared-edge finishing pass checks original contour coordinates
+with the serialized export transforms on every proposed move, including group
+alignment. Unsafe or incompletely validated moves are skipped individually;
+the best validated checkpoint survives Stop or a timeout. Contact scoring and
+measurement use the same export-precision geometry, not rounded preview points.
+When Favor shared edges is off, preferred alignment still runs a per-part pass
+after nominal reconstruction, with a separate 250 ms budget shared across the
+job. It preserves spacing and the occupied envelope without locking parts into
+existing contact groups. Stop or deadline exhaustion preserves validated moves.
+With Favor shared edges on, ordinary per-part alignments toward all four corners
+are retained as baseline candidates, alongside the incoming placement. The
+shortest ordinary candidate defines a fixed material limit. Candidates within
+0.01% of that length (at least 0.001 mm, at most 0.5 mm) rank actual shared-edge
+length first, occupied length second, and occupied height last. This material
+allowance does not change the 0.001 mm contact tolerance or collision checks,
+and never accumulates against successive candidates. Each corner's ordinary
+layout seeds its optional contact search; weaker or incompletely scored trials
+cannot replace the retained baseline. Search is independent of preferred
+alignment. The selected placement is then translated as one rigid arrangement
+to the preferred edge/corner. This final translation checks exported geometry
+and preserves shared cuts; it does not move individual parts. Fixed sheets use
+their full usable frame, while optimized/unlimited sheets keep their used width.
+None skips the final translation. The app removes the redundant Auto alignment
+option and migrates saved Auto preferences to Bottom Left; the native
+`--align-auto` flag remains supported for older clients. Incomplete validation
+retains the last safe layout.
 The attempts share the existing time budget and keep the original placement
 as a fallback. On Stop, recent feasible trial checkpoints are checked for
 whole parts already inside the sheet; crossing parts are packed separately.
@@ -128,17 +160,31 @@ previews keep the physical sheet mode and margins and never enable export.
 Only sheets without geometry show a waiting state.
 
 The optional **Settings > Algorithm > Favor shared edges** toggle defaults to
-off. With zero part spacing it passes `--favor-shared-edges` and reserves 5%
-of the configured search time (at most two seconds for the entire job) for a
-finishing pass, shared across all sheets. It tries contact translations on
+off. With zero part spacing it passes `--favor-shared-edges` and adds a finishing
+budget equal to 5% of the configured search time (at most two seconds for the
+entire job), shared across all sheets. The main search keeps its full budget;
+finishing no longer deducts exploration/compression time. A quarter of the
+finishing budget evaluates ordinary baseline alignments and the rest searches
+for additional contacts. It tries contact translations on
 nearby parts, maximizing shared straight-edge length within the existing
 occupied envelope. Rotations, item quantities, sheet assignments, and margins
 are preserved. The same budget also covers contact-preserving alignment:
 touching parts move as connected groups, while independent parts move alone.
-It tries both axis orders toward Preferred alignment, retains the smaller
-occupied length first, and uses alignment to break ties. Every accepted move
-checks both original and collision contours and preserves existing shared
-contacts. This is a bounded heuristic, not a guarantee of optimal compaction.
+It alternates contact search and alignment for up to three rounds within the
+same time budget, so alignment can expose new contact opportunities. Both
+axis orders toward each of the four trial corners are tried, independently of
+Preferred alignment. Candidates maximize shared-edge length within the fixed
+ordinary-baseline material limit; length and alignment break ties. Each
+fully validated improvement is checkpointed; an interrupted or weaker trial
+cannot replace the best layout. Alignment moves preserve existing contacts,
+and contact-search moves must increase total shared length within the original
+occupied envelope. Both original and collision contours are checked. This is a
+bounded heuristic, not a guarantee of optimal compaction.
+Candidate generation visits long-edge pairs across all nearby parts before
+spending its 256-candidate limit on small edges of one neighbor. Contact
+translations are calculated in double precision before storage; nearby
+representable positions within half the 0.001 mm contact tolerance are also
+tried when needed. These retries do not relax collision or sheet-bound checks.
 Stop skips or interrupts this optional pass. It does not rotate parts,
 increase occupied dimensions, or merge DXF toolpaths.
 Positive spacing disables the option without forgetting the
@@ -189,6 +235,15 @@ or an exhausted measurement budget yields `null` (shown as unavailable), never
 a misleading zero or partial sum. Measurement is bounded to two seconds across
 the job and also runs on finalized early-stop results. Older native helpers
 must be rebuilt to provide these statistics.
+
+Before building a job, the renderer recovers straight polygon contours from
+their original DXF segments when every edge has an unambiguous match. This
+removes small extraction-rounding offsets that otherwise prevent real cuts
+from touching. The 0.05 mm correspondence limit is not a contact tolerance:
+shared cuts still require 0.001 mm contact. Curved, incomplete, ambiguous, or
+unsupported contours remain unchanged. Engine input and export metadata use
+the same recovered contour; original exported entities are never modified.
+This correction also applies to cached parts on the next nesting run.
 
 Start the Electron app as usual:
 

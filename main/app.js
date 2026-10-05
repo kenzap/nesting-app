@@ -380,7 +380,14 @@ function registerAppMenuIpc() {
 }
 
 function createWindow({ isDevMode = false, isDxfDebugMode = false, minimalStartup = false } = {}) {
-  const windowIcon = path.join(__dirname, '..', 'assets', 'icon-square.png');
+  // Windows gets the slightly-rounded plate (matching the .ico used for the
+  // exe/taskbar); Linux keeps the flat full-bleed square since desktop
+  // environments there apply their own icon masking. macOS ignores this
+  // option for its Dock icon (see app.dock.setIcon in initializeApp).
+  const windowIcon = path.join(
+    __dirname, '..', 'assets',
+    process.platform === 'win32' ? 'icon-square-windows.png' : 'icon-square.png'
+  );
   const windowOptions = {
     width: 1280,
     height: 800,
@@ -466,13 +473,13 @@ function initializeApp({ isDevMode = false, isDxfDebugMode = false, minimalStart
     // that otherwise falls back to Electron's generic default when running
     // unpackaged (a built .app bundle instead reads CFBundleIconFile, which
     // points at icon-square.icns). Uses the macOS-specific squircle asset —
-    // not the shared icon-square.png used for Windows/Linux — because macOS
-    // (pre-Tahoe) renders .icns/dock artwork literally with no system mask:
-    // the rounded-square shape and transparent margin have to be baked into
-    // the art itself, or the icon shows as a jarring hard-edged square next
-    // to every native app's icon. Windows/Linux expect the opposite (a plain
-    // full-bleed square; the OS applies its own mask), so that asset stays
-    // untouched for those platforms.
+    // not the flat icon-square.png (Linux) or icon-square-windows.png —
+    // because macOS (pre-Tahoe) renders .icns/dock artwork literally with no
+    // system mask: the rounded-square shape and transparent margin have to be
+    // baked into the art itself, or the icon shows as a jarring hard-edged
+    // square next to every native app's icon. Each platform gets its own
+    // asset because their conventions differ (macOS: inset squircle; Windows:
+    // full-bleed, slightly rounded; Linux: plain square, DE applies its mask).
     if (process.platform === 'darwin' && app.dock) {
       app.dock.setIcon(path.join(__dirname, '..', 'assets', 'icon-square-macos.png'));
     }
