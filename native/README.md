@@ -188,7 +188,10 @@ tried when needed. These retries do not relax collision or sheet-bound checks.
 Stop skips or interrupts this optional pass. It does not rotate parts,
 increase occupied dimensions, or merge DXF toolpaths.
 Positive spacing disables the option without forgetting the
-saved preference. Input `shared_edge_segments` identifies actual straight
+saved preference; the settings dialog explains this under the toggle, offers a
+one-click "Set spacing to 0", and the shared-edge total is left off the stats
+line for runs with spacing (it could only ever read 0). Input
+`shared_edge_segments` identifies actual straight
 DXF segments so sampled curve chords do not earn contact credit; only segments
 that also belong to the outer nesting contour are eligible. The log reports
 accepted moves and gained shared-edge length. This metric is not a machine

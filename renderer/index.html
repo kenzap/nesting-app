@@ -213,11 +213,15 @@
       <div class="settings-section">
         <div class="settings-section-title" data-i18n="settings.algorithm">Algorithm</div>
         <div class="setting-row">
-          <label data-i18n="settings.earlyStopping">Early stopping</label>
+          <label for="favorSharedEdges" data-i18n="settings.favorSharedEdges" data-i18n-title="settings.favorSharedEdgesHelp" title="Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.">Favor shared edges</label>
           <label class="toggle">
-            <input type="checkbox" checked data-setting-key="earlyStopping" />
+            <input id="favorSharedEdges" type="checkbox" data-setting-key="favorSharedEdges" />
             <span class="toggle-track"></span>
           </label>
+        </div>
+        <div class="setting-hint" id="sharedEdgesHint" hidden>
+          <span id="sharedEdgesHintText"></span>
+          <button type="button" class="setting-hint-action" id="sharedEdgesHintAction" data-i18n="settings.setSpacingToZero">Set spacing to 0</button>
         </div>
         <div class="setting-row">
           <label data-i18n="settings.preferredAlignment">Preferred alignment</label>
@@ -230,13 +234,6 @@
             <option value="bottom-left" selected data-i18n="settings.bottomLeft">Bottom left</option>
             <option value="bottom-right" data-i18n="settings.bottomRight">Bottom right</option>
           </select>
-        </div>
-        <div class="setting-row">
-          <label for="favorSharedEdges" data-i18n="settings.favorSharedEdges" data-i18n-title="settings.favorSharedEdgesHelp" title="Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.">Favor shared edges</label>
-          <label class="toggle">
-            <input id="favorSharedEdges" type="checkbox" data-setting-key="favorSharedEdges" />
-            <span class="toggle-track"></span>
-          </label>
         </div>
         <div class="setting-row">
           <label data-i18n="settings.timeLimit">Time limit</label>

@@ -904,7 +904,10 @@
         const partsText = placed > 0 ? ` · ${t('canvas.partsPlaced', { count: placed })}` : '';
         const utilText = density ? ` · ${t('canvas.utilization', { value: density })}` : '';
         const sharedLength = state.nestResult.total_shared_edge_length_mm;
-        const sharedText = previewPrefix ? '' : ` · ${t('canvas.sharedEdgesTotal', {
+        // Parts can only share an edge when they may touch. With part spacing
+        // the total is always a meaningless 0, so leave it off the stats line.
+        const sharedStatApplies = !(Number(state.nestRunPartSpacing) > 0);
+        const sharedText = previewPrefix || !sharedStatApplies ? '' : ` · ${t('canvas.sharedEdgesTotal', {
           value: Number.isFinite(sharedLength) && sharedLength >= 0
             ? formatLength(sharedLength, { system: measurementSystem() })
             : t('canvas.sharedEdgesUnavailable'),

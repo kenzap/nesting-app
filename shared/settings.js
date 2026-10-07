@@ -75,7 +75,7 @@
     sheetMargin: 0,
     rotationStep: '90',
     mirrorParts: false,
-    earlyStopping: true,
+    earlyStopping: false,
     preferredAlignment: 'bottom-left',
     favorSharedEdges: false,
     timeLimit: 60,
@@ -154,6 +154,11 @@
       if (!(key in raw)) return;
       normalized[key] = coerceByDefault(raw[key], SETTINGS_DEFAULTS[key]);
     });
+
+    // Early stopping is no longer user-configurable (the control is gone) and
+    // defaults to off. A saved `true` was only ever the old default, never a
+    // choice the user can still see or change, so it must not keep applying.
+    normalized.earlyStopping = false;
 
     // Deprecated contour methods ('makerjs-outline', 'makerjs-chains',
     // 'intersection') migrate to 'auto'. The validation pass below will

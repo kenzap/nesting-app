@@ -44,7 +44,7 @@ const state = {};
 const window = { NestSettings: settings, NestUnits: {
   resolveMeasurementSystem: () => 'metric', unitLabel: () => 'mm',
   fromDisplayLength: Number, formatInputLength: String,
-}, electronAPI: { async saveAppSettings(value) { saved = JSON.parse(JSON.stringify(value)); return { success: true }; } } };
+}, NestI18n: { t: key => key }, electronAPI: { async saveAppSettings(value) { saved = JSON.parse(JSON.stringify(value)); return { success: true }; } } };
 vm.runInNewContext(fs.readFileSync(path.join(root, 'renderer/views/settings-modal.js'), 'utf8'), {
   window, document: { querySelectorAll: () => [] },
 });

@@ -17,6 +17,10 @@
       lastPlacementExportItems: null,
       partFitWarnings: [],
       nestInputPath: null,
+      // Part spacing (mm) the current nestResult was computed with. Kept apart
+      // from the live setting so the result's stats stay correct if the user
+      // edits spacing after the run.
+      nestRunPartSpacing: 0,
     };
 
     let persistJobTimer = null;

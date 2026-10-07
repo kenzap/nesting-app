@@ -476,6 +476,7 @@
           const primarySheet = state.sheets[0] || {};
           const settings = getCurrentNestingSettings();
           const partSpacing = Number(settings.partSpacing) || 0;
+          state.nestRunPartSpacing = partSpacing;
           // Single multi-sheet strategy drives both the placement algorithm
           // (`multiStripMode`) and, for the legacy bucketed paths, the
           // bucket fill weight. `bucketFillWeight: null` means "omit from

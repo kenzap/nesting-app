@@ -14,6 +14,7 @@
     const measurementSystemField = settingsFields.find(field => field.dataset.settingKey === 'measurementSystem');
     const sharedEdgesField = settingsFields.find(field => field.dataset.settingKey === 'favorSharedEdges');
     const partSpacingField = settingsFields.find(field => field.dataset.settingKey === 'partSpacing');
+    const t = globalScope.NestI18n.t;
     const devOnlyRows = Array.from(document.querySelectorAll('[data-dev-only-setting]'));
     let isDevBuild = false;
     let dialogUnitSystem = resolveMeasurementSystem(SETTINGS_DEFAULTS.measurementSystem);
@@ -106,10 +107,31 @@
       updateSharedEdgesAvailability();
     }
 
+    // Shared edges only exist where parts can touch, so any positive spacing
+    // makes the option inert. Instead of greying it out with the reason buried
+    // in a tooltip, say so right under the control and offer the one-click fix.
+    // A blank spacing field counts as 0, which is what normalizeSettings stores
+    // for it, so clearing the field to retype doesn't flash the hint.
     function updateSharedEdgesAvailability() {
-      if (sharedEdgesField && partSpacingField) {
-        sharedEdgesField.disabled = settingFieldValue(partSpacingField) !== 0;
+      if (!sharedEdgesField || !partSpacingField) return;
+      const spacing = settingFieldValue(partSpacingField);
+      const inactive = typeof spacing === 'number' && spacing > 0;
+      sharedEdgesField.disabled = inactive;
+      const hint = document.getElementById('sharedEdgesHint');
+      const hintText = document.getElementById('sharedEdgesHintText');
+      if (!hint) return;
+      hint.hidden = !inactive;
+      if (inactive && hintText) {
+        hintText.textContent = t('settings.favorSharedEdgesInactive', {
+          value: `${partSpacingField.value} ${unitLabel(dialogUnitSystem)}`,
+        });
       }
+    }
+
+    function setSpacingToZeroForSharedEdges() {
+      if (!partSpacingField) return;
+      partSpacingField.value = '0';
+      updateSharedEdgesAvailability();
     }
 
     function openSettingsDialog() {
@@ -203,6 +225,10 @@
     // Apply persists the form values and fires onSettingsApplied so previews refresh immediately.
     function bind() {
       partSpacingField?.addEventListener('input', updateSharedEdgesAvailability);
+      document.getElementById('sharedEdgesHintAction')?.addEventListener('click', setSpacingToZeroForSharedEdges);
+      // The hint text is built from t() at runtime, so it needs refreshing
+      // when the language changes (static data-i18n nodes refresh themselves).
+      globalScope.addEventListener('nest-language-changed', updateSharedEdgesAvailability);
       dom.openSettings.addEventListener('click', openSettingsDialog);
       dom.closeSettings.addEventListener('click', closeSettingsDialog);
       measurementSystemField?.addEventListener('change', () => {
@@ -212,6 +238,7 @@
         dialogUnitSystem = resolveMeasurementSystem(measurementSystemField.value);
         updateLengthFieldPresentation();
         valuesMm.forEach((value, field) => applySettingFieldValue(field, value, dialogUnitSystem));
+        updateSharedEdgesAvailability();
       });
       dom.applySettings.addEventListener('click', async () => {
         try {
