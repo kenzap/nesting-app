@@ -1516,271 +1516,6 @@ body.platform-linux .linux-menubar {
 .toggle input:disabled + .toggle-track { opacity: .45; }
 .toggle:has(input:disabled) { cursor: not-allowed; }
 
-/* Sheet presets */
-.sheet-presets {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.preset-btn {
-  padding: 9px 7px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  color: var(--text-dim);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: border-color .12s, background .12s, color .12s;
-  text-align: center;
-}
-.preset-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-  color: var(--accent);
-}
-.preset-btn.active {
-  border-color: rgba(79,142,247,.55);
-  background: rgba(79,142,247,.12);
-  color: var(--text);
-  box-shadow: inset 0 0 0 1px rgba(79,142,247,.2);
-}
-
-/* Three-way picker for the sheet mode. Three illustrated tiles rather than
-   a compact button strip — each tile embeds a small SVG preview showing
-   how parts behave under that mode (fixed sheet, cuttable strip up to a
-   max, unlimited strip). Hover triggers a subtle motion that reinforces
-   the mode's behaviour: parts settle in on Fixed, the actual-length
-   rectangle contracts on Up-to, the strip extends on Unlimited. The
-   previous compact `.sheet-mode-btn` rules are kept and layered where
-   they still apply (hover/active colouring); tile-only shape rules sit
-   under `.sheet-mode-tile`. */
-.sheet-mode-seg {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin: 4px 0 10px;
-}
-.sheet-mode-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  color: var(--text-dim);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: border-color .12s, background .12s, color .12s;
-}
-.sheet-mode-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-  color: var(--accent);
-}
-.sheet-mode-btn.active {
-  border-color: rgba(79,142,247,.55);
-  background: rgba(79,142,247,.12);
-  color: var(--text);
-  box-shadow: inset 0 0 0 1px rgba(79,142,247,.2);
-}
-
-/* Tile layout — the illustrated variant. Overrides the compact flex layout
-   above so the SVG preview sits above the name + hint text block. Height
-   is auto-driven by the art + two lines of text; tiles stretch to match
-   each other via the grid's stretch default. */
-.sheet-mode-tile {
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 6px;
-  padding: 10px 10px 11px;
-  text-align: center;
-  min-height: 110px;
-}
-.sheet-mode-tile .sheet-mode-art {
-  /* 120×60 viewBox gives us just enough horizontal room for the strip
-     fade on the Unlimited tile without the art dominating the card. The
-     SVG scales to the tile's width while keeping aspect ratio. */
-  width: 100%;
-  max-width: 140px;
-  aspect-ratio: 120 / 60;
-  display: block;
-  color: var(--text-muted);
-  transition: color .12s;
-}
-.sheet-mode-tile .sheet-mode-art svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-  overflow: visible; /* let the sliding part on Unlimited peek past the box */
-}
-.sheet-mode-tile:hover .sheet-mode-art,
-.sheet-mode-tile.active .sheet-mode-art {
-  color: var(--accent);
-}
-.sheet-mode-tile-name {
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.1px;
-}
-.sheet-mode-tile-hint {
-  font-size: 10.5px;
-  line-height: 1.3;
-  color: var(--text-muted);
-  opacity: 0.9;
-  /* Keep the hint text to a single visual line on normal widths; wrap on
-     very narrow modal widths rather than clip. */
-  min-height: 1.3em;
-}
-
-/* ------------------------------------------------------------------
-   Hover animations per tile. All anchored to the tile's hover state
-   so motion stops the moment the pointer leaves. Transitions are
-   short (.25s–.35s) and ease-out so the tile reads as responsive
-   rather than animated. Respects prefers-reduced-motion below.
-   ------------------------------------------------------------------ */
-
-/* Fixed: parts "settle" from a 2px vertical offset. Each child has an
-   increasing transition-delay so they land one after the other. */
-.sheet-mode-tile .mode-parts .mode-part {
-  transform: translateY(-2px);
-  opacity: 0.7;
-  transition: transform .3s ease-out, opacity .3s ease-out;
-}
-.sheet-mode-tile[data-mode="fixed"]:hover .mode-parts .mode-part,
-.sheet-mode-tile[data-mode="fixed"].active .mode-parts .mode-part {
-  transform: translateY(0);
-  opacity: 1;
-}
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(1) { transition-delay: 0ms; }
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(2) { transition-delay: 25ms; }
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(3) { transition-delay: 50ms; }
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(4) { transition-delay: 75ms; }
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(5) { transition-delay: 100ms; }
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(6) { transition-delay: 125ms; }
-.sheet-mode-tile[data-mode="fixed"] .mode-parts .mode-part:nth-child(7) { transition-delay: 150ms; }
-
-/* Up to max: the solid actual-length rectangle gently shrinks horizontally
-   (origin left), showing the optimiser pulling slack out. The chevron
-   fades in alongside to point at the resulting gap. */
-.sheet-mode-tile[data-mode="max"] .mode-actual {
-  transform-origin: 4px 30px; /* left edge of the actual rect */
-  transition: transform .35s ease-out;
-}
-.sheet-mode-tile[data-mode="max"] .mode-chevron {
-  transition: opacity .25s ease-out, transform .35s ease-out;
-}
-.sheet-mode-tile[data-mode="max"]:hover .mode-actual,
-.sheet-mode-tile[data-mode="max"].active .mode-actual {
-  transform: scaleX(0.9);
-}
-.sheet-mode-tile[data-mode="max"]:hover .mode-chevron,
-.sheet-mode-tile[data-mode="max"].active .mode-chevron {
-  opacity: 0.9;
-  transform: translateX(-2px);
-}
-
-/* Unlimited: a new part slides into the strip from the right while the
-   arrow nudges rightward, implying continuous growth. The sliding part
-   starts off-screen and lands flush against the previous one on hover. */
-.sheet-mode-tile[data-mode="unlimited"] .mode-part-slide {
-  transform: translateX(16px);
-  opacity: 0.4;
-  transition: transform .35s ease-out, opacity .3s ease-out;
-}
-.sheet-mode-tile[data-mode="unlimited"] .mode-arrow {
-  transition: transform .3s ease-out;
-}
-.sheet-mode-tile[data-mode="unlimited"]:hover .mode-part-slide,
-.sheet-mode-tile[data-mode="unlimited"].active .mode-part-slide {
-  transform: translateX(0);
-  opacity: 1;
-}
-.sheet-mode-tile[data-mode="unlimited"]:hover .mode-arrow,
-.sheet-mode-tile[data-mode="unlimited"].active .mode-arrow {
-  transform: translateX(3px);
-}
-
-/* Reduced-motion users still see the hover state colouring, but every
-   transform animation is disabled. Opacity transitions stay to keep the
-   accent-colour fade legible without introducing movement. */
-@media (prefers-reduced-motion: reduce) {
-  .sheet-mode-tile .mode-parts .mode-part,
-  .sheet-mode-tile[data-mode="max"] .mode-actual,
-  .sheet-mode-tile[data-mode="max"] .mode-chevron,
-  .sheet-mode-tile[data-mode="unlimited"] .mode-part-slide,
-  .sheet-mode-tile[data-mode="unlimited"] .mode-arrow {
-    transform: none !important;
-    transition: opacity .2s ease-out, color .12s;
-  }
-  .sheet-mode-tile .mode-parts .mode-part { opacity: 1; }
-  .sheet-mode-tile[data-mode="unlimited"] .mode-part-slide { opacity: 1; }
-}
-
-/* When the length input is not applicable (unlimited mode), collapse the
-   input into an infinity chip so users see there is nothing to fill in
-   without the field shifting layout on mode changes. */
-.sheet-dims-row .input-with-unit.length-infinite input,
-.sheet-dims-row .input-with-unit.length-infinite .unit { display: none; }
-.sheet-dims-row .input-with-unit.length-infinite {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 18px;
-  font-weight: 300;
-  background: var(--surface2);
-  border: 1px dashed var(--border);
-  cursor: default;
-}
-.sheet-dims-row .input-with-unit.length-infinite::before {
-  content: '∞';
-}
-
-.sheet-field-head {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 28px;
-  margin: 8px 2px 6px;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-.sheet-dims-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.dims-sep { color: var(--text-muted); font-size: 15px; font-weight: 300; }
-.sheet-dims-row .input-with-unit { flex: 1; }
-.sheet-dims-row .input-with-unit input { width: 100%; }
-.sheet-help {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--accent) 5%, transparent);
-  color: var(--text-muted);
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-.sheet-help::before {
-  content: '';
-  flex: 0 0 auto;
-  width: 12px; height: 12px;
-  margin-top: 2px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0.85;
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><circle cx='6' cy='6' r='5.4' fill='none' stroke='black' stroke-width='1.2'/><circle cx='6' cy='3.6' r='0.7' fill='black'/><path d='M6 5.5 v3.5' stroke='black' stroke-width='1.2' stroke-linecap='round'/></svg>") no-repeat center / contain;
-  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><circle cx='6' cy='6' r='5.4' fill='none' stroke='black' stroke-width='1.2'/><circle cx='6' cy='3.6' r='0.7' fill='black'/><path d='M6 5.5 v3.5' stroke='black' stroke-width='1.2' stroke-linecap='round'/></svg>") no-repeat center / contain;
-}
 .input-with-unit input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1806,8 +1541,6 @@ body.platform-linux .linux-menubar {
 */
 
 .onboarding-modal {
-  --ob-spring: cubic-bezier(.3, 1.45, .5, 1);
-  --ob-ease: cubic-bezier(.2, .9, .3, 1);
   /* Max-constrained so very small windows still fit; wider than the
      Settings modal because material cards + welcome copy benefit from
      extra horizontal room. */
@@ -2133,6 +1866,15 @@ body.platform-linux .linux-menubar {
 }
 
 
+/* Motion shared by the setup assistant and the Add Sheet dialog. */
+:root {
+  --ob-spring: cubic-bezier(.3, 1.45, .5, 1);
+  --ob-ease: cubic-bezier(.2, .9, .3, 1);
+}
+
+/* Shared SVG defs for the live previews (see top of index.html). */
+.ob-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+
 /* ── Step 3: live setup ──────────────────────────────────────────────
    Stage on top (drawn by onboarding-stage.js), then the controls that
    drive it. `.ob-setup[data-mode]` / `[data-opt]` carry the state so the
@@ -2171,7 +1913,7 @@ body.platform-linux .linux-menubar {
   stroke-dasharray: 5 4;
 }
 .ob-stage-svg .ob-waste { fill: url(#obWasteHatch); }
-.ob-stage-svg .ob-hatch-line { stroke: var(--text-muted); stroke-width: 1.2; opacity: .32; }
+.ob-defs .ob-hatch-line { stroke: var(--text-muted); stroke-width: 1.2; opacity: .32; }
 .ob-stage-svg .ob-waste-label {
   fill: var(--text-muted);
   font-size: 10px;
@@ -2208,8 +1950,8 @@ body.platform-linux .linux-menubar {
   stroke-linecap: round;
   filter: drop-shadow(0 0 4px var(--accent));
 }
-.ob-stage-svg .ob-glow-stop-a { stop-color: var(--accent); stop-opacity: .45; }
-.ob-stage-svg .ob-glow-stop-b { stop-color: var(--accent); stop-opacity: 0; }
+.ob-defs .ob-glow-stop-a { stop-color: var(--accent); stop-opacity: .45; }
+.ob-defs .ob-glow-stop-b { stop-color: var(--accent); stop-opacity: 0; }
 .ob-stage-svg .ob-dim path {
   fill: none;
   stroke: var(--text-muted);
@@ -2325,6 +2067,21 @@ body.platform-linux .linux-menubar {
 }
 
 /* Number fields: label inside the box, big tabular value, unit suffix. */
+/* Add Sheet dialog reuses .ob-setup; it only needs body padding. */
+.modal-body.sheet-body { padding: 18px 24px 8px; }
+/* The generic `.modal-body input[type="text"]` box styling must not apply
+   inside a field box: the .ob-num container is the visible box. */
+.modal-body .ob-num input,
+.modal-body .ob-num input:focus {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.modal-body .ob-num-text input { font-size: 15px; font-weight: 500; letter-spacing: 0; }
+.ob-num-text input::placeholder { color: color-mix(in srgb, var(--text-muted) 70%, transparent); font-weight: 400; }
+
 .ob-dims {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);

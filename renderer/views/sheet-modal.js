@@ -1,27 +1,55 @@
 'use strict';
 
+/**
+ * Add / Edit Sheet dialog. Same model and building blocks as setup
+ * assistant step 3: a live preview (onboarding-stage.js), a Predefined /
+ * Unlimited switch, Width × Length fields and a length-optimization toggle.
+ *
+ * The hidden #sheetWidthMode select remains the source of truth:
+ *   predefined, toggle off → "fixed"
+ *   predefined, toggle on  → "max"
+ *   unlimited              → "unlimited"
+ *
+ * Naming follows the sheet model: `sheet.width` / #sheetWidth is the length
+ * along the strip (null when unlimited), `sheet.height` / #sheetHeight is the
+ * material width across it.
+ */
 (function defineSheetModal(globalScope) {
-  const METRIC_PRESETS = [
-    { height: 1250, width: 3000 },
-    { height: 1500, width: 3000 },
-    { height: 2000, width: 4000 },
-    { height: 2000, width: 6000 },
-  ];
-  const IMPERIAL_PRESETS = [
-    { height: 48, width: 96 },
-    { height: 48, width: 120 },
-    { height: 60, width: 120 },
-    { height: 72, width: 144 },
-  ];
+  const DEFAULT_WIDTH_MM = 1250;
+  const DEFAULT_LENGTH_MM = 3000;
+  // Standard 4 × 8 ft stock, so imperial users don't get 49.21 × 118.11 in.
+  const IMPERIAL_DEFAULT_WIDTH_MM = 48 * 25.4;
+  const IMPERIAL_DEFAULT_LENGTH_MM = 96 * 25.4;
 
   function createSheetModal({ state, dom, schedulePersistJobState, renderSheets }) {
-    const t = globalScope.NestI18n.t;
+    const i18n = globalScope.NestI18n;
+    const t = i18n.t;
+    const tf = (key, fallback, vars) => {
+      const translated = t(key, vars || {});
+      return translated && translated !== key ? translated : fallback;
+    };
     const {
       resolveMeasurementSystem,
       unitLabel,
       fromDisplayLength,
       formatInputLength,
     } = globalScope.NestUnits;
+
+    const setupEl = document.getElementById('sheetSetup');
+    const modeSeg = document.getElementById('sheetModeSeg');
+    const modeBtns = Array.from(modeSeg.querySelectorAll('.ob-seg-btn[data-mode]'));
+    const optCheck = document.getElementById('sheetAllowLengthOpt');
+    const titleEl = document.getElementById('sheetModalTitle');
+    const stage = globalScope.NestOnboardingStage.create({
+      scene: document.getElementById('sheetStageScene'),
+      badge: document.getElementById('sheetStageBadge'),
+      badgeText: document.getElementById('sheetStageBadgeText'),
+      t: tf,
+    });
+
+    // Last valid values in mm, so an empty or half-typed field never
+    // collapses the preview.
+    const dims = { width: DEFAULT_WIDTH_MM, length: DEFAULT_LENGTH_MM };
 
     function measurementSystem() {
       return resolveMeasurementSystem(state.settings?.measurementSystem);
@@ -35,63 +63,69 @@
       return fromDisplayLength(input.value, measurementSystem());
     }
 
-    function presetDimensions(index, system = measurementSystem()) {
-      const preset = (system === 'imperial' ? IMPERIAL_PRESETS : METRIC_PRESETS)[index];
-      if (system === 'imperial') {
-        return {
-          height: fromDisplayLength(preset.height, system),
-          width: fromDisplayLength(preset.width, system),
-          label: `${preset.height} × ${preset.width}`,
-        };
+    function formatForStage(mm, { approx = false } = {}) {
+      const system = measurementSystem();
+      if (approx) {
+        const v = system === 'imperial' ? Math.round((mm / 25.4) * 2) / 2 : Math.round(mm / 10) * 10;
+        return `≈ ${v} ${unitLabel(system)}`;
       }
-      return { ...preset, label: `${preset.height} × ${preset.width}` };
+      return `${formatInputLength(mm, system, { imperialPrecision: 2 })} ${unitLabel(system)}`;
     }
 
-    function setDefaultSheetDimensions() {
-      const preset = presetDimensions(0);
-      setLengthInput(dom.sheetHeight, state.settings?.defaultSheetHeight || preset.height);
-      setLengthInput(dom.sheetWidth, state.settings?.defaultSheetLength || preset.width);
+    function setDimensions(widthMm, lengthMm) {
+      dims.width = widthMm;
+      dims.length = lengthMm;
+      setLengthInput(dom.sheetHeight, widthMm);
+      setLengthInput(dom.sheetWidth, lengthMm);
     }
 
-    // Returns true when the current form values exactly match a preset button's dimensions.
-    // Used by syncSheetPresetButtons to decide which preset (if any) should appear highlighted.
-    function presetMatches(btn) {
-      const width = readLengthInput(dom.sheetWidth);
-      const height = readLengthInput(dom.sheetHeight);
-      return (
-        dom.sheetWidthMode.value === 'fixed' &&
-        Math.abs(width - Number(btn.dataset.w)) < 0.5 &&
-        Math.abs(height - Number(btn.dataset.h)) < 0.5
-      );
-    }
-
-    // Adds or removes the "active" class on every preset button to reflect the current form state.
-    // Called whenever the width, height, or mode inputs change.
-    function syncSheetPresetButtons() {
-      document.querySelectorAll('.preset-btn').forEach(btn => {
-        btn.classList.toggle('active', presetMatches(btn));
-      });
-    }
-
-    // Resets the form to workspace defaults and clears the editing ID.
-    // Clearing the ID ensures a subsequent submit creates a new sheet instead of overwriting one.
-    function resetSheetForm() {
-      state.editingSheetId = null;
-      dom.sheetWidthMode.value = state.settings?.defaultSheetWidthMode || 'fixed';
+    function setWidthMode(mode) {
+      dom.sheetWidthMode.value = mode;
       if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
-      setDefaultSheetDimensions();
-      dom.sheetMaterial.value = state.settings?.material || '';
-      dom.confirmSheet.textContent = t('sheet.add');
       updateSheetModeControls();
     }
 
-    // Opens the sheet modal in add mode (blank form) or edit mode (pre-filled from an existing sheet).
-    // Guards against adding a second sheet since only one is currently supported.
+    function pushStage() {
+      const mode = dom.sheetWidthMode.value;
+      stage.update({
+        mode: mode === 'unlimited' ? 'unlimited' : 'predefined',
+        opt: mode === 'max',
+        width: dims.width,
+        length: dims.length,
+        spacing: Number(state.settings?.partSpacing) || 0,
+      });
+    }
+
+    // Resets the form to workspace defaults and clears the editing ID, so a
+    // subsequent confirm creates a new sheet instead of overwriting one.
+    function resetSheetForm() {
+      state.editingSheetId = null;
+      setWidthMode(state.settings?.defaultSheetWidthMode || 'fixed');
+      const imperial = measurementSystem() === 'imperial';
+      setDimensions(
+        state.settings?.defaultSheetHeight || (imperial ? IMPERIAL_DEFAULT_WIDTH_MM : DEFAULT_WIDTH_MM),
+        state.settings?.defaultSheetLength || (imperial ? IMPERIAL_DEFAULT_LENGTH_MM : DEFAULT_LENGTH_MM),
+      );
+      dom.sheetMaterial.value = state.settings?.material || '';
+      dom.confirmSheet.textContent = t('sheet.add');
+      if (titleEl) titleEl.textContent = t('sheet.add');
+      pushStage();
+    }
+
+    function showDialog() {
+      dom.sheetModal.classList.add('open');
+      stage.snap();
+      stage.start();
+      stage.replay();
+    }
+
+    // Opens in add mode (defaults) or edit mode (pre-filled from a sheet).
+    // Only one sheet is supported, so add is a no-op when one exists.
     function openSheetEditor(sheetId = null) {
       if (!sheetId) {
         if (state.sheets.length >= 1) return;
         resetSheetForm();
-        dom.sheetModal.classList.add('open');
+        showDialog();
         return;
       }
 
@@ -99,57 +133,43 @@
       if (!sheet) return;
 
       state.editingSheetId = sheet.id;
-      dom.sheetWidthMode.value = sheet.widthMode || 'fixed';
-      if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
-      setLengthInput(dom.sheetHeight, sheet.height ?? 1250);
-      setLengthInput(dom.sheetWidth, sheet.width ?? (state.settings?.defaultSheetLength || 3000));
+      setWidthMode(sheet.widthMode || 'fixed');
+      setDimensions(sheet.height ?? DEFAULT_WIDTH_MM, sheet.width ?? (state.settings?.defaultSheetLength || DEFAULT_LENGTH_MM));
       dom.sheetMaterial.value = sheet.material || '';
       dom.confirmSheet.textContent = t('sheet.save');
-      updateSheetModeControls();
-      dom.sheetModal.classList.add('open');
+      if (titleEl) titleEl.textContent = tf('sheet.editTitle', 'Edit Sheet');
+      pushStage();
+      showDialog();
     }
 
-    // Closes the sheet modal and resets the form so the next open always starts clean.
     function closeSheetDialog() {
+      stage.stop();
       dom.sheetModal.classList.remove('open');
       resetSheetForm();
     }
 
-    // Disables the width input when "unlimited" mode is selected and updates the help text
-    // to explain what each mode means, then syncs the preset button highlights. Also
-    // reflects the current mode on the segmented control and adapts the length field's
-    // label and appearance so users see one input treatment per mode instead of a
-    // generic "Length" that means different things in different modes.
+    // Reflects the select's mode on the switch, the optimization toggle,
+    // the length field (∞ in unlimited), the help line and the preview.
     function updateSheetModeControls() {
       const mode = dom.sheetWidthMode.value;
-      const unlimited = mode === 'unlimited';
+      const uiMode = mode === 'unlimited' ? 'unlimited' : 'predefined';
 
-      dom.sheetWidth.disabled = unlimited;
+      modeSeg.dataset.active = uiMode;
+      modeBtns.forEach(btn => {
+        btn.setAttribute('aria-selected', btn.dataset.mode === uiMode ? 'true' : 'false');
+      });
+      setupEl.dataset.mode = uiMode;
+      setupEl.dataset.opt = mode === 'max' ? 'on' : 'off';
+      // Unlimited hides the toggle; leave it as-is so switching back to
+      // Predefined restores the user's choice.
+      if (mode !== 'unlimited') optCheck.checked = mode === 'max';
+      dom.sheetWidth.disabled = uiMode === 'unlimited';
 
-      if (unlimited) {
-        dom.sheetModeHelp.textContent = t('sheet.unlimitedHelp');
-      } else if (mode === 'max') {
-        dom.sheetModeHelp.textContent = t('sheet.maxHelp');
-      } else {
-        dom.sheetModeHelp.textContent = t('sheet.fixedHelp');
-      }
+      if (mode === 'unlimited') dom.sheetModeHelp.textContent = t('sheet.unlimitedHelp');
+      else if (mode === 'max') dom.sheetModeHelp.textContent = t('sheet.maxHelp');
+      else dom.sheetModeHelp.textContent = t('sheet.fixedHelp');
 
-      const lengthLabelEl = document.getElementById('sheetLengthLabel');
-      if (lengthLabelEl) {
-        lengthLabelEl.textContent = unlimited ? t('sheet.lengthInfinite') : (mode === 'max' ? t('sheet.upTo') : t('sheet.length'));
-      }
-      const lengthWrap = document.getElementById('sheetLengthWrap');
-      if (lengthWrap) lengthWrap.classList.toggle('length-infinite', unlimited);
-
-      const seg = document.getElementById('sheetModeSeg');
-      if (seg) {
-        seg.querySelectorAll('.sheet-mode-btn').forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.mode === mode);
-          btn.setAttribute('aria-selected', btn.dataset.mode === mode ? 'true' : 'false');
-        });
-      }
-
-      syncSheetPresetButtons();
+      pushStage();
     }
 
     function syncUnits() {
@@ -158,55 +178,49 @@
       document.querySelectorAll('#sheetModal [data-sheet-length-unit]').forEach(node => {
         node.textContent = label;
       });
-      dom.sheetWidth.step = system === 'imperial' ? '0.001' : '1';
-      dom.sheetHeight.step = system === 'imperial' ? '0.001' : '1';
-      dom.sheetWidth.min = system === 'imperial' ? '0.001' : '1';
-      dom.sheetHeight.min = system === 'imperial' ? '0.001' : '1';
-      document.querySelectorAll('.preset-btn').forEach((btn, index) => {
-        const preset = presetDimensions(index, system);
-        btn.dataset.h = String(preset.height);
-        btn.dataset.w = String(preset.width);
-        btn.textContent = preset.label;
+      const step = system === 'imperial' ? '0.001' : '1';
+      [dom.sheetWidth, dom.sheetHeight].forEach(input => {
+        input.step = step;
+        input.min = step;
       });
-
-      const editing = state.sheets.find(sheet => sheet.id === state.editingSheetId);
-      if (editing) {
-        setLengthInput(dom.sheetHeight, editing.height ?? 1250);
-        setLengthInput(dom.sheetWidth, editing.width ?? (state.settings?.defaultSheetLength || 3000));
-      } else if (!dom.sheetModal.classList.contains('open')) {
-        setDefaultSheetDimensions();
-      }
-      syncSheetPresetButtons();
+      stage.setFormatter(formatForStage);
+      setLengthInput(dom.sheetHeight, dims.width);
+      setLengthInput(dom.sheetWidth, dims.length);
     }
 
-    // Wires all modal interactions: open/close buttons, mode dropdown, width/height inputs for
-    // preset sync, preset button clicks, and the confirm button that creates or updates the sheet.
+    function onDimInput(key, input) {
+      const mm = readLengthInput(input);
+      if (!Number.isFinite(mm) || mm <= 0) return;
+      dims[key] = mm;
+      pushStage();
+    }
+
     function bind() {
       dom.addSheetBtnDialog.addEventListener('click', () => openSheetEditor());
       dom.closeSheet.addEventListener('click', closeSheetDialog);
       dom.cancelSheet.addEventListener('click', closeSheetDialog);
 
       dom.sheetWidthMode.addEventListener('change', updateSheetModeControls);
-      dom.sheetWidth.addEventListener('input', syncSheetPresetButtons);
-      dom.sheetHeight.addEventListener('input', syncSheetPresetButtons);
-
-      // Segmented mode buttons drive the hidden <select> so the rest of the
-      // code path (validation, persistence, existing helpers) is unchanged.
-      document.querySelectorAll('#sheetModeSeg .sheet-mode-btn').forEach(btn => {
+      modeBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-          dom.sheetWidthMode.value = btn.dataset.mode;
-          updateSheetModeControls();
+          if (btn.dataset.mode === 'unlimited') setWidthMode('unlimited');
+          else setWidthMode(optCheck.checked ? 'max' : 'fixed');
+        });
+      });
+      optCheck.addEventListener('change', () => setWidthMode(optCheck.checked ? 'max' : 'fixed'));
+
+      dom.sheetHeight.addEventListener('input', () => onDimInput('width', dom.sheetHeight));
+      dom.sheetWidth.addEventListener('input', () => onDimInput('length', dom.sheetWidth));
+      [dom.sheetHeight, dom.sheetWidth].forEach(input => {
+        input.addEventListener('blur', () => {
+          setLengthInput(dom.sheetHeight, dims.width);
+          setLengthInput(dom.sheetWidth, dims.length);
         });
       });
 
-      document.querySelectorAll('.preset-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          dom.sheetWidthMode.value = 'fixed';
-          if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
-          setLengthInput(dom.sheetWidth, Number(btn.dataset.w));
-          setLengthInput(dom.sheetHeight, Number(btn.dataset.h));
-          updateSheetModeControls();
-        });
+      globalScope.addEventListener('nest-language-changed', () => {
+        if (titleEl) titleEl.textContent = state.editingSheetId ? tf('sheet.editTitle', 'Edit Sheet') : t('sheet.add');
+        stage.refreshTranslations();
       });
 
       dom.confirmSheet.addEventListener('click', () => {

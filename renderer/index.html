@@ -7,6 +7,33 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Shared defs for the live sheet previews (onboarding-stage.js), used by
+       the setup assistant and the Add Sheet dialog. Kept outside both modals
+       so they still resolve while either one is hidden. -->
+  <svg class="ob-defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <pattern id="obWasteHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="7" class="ob-hatch-line"/>
+      </pattern>
+      <linearGradient id="obStripFade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="white"/>
+        <stop offset="1" stop-color="black"/>
+      </linearGradient>
+      <linearGradient id="obStripFadeIn" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="black"/>
+        <stop offset="1" stop-color="white"/>
+      </linearGradient>
+      <mask id="obStripMask" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="236">
+        <rect x="22" y="0" width="40" height="236" fill="url(#obStripFadeIn)"/>
+        <rect x="62" y="0" width="428" height="236" fill="white"/>
+        <rect x="490" y="0" width="100" height="236" fill="url(#obStripFade)"/>
+      </mask>
+      <radialGradient id="obHeadGlow" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" class="ob-glow-stop-a"/>
+        <stop offset="1" class="ob-glow-stop-b"/>
+      </radialGradient>
+    </defs>
+  </svg>
 
 <!-- ═══════════════════════════════════════════════════════
      EXPORT MODAL
@@ -468,28 +495,6 @@
         <div class="ob-setup" id="onboardingSetup" data-mode="predefined" data-opt="off">
           <div class="ob-stage" aria-hidden="true">
             <svg class="ob-stage-svg" id="onboardingStage" viewBox="0 0 600 236" preserveAspectRatio="xMidYMid meet">
-              <defs>
-                <pattern id="obWasteHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                  <line x1="0" y1="0" x2="0" y2="7" class="ob-hatch-line"/>
-                </pattern>
-                <linearGradient id="obStripFade" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stop-color="white"/>
-                  <stop offset="1" stop-color="black"/>
-                </linearGradient>
-                <linearGradient id="obStripFadeIn" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stop-color="black"/>
-                  <stop offset="1" stop-color="white"/>
-                </linearGradient>
-                <mask id="obStripMask" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="236">
-                  <rect x="22" y="0" width="40" height="236" fill="url(#obStripFadeIn)"/>
-                  <rect x="62" y="0" width="428" height="236" fill="white"/>
-                  <rect x="490" y="0" width="100" height="236" fill="url(#obStripFade)"/>
-                </mask>
-                <radialGradient id="obHeadGlow" cx="0.5" cy="0.5" r="0.5">
-                  <stop offset="0" class="ob-glow-stop-a"/>
-                  <stop offset="1" class="ob-glow-stop-b"/>
-                </radialGradient>
-              </defs>
               <g id="onboardingStageScene"></g>
             </svg>
             <div class="ob-stage-badge" id="onboardingStageBadge">
@@ -664,7 +669,7 @@
             <rect x="1" y="9" width="5" height="12" rx="1.5" fill="#4f8ef7" opacity="0.5"/>
             <rect x="8" y="12" width="13" height="9" rx="1.5" fill="#4f8ef7" opacity="0.85"/>
           </svg>
-          <span class="app-name" data-i18n="sheet.add">Add Sheet</span>
+          <span class="app-name" id="sheetModalTitle" data-i18n="sheet.add">Add Sheet</span>
         </div>
       </span>
       <button class="modal-close" id="closeSheet" type="button" aria-label="Close sheet settings" data-i18n-aria-label="sheet.close">
@@ -673,146 +678,92 @@
         </svg>
       </button>
     </div>
-    <div class="modal-body">
-      <div class="settings-section">
-        <div class="settings-section-title" data-i18n="sheet.presetSizes">Preset sizes</div>
-        <div class="sheet-presets">
-          <button class="preset-btn" data-w="3000" data-h="1250">1250 x 3000</button>
-          <button class="preset-btn" data-w="3000" data-h="1500">1500 x 3000</button>
-          <button class="preset-btn" data-w="4000" data-h="2000">2000 x 4000</button>
-          <button class="preset-btn" data-w="6000" data-h="2000">2000 x 6000</button>
-        </div>
-      </div>
-      <div class="settings-section">
-        <div class="settings-section-title" data-i18n="sheet.dimensions">Dimensions</div>
-        <select id="sheetWidthMode" hidden>
-          <option value="fixed" selected data-i18n="sheet.fixedSize">Fixed size sheet</option>
-          <option value="max" data-i18n="sheet.maxSize">Optimize up to max length</option>
-          <option value="unlimited" data-i18n="sheet.unlimitedSize">Unlimited strip length</option>
-        </select>
-        <!-- Illustrated mode tiles. Each tile shows a mini-preview of how the
-             sheet behaves under that mode so first-time users can read the
-             behaviour at a glance rather than decoding "Fixed / Up to /
-             Unlimited" strings. The SVGs use `currentColor` for strokes so
-             the tile's own text color propagates (muted idle, accent on
-             select). Hover animations live in CSS; see .sheet-mode-tile. -->
-        <div class="sheet-mode-seg sheet-mode-tiles" id="sheetModeSeg" role="tablist" aria-label="Sheet mode" data-i18n-aria-label="sheet.mode">
-          <!-- Fixed: solid border, parts packed inside. Hover subtly "settles"
-               each part from a 2px vertical offset. -->
-          <button class="sheet-mode-btn sheet-mode-tile" data-mode="fixed" type="button" role="tab">
-            <div class="sheet-mode-art" aria-hidden="true">
-              <svg viewBox="0 0 120 60" fill="none">
-                <rect x="4" y="8" width="112" height="44" rx="2.5"
-                      stroke="currentColor" stroke-width="1.5"/>
-                <g class="mode-parts" fill="#4f8ef7" fill-opacity="0.55">
-                  <rect class="mode-part" x="10" y="14" width="18" height="12" rx="1"/>
-                  <rect class="mode-part" x="30" y="14" width="24" height="12" rx="1"/>
-                  <rect class="mode-part" x="56" y="14" width="20" height="12" rx="1"/>
-                  <rect class="mode-part" x="78" y="14" width="30" height="12" rx="1"/>
-                  <rect class="mode-part" x="10" y="30" width="26" height="16" rx="1"/>
-                  <rect class="mode-part" x="38" y="30" width="36" height="16" rx="1"/>
-                  <rect class="mode-part" x="76" y="30" width="32" height="16" rx="1"/>
-                </g>
-              </svg>
-            </div>
-            <span class="sheet-mode-tile-name" data-i18n="sheet.fixed">Fixed</span>
-            <span class="sheet-mode-tile-hint" data-i18n="sheet.fixedHint">Parts must fit inside</span>
-          </button>
-
-          <!-- Up to max: dashed cap rectangle + solid actual rectangle inside
-               + chevron showing the gap. Hover shrinks the actual rectangle
-               slightly to communicate "optimization in progress". -->
-          <button class="sheet-mode-btn sheet-mode-tile" data-mode="max" type="button" role="tab">
-            <div class="sheet-mode-art" aria-hidden="true">
-              <svg viewBox="0 0 120 60" fill="none">
-                <rect x="4" y="8" width="112" height="44" rx="2.5"
-                      stroke="currentColor" stroke-width="1.5"
-                      stroke-dasharray="3.2 2.4" opacity="0.45"/>
-                <g class="mode-actual">
-                  <rect x="4" y="8" width="78" height="44" rx="2.5"
-                        stroke="currentColor" stroke-width="1.5"/>
-                  <g class="mode-parts" fill="#4f8ef7" fill-opacity="0.55">
-                    <rect x="10" y="14" width="20" height="12" rx="1"/>
-                    <rect x="32" y="14" width="16" height="12" rx="1"/>
-                    <rect x="50" y="14" width="26" height="12" rx="1"/>
-                    <rect x="10" y="30" width="28" height="16" rx="1"/>
-                    <rect x="40" y="30" width="34" height="16" rx="1"/>
-                  </g>
-                </g>
-                <path class="mode-chevron" d="M89 26 L94 30 L89 34"
-                      stroke="currentColor" stroke-width="1.4"
-                      stroke-linecap="round" stroke-linejoin="round"
-                      opacity="0.5"/>
-              </svg>
-            </div>
-            <span class="sheet-mode-tile-name" data-i18n="sheet.upTo">Up to</span>
-            <span class="sheet-mode-tile-hint" data-i18n="sheet.maxHint">Minimize waste up to a cap</span>
-          </button>
-
-          <!-- Unlimited: three-sided rectangle (no right edge), parts packed
-               along the strip, fade-to-transparent overlay + arrow on the
-               right. Hover slides a new part in from the right. -->
-          <button class="sheet-mode-btn sheet-mode-tile" data-mode="unlimited" type="button" role="tab">
-            <div class="sheet-mode-art" aria-hidden="true">
-              <svg viewBox="0 0 120 60" fill="none">
-                <defs>
-                  <!-- Mask fades parts out as the strip extends past the
-                       visible edge. Explicit white→black (not currentColor)
-                       because mask luminance ignores the parent paint. -->
-                  <linearGradient id="sheetModeUnlimFade" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stop-color="white"/>
-                    <stop offset="100%" stop-color="black"/>
-                  </linearGradient>
-                  <mask id="sheetModeUnlimFadeMask" maskUnits="userSpaceOnUse"
-                        x="0" y="0" width="120" height="60">
-                    <rect width="92" height="60" fill="white"/>
-                    <rect x="92" y="0" width="28" height="60" fill="url(#sheetModeUnlimFade)"/>
-                  </mask>
-                </defs>
-                <path d="M4 8 L112 8 M4 52 L112 52 M4 8 L4 52"
-                      stroke="currentColor" stroke-width="1.5"
-                      stroke-linecap="round"/>
-                <g class="mode-parts" fill="#4f8ef7" fill-opacity="0.55"
-                   mask="url(#sheetModeUnlimFadeMask)">
-                  <rect class="mode-part-fixed" x="10" y="14" width="18" height="12" rx="1"/>
-                  <rect class="mode-part-fixed" x="30" y="14" width="24" height="12" rx="1"/>
-                  <rect class="mode-part-fixed" x="56" y="14" width="20" height="12" rx="1"/>
-                  <rect class="mode-part-fixed" x="78" y="14" width="30" height="12" rx="1"/>
-                  <rect class="mode-part-fixed" x="10" y="30" width="30" height="16" rx="1"/>
-                  <rect class="mode-part-fixed" x="42" y="30" width="24" height="16" rx="1"/>
-                  <rect class="mode-part-slide" x="68" y="30" width="40" height="16" rx="1"/>
-                </g>
-                <path class="mode-arrow" d="M100 30 L114 30 M108 25 L114 30 L108 35"
-                      stroke="currentColor" stroke-width="1.5"
-                      stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <span class="sheet-mode-tile-name" data-i18n="sheet.unlimited">Unlimited</span>
-            <span class="sheet-mode-tile-hint" data-i18n="sheet.unlimitedHint">Strip grows as needed</span>
-          </button>
-        </div>
-        <div class="sheet-field-head">
-          <span data-i18n="sheet.width">Width</span>
-          <span id="sheetLengthLabel" data-i18n="sheet.length">Length</span>
-        </div>
-        <div class="sheet-dims-row">
-          <div class="input-with-unit">
-            <input type="number" id="sheetHeight" placeholder="Width" value="1250" min="1" data-i18n-placeholder="sheet.width" />
-            <span class="unit" data-sheet-length-unit>mm</span>
-          </div>
-          <span class="dims-sep">×</span>
-          <div class="input-with-unit" id="sheetLengthWrap">
-            <input type="number" id="sheetWidth" placeholder="Length" value="3000" min="1" data-i18n-placeholder="sheet.length" />
-            <span class="unit" data-sheet-length-unit>mm</span>
+    <!-- Same building blocks as setup assistant step 3. The hidden select
+         stays the source of truth for widthMode (fixed / max / unlimited);
+         the Predefined/Unlimited switch plus the optimization toggle map
+         onto it in sheet-modal.js. Note the app's naming: #sheetWidth is
+         the LENGTH along the strip, #sheetHeight is the material WIDTH. -->
+    <div class="modal-body sheet-body">
+      <select id="sheetWidthMode" hidden>
+        <option value="fixed" selected data-i18n="sheet.fixedSize">Fixed size sheet</option>
+        <option value="max" data-i18n="sheet.maxSize">Optimize up to max length</option>
+        <option value="unlimited" data-i18n="sheet.unlimitedSize">Unlimited strip length</option>
+      </select>
+      <div class="ob-setup" id="sheetSetup" data-mode="predefined" data-opt="off">
+        <div class="ob-stage" aria-hidden="true">
+          <svg class="ob-stage-svg" viewBox="0 0 600 236" preserveAspectRatio="xMidYMid meet">
+            <g id="sheetStageScene"></g>
+          </svg>
+          <div class="ob-stage-badge" id="sheetStageBadge">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="4" cy="4.5" r="2"/><circle cx="4" cy="11.5" r="2"/><path d="M5.6 5.6 14 12M5.6 10.4 14 4"/>
+            </svg>
+            <span id="sheetStageBadgeText"></span>
           </div>
         </div>
-        <div class="sheet-help" id="sheetModeHelp" data-i18n="sheet.automaticHelp">
-          The algorithm will calculate the number of sheets automatically.
+
+        <div class="ob-seg ob-seg-mode" id="sheetModeSeg" role="tablist" data-active="predefined" aria-label="Sheet mode" data-i18n-aria-label="sheet.mode">
+          <span class="ob-seg-thumb" aria-hidden="true"></span>
+          <button type="button" class="ob-seg-btn" data-mode="predefined" role="tab">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2.5" y="5" width="15" height="10" rx="1.5"/>
+              <rect x="5" y="7.5" width="4" height="5" rx=".6" fill="currentColor" stroke="none" opacity=".55"/>
+              <rect x="10.5" y="7.5" width="4.5" height="5" rx=".6" fill="currentColor" stroke="none" opacity=".55"/>
+            </svg>
+            <span data-i18n="sheet.predefined">Predefined</span>
+          </button>
+          <button type="button" class="ob-seg-btn" data-mode="unlimited" role="tab">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M13 5H2.5v10H13"/>
+              <path d="M15 7.5 17.5 10 15 12.5M11 10h6.5"/>
+            </svg>
+            <span data-i18n="sheet.unlimited">Unlimited</span>
+          </button>
         </div>
-        <div class="setting-row" style="margin-top:12px;">
-          <label data-i18n="sheet.material">Material</label>
-          <input type="text" id="sheetMaterial" placeholder="e.g. Mild Steel 3mm" data-i18n-placeholder="sheet.materialPlaceholder" style="flex:1;margin-left:12px;" />
+        <div class="ob-mode-desc">
+          <span data-for="predefined" data-i18n="sheet.predefinedHint">Predefined width and length</span>
+          <span data-for="unlimited" data-i18n="sheet.unlimitedHint">The strip grows unlimited</span>
         </div>
+
+        <div class="ob-dims">
+          <label class="ob-num">
+            <span class="ob-num-label" data-i18n="sheet.width">Width</span>
+            <span class="ob-num-row">
+              <input type="number" id="sheetHeight" value="1250" min="1" step="any" inputmode="decimal" />
+              <span class="ob-num-unit" data-sheet-length-unit>mm</span>
+            </span>
+          </label>
+          <span class="ob-dims-x" aria-hidden="true">×</span>
+          <label class="ob-num ob-num-length">
+            <span class="ob-num-label" data-i18n="sheet.length">Length</span>
+            <span class="ob-num-row">
+              <input type="number" id="sheetWidth" value="3000" min="1" step="any" inputmode="decimal" />
+              <span class="ob-num-unit" data-sheet-length-unit>mm</span>
+              <span class="ob-num-inf" aria-hidden="true">∞</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="ob-collapse ob-collapse-opt">
+          <div class="ob-collapse-inner">
+            <label class="ob-switch-row">
+              <span class="ob-switch-text">
+                <span class="ob-switch-title" data-i18n="onboarding.allowLengthOpt">Allow length optimization</span>
+                <span class="ob-switch-hint" data-i18n="onboarding.allowLengthOptHint">Trim unused length while parts still fit.</span>
+              </span>
+              <input type="checkbox" id="sheetAllowLengthOpt" class="ob-switch-input" />
+              <span class="ob-switch" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+
+        <label class="ob-num ob-num-text">
+          <span class="ob-num-label" data-i18n="sheet.material">Material</span>
+          <span class="ob-num-row">
+            <input type="text" id="sheetMaterial" placeholder="e.g. Mild Steel 3mm" data-i18n-placeholder="sheet.materialPlaceholder" />
+          </span>
+        </label>
+        <div class="ob-footnote" id="sheetModeHelp" data-i18n="sheet.automaticHelp">The algorithm will calculate the number of sheets automatically.</div>
       </div>
     </div>
     <div class="modal-footer">
