@@ -55,7 +55,6 @@ readme-macos.txt
 .vscode/
 server.code-workspace
 .claude
-.github
 
 dist/
 etc/

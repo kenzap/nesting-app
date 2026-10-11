@@ -172,6 +172,35 @@ npm run dev
 | Windows AppX / MSIX (Microsoft Store) | `npm run dist:appx` |
 | Ubuntu Snap | `npm run dist:snap` |
 
+### Windows Store build from GitHub
+
+The **Windows Store Build** workflow builds an x64 Microsoft Store package on a
+standard GitHub-hosted Windows runner. It is **manual-only**: creating a release,
+pushing a commit, or opening a pull request does not start it automatically.
+
+Once `.github/workflows/windows-store.yml` is pushed to the repository's default
+branch (`main`):
+
+1. Open the repository's **Actions** tab and select **Windows Store Build**.
+2. Click **Run workflow**, choose the branch to build, and confirm.
+3. After the run succeeds, download the artifact from the run's **Artifacts** section.
+4. Extract the downloaded ZIP and upload the `.appxupload` file to Microsoft Partner Center.
+
+The download includes the `.appx`, `.appxupload`, and `SHA256SUMS.txt` files and is
+retained for **7 days**. The run summary includes the app version, source commit,
+and bundled Windows helper checksum. No GitHub release or Store submission is
+created, and no Store credentials or signing certificates are required for this
+Store-only build. Standard runner execution is free for public repositories;
+artifact storage remains subject to GitHub's account limits.
+
+The workflow checks translations and regressions and verifies that the bundled
+Windows helper starts. It packages the checked-in `native/windows/bin/sparrow.exe`
+without recompiling it, so update that binary separately when the native engine
+changes. The app version comes from `package.json`; increase it before submitting
+a Store update. These checks do not replace testing the packaged app on Windows
+or Microsoft Store certification. The unsigned `.appx` is not ready for direct
+sideloading without separate test signing.
+
 ### Notes
 
 - Build examples above are tested on macOS Apple Silicon. To cross-compile from Windows to macOS, parameter adjustments may be necessary.

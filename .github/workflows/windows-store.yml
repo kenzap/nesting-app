@@ -1,0 +1,132 @@
+name: Windows Store Build
+run-name: Windows Store build from ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-store-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Windows Store package (x64)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CI: 'true'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Preserve repository line endings
+        run: git config --global core.autocrlf false
+
+      - name: Check out selected revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify translations
+        run: npm run verify:i18n
+
+      - name: Check onboarding localization
+        run: npm run test:onboarding-localization
+
+      - name: Check nesting previews
+        run: npm run test:nesting-previews
+
+      - name: Check preferred alignment
+        run: npm run test:preferred-alignment
+
+      - name: Check DXF grouping
+        run: npm run test:dxf-grouping
+
+      - name: Check source contours
+        run: npm run test:source-contour
+
+      - name: Check shared edges
+        run: npm run test:shared-edges
+
+      - name: Check DXF shared-edge export
+        run: npm run test:dxf-shared-edges
+
+      - name: Verify bundled Windows helper
+        run: npm run preflight:win-helpers
+
+      - name: Verify AppX build host
+        run: npm run preflight:appx-host
+
+      - name: Build AppX without publishing
+        run: npx electron-builder --win appx --x64 --publish never
+
+      - name: Create upload archive and checksums
+        run: |
+          $packages = @(Get-ChildItem -LiteralPath dist -Filter '*.appx' -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one AppX package, found $($packages.Count)."
+          }
+          $package = $packages[0]
+          if ($package.Length -eq 0) { throw 'The AppX package is empty.' }
+
+          node scripts/make-appxupload.js $package.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $uploadPath = [System.IO.Path]::ChangeExtension($package.FullName, '.appxupload')
+          $upload = Get-Item -LiteralPath $uploadPath
+          if ($upload.Length -eq 0) { throw 'The AppX upload archive is empty.' }
+
+          $checksums = @($package, $upload) | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $checksums | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding utf8
+
+      - name: Upload Windows Store build
+        id: artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kenzap-nesting-windows-store-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            dist/*.appx
+            dist/*.appxupload
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Add download instructions
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $helperHash = (Get-FileHash -LiteralPath native/windows/bin/sparrow.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          @"
+          ## Windows Store build
+
+          - App version: $version
+          - Architecture: x64
+          - Source commit: $env:GITHUB_SHA
+          - Bundled Windows helper SHA-256: $helperHash
+          - [Download build files]($env:ARTIFACT_URL) (available for 7 days).
+
+          Extract the downloaded artifact ZIP and upload the .appxupload file to Microsoft Partner Center.
+          The .appx file and SHA256SUMS.txt are included separately.
+          This is an unsigned Store-only package, not a signed installer for direct distribution.
+          Nothing was published to GitHub Releases or submitted to Microsoft Store.
+          "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
