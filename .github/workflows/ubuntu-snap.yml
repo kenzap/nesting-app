@@ -67,6 +67,9 @@ jobs:
       - name: Check DXF shared-edge export
         run: npm run test:dxf-shared-edges
 
+      - name: Check Snap desktop launcher staging
+        run: npm run test:snap-packaging
+
       - name: Set up LXD
         uses: canonical/setup-lxd@e3ef25fc529b40aa403b264cdf44e7882b361164
         with:
@@ -103,10 +106,14 @@ jobs:
           verification_dir="$(mktemp -d)"
           trap 'rm -rf "$verification_dir"' EXIT
           unsquashfs -no-progress -d "$verification_dir" "$package" \
-            app/resources/native/linux/bin/sparrow meta/snap.yaml
+            app/resources/native/linux/bin/sparrow meta/snap.yaml meta/gui
           packaged_helper="$verification_dir/app/resources/native/linux/bin/sparrow"
           test -x "$packaged_helper"
           "$packaged_helper" --help > /dev/null
+          test -s "$verification_dir/meta/gui/kenzap-nesting.desktop"
+          test -s "$verification_dir/meta/gui/kenzap-nesting.png"
+          grep -Fx 'Exec=kenzap-nesting %U' "$verification_dir/meta/gui/kenzap-nesting.desktop"
+          grep -Fx "Icon=\${SNAP}/meta/gui/kenzap-nesting.png" "$verification_dir/meta/gui/kenzap-nesting.desktop"
 
           app_version="$(node -p "require('./package.json').version")"
           helper_hash="$(sha256sum native/linux/bin/sparrow | cut -d ' ' -f1)"
@@ -174,5 +181,6 @@ jobs:
             ~/.local/state/snapcraft/log/
             dist/builder-effective-config.yaml
             dist/__snap-x64/snap/snapcraft.yaml
+            dist/__snap-x64/snap/gui/
           if-no-files-found: ignore
           retention-days: 7

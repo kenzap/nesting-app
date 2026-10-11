@@ -223,7 +223,13 @@ available Snapcraft logs and generated build configuration for troubleshooting.
 The workflow reuses the existing `core24`, GNOME, and strict-confinement
 configuration in `package.json`, setting up Snapcraft and LXD on the runner.
 It checks translations and regressions, verifies the Linux helper starts, and
-checks that the finished Snap contains an executable Sparrow helper that starts.
+checks that the finished Snap contains its desktop launcher, icon, and an
+executable Sparrow helper that starts. `npm run dist:snap` uses a Snap-only
+wrapper to work around electron-builder's core24 desktop-file path mismatch:
+Snapcraft uses the generated `snap/gui` files instead of looking for an entry
+that is not yet present in `prime/meta/gui`. This does not modify installed
+dependencies or change other platform builds. `npm run test:snap-packaging`
+checks the generated manifest and launcher staging without running Snapcraft.
 It packages the **checked-in** `native/linux/bin/sparrow` without compiling Rust
 or downloading the engine source. Commit and push any updated Linux helper
 before building; local-only changes are not included. No Snap Store credentials

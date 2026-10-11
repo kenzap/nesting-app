@@ -19,6 +19,7 @@
     "test:shared-edges:native": "node scripts/test-shared-edges-native.js",
     "verify:i18n": "node scripts/verify-locales.js",
     "test:onboarding-localization": "node scripts/test-onboarding-localization.js",
+    "test:snap-packaging": "node scripts/test-snap-packaging.js",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",
     "preflight:win-helpers": "node scripts/verify-win-helpers.js",
@@ -31,7 +32,7 @@
     "dist:mas": "npm run preflight:mac-helpers && electron-builder --mac mas",
     "dist:mas-dev-app": "npm run preflight:mac-helpers && electron-builder --mac mas-dev --dir",
     "dist:mas-dev": "npm run preflight:mac-helpers && electron-builder --mac mas-dev",
-    "dist:snap": "npm run preflight:linux-helpers && electron-builder --linux snap",
+    "dist:snap": "npm run preflight:linux-helpers && node scripts/build-snap.js --linux snap",
     "dist:win": "npm run preflight:win-helpers && electron-builder --win nsis",
     "dist:win-portable": "npm run preflight:win-helpers && electron-builder --win portable",
     "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && electron-builder --win appx --x64 && npm run appx:upload"
