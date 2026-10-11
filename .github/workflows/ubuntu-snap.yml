@@ -1,0 +1,178 @@
+name: Ubuntu Snap Build
+run-name: Ubuntu Snap build from ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ubuntu-snap-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Ubuntu Snap package (x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      SNAPCRAFT_BUILD_INFO: '1'
+
+    steps:
+      - name: Check out selected revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify bundled Linux helper
+        run: npm run preflight:linux-helpers
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify translations
+        run: npm run verify:i18n
+
+      - name: Check onboarding localization
+        run: npm run test:onboarding-localization
+
+      - name: Check nesting previews
+        run: npm run test:nesting-previews
+
+      - name: Check preferred alignment
+        run: npm run test:preferred-alignment
+
+      - name: Check DXF grouping
+        run: npm run test:dxf-grouping
+
+      - name: Check source contours
+        run: npm run test:source-contour
+
+      - name: Check shared edges
+        run: npm run test:shared-edges
+
+      - name: Check DXF shared-edge export
+        run: npm run test:dxf-shared-edges
+
+      - name: Set up LXD
+        uses: canonical/setup-lxd@e3ef25fc529b40aa403b264cdf44e7882b361164
+        with:
+          channel: 5.21/stable
+          group: adm
+
+      - name: Install Snapcraft and package verification tools
+        run: |
+          if snap list snapcraft > /dev/null 2>&1; then
+            sudo snap refresh snapcraft --channel=latest/stable
+          else
+            sudo snap install snapcraft --classic --channel=latest/stable
+          fi
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y squashfs-tools
+          snapcraft --version
+          lxc list
+
+      - name: Build Snap without publishing
+        run: npm run dist:snap -- --x64 --publish never
+
+      - name: Verify finished Snap and create checksums
+        id: package
+        run: |
+          shopt -s nullglob
+          packages=(dist/*.snap)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            printf 'Expected exactly one Snap package, found %s.\n' "${#packages[@]}" >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+          test -s "$package"
+
+          verification_dir="$(mktemp -d)"
+          trap 'rm -rf "$verification_dir"' EXIT
+          unsquashfs -no-progress -d "$verification_dir" "$package" \
+            app/resources/native/linux/bin/sparrow meta/snap.yaml
+          packaged_helper="$verification_dir/app/resources/native/linux/bin/sparrow"
+          test -x "$packaged_helper"
+          "$packaged_helper" --help > /dev/null
+
+          app_version="$(node -p "require('./package.json').version")"
+          helper_hash="$(sha256sum native/linux/bin/sparrow | cut -d ' ' -f1)"
+          packaged_helper_hash="$(sha256sum "$packaged_helper" | cut -d ' ' -f1)"
+          {
+            printf 'App version: %s\n' "$app_version"
+            printf 'Architecture: x64 (amd64)\n'
+            printf 'Source commit: %s\n' "$GITHUB_SHA"
+            printf 'Source ref: %s\n' "$GITHUB_REF_NAME"
+            printf 'Bundled Linux helper SHA-256: %s\n' "$helper_hash"
+            printf 'Packaged Linux helper SHA-256: %s\n' "$packaged_helper_hash"
+            node --version
+            node -p "'Electron: ' + require('electron/package.json').version"
+            node -p "'electron-builder: ' + require('electron-builder/package.json').version"
+            snapcraft --version
+          } > dist/BUILD-INFO.txt
+          (
+            cd dist
+            sha256sum -- "${package##*/}" BUILD-INFO.txt > SHA256SUMS.txt
+          )
+          printf 'version=%s\n' "$app_version" >> "$GITHUB_OUTPUT"
+          printf 'helper_hash=%s\n' "$packaged_helper_hash" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Ubuntu Snap build
+        id: artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kenzap-nesting-ubuntu-snap-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            dist/*.snap
+            dist/BUILD-INFO.txt
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Add download instructions
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          APP_VERSION: ${{ steps.package.outputs.version }}
+          HELPER_HASH: ${{ steps.package.outputs.helper_hash }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Ubuntu Snap build
+
+          - App version: $APP_VERSION
+          - Architecture: x64 (amd64)
+          - Source commit: $GITHUB_SHA
+          - Packaged Linux helper SHA-256: $HELPER_HASH
+          - [Download build files]($ARTIFACT_URL) (available for 7 days).
+
+          Extract the downloaded artifact ZIP and test the .snap on Ubuntu before uploading it to the Snap Store.
+          BUILD-INFO.txt and SHA256SUMS.txt are included separately.
+          The checked-in Linux Sparrow helper was packaged without recompiling it.
+          These checks do not replace testing the installed desktop app.
+          Nothing was published to GitHub Releases or submitted to the Snap Store.
+          EOF
+
+      - name: Upload diagnostics if the build fails
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kenzap-nesting-ubuntu-snap-logs-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            ~/.local/state/snapcraft/log/
+            dist/builder-effective-config.yaml
+            dist/__snap-x64/snap/snapcraft.yaml
+          if-no-files-found: ignore
+          retention-days: 7

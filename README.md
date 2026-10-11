@@ -201,6 +201,36 @@ a Store update. These checks do not replace testing the packaged app on Windows
 or Microsoft Store certification. The unsigned `.appx` is not ready for direct
 sideloading without separate test signing.
 
+### Ubuntu Snap build from GitHub
+
+The **Ubuntu Snap Build** workflow packages the app as an x64 Snap on a
+GitHub-hosted Ubuntu 24.04 runner. Like the Windows workflow, it is
+**manual-only** and does not publish to the Snap Store or GitHub Releases.
+
+Once `.github/workflows/ubuntu-snap.yml` is pushed to the default branch (`main`):
+
+1. Open **Actions** and select **Ubuntu Snap Build**.
+2. Click **Run workflow**, choose the branch to build, and confirm.
+3. Download the successful run's artifact and extract its ZIP.
+4. Test the `.snap` on Ubuntu, then upload it to the Snap Store using your usual publishing process.
+
+The artifact includes the `.snap`, `BUILD-INFO.txt`, and `SHA256SUMS.txt` and is
+retained for **7 days**. Run `sha256sum --check SHA256SUMS.txt` from the extracted
+folder to verify the download. Build information records the app version, source
+commit, tool versions, and Linux helper checksums. Failed runs also upload any
+available Snapcraft logs and generated build configuration for troubleshooting.
+
+The workflow reuses the existing `core24`, GNOME, and strict-confinement
+configuration in `package.json`, setting up Snapcraft and LXD on the runner.
+It checks translations and regressions, verifies the Linux helper starts, and
+checks that the finished Snap contains an executable Sparrow helper that starts.
+It packages the **checked-in** `native/linux/bin/sparrow` without compiling Rust
+or downloading the engine source. Commit and push any updated Linux helper
+before building; local-only changes are not included. No Snap Store credentials
+are required to build. These checks do not replace testing the installed app on
+Ubuntu or Snap Store review. Increase the version in `package.json` before a
+Store update.
+
 ### Notes
 
 - Build examples above are tested on macOS Apple Silicon. To cross-compile from Windows to macOS, parameter adjustments may be necessary.
