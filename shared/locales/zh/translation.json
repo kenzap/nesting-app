@@ -162,6 +162,7 @@
   },
   "sheet": {
     "add": "添加板材",
+    "editTitle": "编辑板材",
     "save": "保存板材",
     "close": "关闭板材设置",
     "fixedSize": "固定尺寸板材",

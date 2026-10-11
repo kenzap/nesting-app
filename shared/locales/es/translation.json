@@ -164,6 +164,7 @@
   },
   "sheet": {
     "add": "Añadir hoja",
+    "editTitle": "Editar hoja",
     "save": "Guardar hoja",
     "close": "Cerrar configuración de la hoja",
     "fixedSize": "Hoja de tamaño fijo",

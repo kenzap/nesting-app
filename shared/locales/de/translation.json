@@ -162,6 +162,7 @@
   },
   "sheet": {
     "add": "Tafel hinzufügen",
+    "editTitle": "Tafel bearbeiten",
     "save": "Tafel speichern",
     "close": "Tafeleinstellungen schließen",
     "fixedSize": "Tafel mit fester Größe",

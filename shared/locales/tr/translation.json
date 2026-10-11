@@ -162,6 +162,7 @@
   },
   "sheet": {
     "add": "Levha Ekle",
+    "editTitle": "Levha Düzenle",
     "save": "Levha Kaydet",
     "close": "Levha ayarlarını kapat",
     "fixedSize": "Sabit boyutlu levha",

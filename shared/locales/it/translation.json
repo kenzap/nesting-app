@@ -164,6 +164,7 @@
   },
   "sheet": {
     "add": "Aggiungi foglio",
+    "editTitle": "Modifica foglio",
     "save": "Salva foglio",
     "close": "Chiudi impostazioni foglio",
     "fixedSize": "Foglio di dimensioni fisse",

@@ -166,6 +166,7 @@
   },
   "sheet": {
     "add": "Dodaj arkusz",
+    "editTitle": "Edytuj arkusz",
     "save": "Zapisz arkusz",
     "close": "Zamknij ustawienia arkusza",
     "fixedSize": "Arkusz o stałym rozmiarze",

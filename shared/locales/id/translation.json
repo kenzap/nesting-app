@@ -162,6 +162,7 @@
   },
   "sheet": {
     "add": "Tambah lembar",
+    "editTitle": "Edit lembar",
     "save": "Simpan lembar",
     "close": "Tutup pengaturan lembar",
     "fixedSize": "Lembar ukuran tetap",

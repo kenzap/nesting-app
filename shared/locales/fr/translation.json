@@ -164,6 +164,7 @@
   },
   "sheet": {
     "add": "Ajouter une tôle",
+    "editTitle": "Modifier la tôle",
     "save": "Enregistrer la tôle",
     "close": "Fermer les paramètres de la tôle",
     "fixedSize": "Tôle de taille fixe",
