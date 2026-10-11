@@ -166,7 +166,7 @@
     // Reads the form, normalises the values, saves them to state, and writes through to disk via Electron IPC.
     // Throws if the IPC bridge reports a failure so the caller can surface the error.
     async function persistCurrentSettings() {
-      state.settings = normalizeDialogSettings(collectSettingsFromDialog());
+      state.settings = normalizeDialogSettings({ ...state.settings, ...collectSettingsFromDialog() });
       applySettingsToDialog(state.settings);
       if (!window.electronAPI?.saveAppSettings) return;
       const result = await window.electronAPI.saveAppSettings(state.settings);

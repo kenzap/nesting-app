@@ -231,6 +231,24 @@ const settingsModalApi = window.NestSettingsModal.createSettingsModal({
     if (state.nestResult && state.sheets.length) canvasViewApi.showNestResult(state.activeStripIndex || 0);
   },
 });
+
+// Onboarding modal — first-launch wizard that collects a material pick +
+// optional feedback opt-in. Opens from `bootstrapRenderer()` at the bottom
+// of this file; re-openable in future via `onboardingModalApi.open({ force: true })`
+// if we add a "Setup assistant" entry to the main Settings modal.
+const onboardingModalApi = window.NestOnboardingModal?.createOnboardingModal?.({
+  state,
+  dom,
+  onApplied: () => {
+    // Refresh the updated sheet and workspace defaults, then persist the job.
+    sheetsPaneApi?.renderSheets();
+    sheetModalApi?.syncUnits();
+    measureToolApi?.onUnitsChanged();
+    exportServiceApi?.refreshUnits();
+    settingsModalApi.applySettingsToDialog(state.settings);
+    schedulePersistJobState();
+  },
+});
 window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
   if (action === 'open-settings') settingsModalApi.open();
   else if (action === 'toggle-measure') measureToolApi.toggle();
@@ -757,4 +775,20 @@ function bindOverlayClose() {
   filesPaneApi.renderFiles();
   sheetsPaneApi.renderSheets();
   exportServiceApi.syncExportButton();
+
+  // First-launch onboarding — opens the modal only if the user hasn't
+  // completed (or skipped) it before. The modal applies a material preset
+  // to settings and seeds the first sheet when the workspace is empty.
+  // Re-renders fire via the modal's `onApplied` callback so the user
+  // sees their new defaults instantly rather than on next launch.
+  onboardingModalApi?.open();
+
+  // "Setup assistant" row in Settings → Privacy re-opens the onboarding
+  // modal in force mode (ignores `onboardingCompleted`). Used when the
+  // user switches materials or wants to redo the opt-in choices.
+  const reopenOnboardingBtn = document.getElementById('reopenOnboarding');
+  reopenOnboardingBtn?.addEventListener('click', () => {
+    settingsModalApi.close?.();
+    onboardingModalApi?.open({ force: true });
+  });
 })();

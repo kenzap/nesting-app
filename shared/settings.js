@@ -100,7 +100,30 @@
     colorPartsBySource: true,
     showCursorCoords: true,
     automaticCrashReporting: false,
+    // Onboarding state. `onboardingCompleted` gates the first-launch modal
+    // so it never re-pesters a user who already picked (or skipped). The
+    // remaining fields capture their choices, including the opt-in
+    // flags and email that drive the Netlify form submission in
+    // `main/ipc/feedback.js`. All default to the privacy-safe "no data
+    // leaves the machine" state.
+    onboardingCompleted: false,
+    material: '',
+    // Wizard defaults for new sheets; zero dimensions retain the unit-specific presets.
+    defaultSheetWidthMode: 'fixed',
+    defaultSheetLength: 0,
+    defaultSheetHeight: 0,
+    optInFeedback: false,
+    optInUpdates: false,
+    email: '',
   };
+
+  // Materials the onboarding dialog surfaces as top-level cards. Each
+  // one carries a preset consumed by `material-presets.js` to seed the
+  // first sheet + part spacing. `MATERIALS_OTHER` lists the "Other"
+  // expansion row — same preset shape, just not promoted to a card.
+  const MATERIALS_PRIMARY = ['metal', 'wood', 'plastics', 'leather', 'foam'];
+  const MATERIALS_OTHER = ['cardboard', 'composites', 'rubber', 'textile', 'paper'];
+  const MATERIALS_ALL = [...MATERIALS_PRIMARY, ...MATERIALS_OTHER];
 
   function coerceByDefault(value, fallback) {
     if (typeof fallback === 'boolean') return !!value;
@@ -222,6 +245,22 @@
     normalized.workers = Math.max(1, Math.trunc(Number(normalized.workers) || SETTINGS_DEFAULTS.workers));
     normalized.partSpacing = Math.max(0, Number(normalized.partSpacing) || 0);
     normalized.sheetMargin = Math.max(0, Number(normalized.sheetMargin) || 0);
+    if (!['fixed', 'max', 'unlimited'].includes(normalized.defaultSheetWidthMode)) {
+      normalized.defaultSheetWidthMode = SETTINGS_DEFAULTS.defaultSheetWidthMode;
+    }
+    for (const key of ['defaultSheetLength', 'defaultSheetHeight']) {
+      normalized[key] = normalized[key] > 0 ? Math.max(1, normalized[key]) : 0;
+    }
+
+    // Material: accept known values, otherwise clear (empty string = user
+    // skipped onboarding or picked "Other" without selecting a sub-option).
+    if (normalized.material && !MATERIALS_ALL.includes(normalized.material)) {
+      normalized.material = SETTINGS_DEFAULTS.material;
+    }
+    // Email: trim and basic sanity check. We don't reject invalid-looking
+    // emails here (the dialog does that) — this is just belt-and-braces
+    // normalization in case bad data lands via import.
+    normalized.email = String(normalized.email || '').trim();
 
     return normalized;
   }
@@ -235,6 +274,9 @@
     PREFERRED_ALIGNMENTS,
     ENGRAVING_STYLES,
     LANGUAGE_PREFERENCES,
+    MATERIALS_PRIMARY,
+    MATERIALS_OTHER,
+    MATERIALS_ALL,
     normalizeSettings,
   };
 

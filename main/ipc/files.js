@@ -12,6 +12,20 @@ const { t } = require('../i18n');
 function registerFileIpc({ getMainWindow }) {
   const isDev = !app.isPackaged || process.argv.includes('--dev');
 
+  // Was the app used before this launch? Answered from disk the first time
+  // any settings/job-state handler runs, i.e. before this session can write
+  // either file, and after startup has settled the userData path
+  // (app.setName moves it).
+  let priorInstall = null;
+  function hadPriorInstall() {
+    if (priorInstall === null) {
+      const dir = app.getPath('userData');
+      priorInstall = fs.existsSync(path.join(dir, 'settings.json'))
+        || fs.existsSync(path.join(dir, 'job-state.json'));
+    }
+    return priorInstall;
+  }
+
   ipcMain.on('to-planar-graph-sync', (event, payload) => {
     try {
       const toPlanarGraphLib = require('to-planar-graph');
@@ -125,13 +139,22 @@ function registerFileIpc({ getMainWindow }) {
 
   ipcMain.handle('load-app-settings', async () => {
     try {
+      const priorInstall = hadPriorInstall();
       const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-      if (!fs.existsSync(settingsPath)) {
-        return { success: true, settings: {} };
+      let settings = {};
+      if (fs.existsSync(settingsPath)) {
+        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) || {};
       }
 
-      const raw = fs.readFileSync(settingsPath, 'utf-8');
-      return { success: true, settings: JSON.parse(raw) || {} };
+      // Versions before the setup assistant never wrote this key. Decide
+      // once (fresh install → show it, upgrade → skip it) and persist the
+      // answer so a later launch can't flip it.
+      if (!('onboardingCompleted' in settings)) {
+        settings = { ...settings, onboardingCompleted: priorInstall };
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+      }
+      return { success: true, settings };
     } catch (err) {
       return { success: false, error: err.message, settings: {} };
     }
@@ -139,6 +162,7 @@ function registerFileIpc({ getMainWindow }) {
 
   ipcMain.handle('save-app-settings', async (event, settings) => {
     try {
+      hadPriorInstall();
       const settingsPath = path.join(app.getPath('userData'), 'settings.json');
       fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
       fs.writeFileSync(settingsPath, JSON.stringify(settings || {}, null, 2), 'utf-8');
@@ -164,6 +188,7 @@ function registerFileIpc({ getMainWindow }) {
 
   ipcMain.handle('save-job-state', async (event, jobState) => {
     try {
+      hadPriorInstall();
       const statePath = path.join(app.getPath('userData'), 'job-state.json');
       fs.mkdirSync(path.dirname(statePath), { recursive: true });
       fs.writeFileSync(statePath, JSON.stringify(jobState || {}, null, 2), 'utf-8');

@@ -18,6 +18,7 @@
     "test:dxf-shared-edges": "node scripts/test-dxf-shared-edge-export.js",
     "test:shared-edges:native": "node scripts/test-shared-edges-native.js",
     "verify:i18n": "node scripts/verify-locales.js",
+    "test:onboarding-localization": "node scripts/test-onboarding-localization.js",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",
     "preflight:win-helpers": "node scripts/verify-win-helpers.js",

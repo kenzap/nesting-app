@@ -49,8 +49,8 @@
 
     function setDefaultSheetDimensions() {
       const preset = presetDimensions(0);
-      setLengthInput(dom.sheetHeight, preset.height);
-      setLengthInput(dom.sheetWidth, preset.width);
+      setLengthInput(dom.sheetHeight, state.settings?.defaultSheetHeight || preset.height);
+      setLengthInput(dom.sheetWidth, state.settings?.defaultSheetLength || preset.width);
     }
 
     // Returns true when the current form values exactly match a preset button's dimensions.
@@ -73,14 +73,14 @@
       });
     }
 
-    // Resets the modal form to default values (3000 × 1250, fixed mode) and clears the editing ID.
+    // Resets the form to workspace defaults and clears the editing ID.
     // Clearing the ID ensures a subsequent submit creates a new sheet instead of overwriting one.
     function resetSheetForm() {
       state.editingSheetId = null;
-      dom.sheetWidthMode.value = 'fixed';
+      dom.sheetWidthMode.value = state.settings?.defaultSheetWidthMode || 'fixed';
       if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
       setDefaultSheetDimensions();
-      dom.sheetMaterial.value = '';
+      dom.sheetMaterial.value = state.settings?.material || '';
       dom.confirmSheet.textContent = t('sheet.add');
       updateSheetModeControls();
     }
@@ -102,7 +102,7 @@
       dom.sheetWidthMode.value = sheet.widthMode || 'fixed';
       if (typeof dom.sheetWidthMode._syncCustomSelect === 'function') dom.sheetWidthMode._syncCustomSelect();
       setLengthInput(dom.sheetHeight, sheet.height ?? 1250);
-      setLengthInput(dom.sheetWidth, sheet.width ?? 3000);
+      setLengthInput(dom.sheetWidth, sheet.width ?? (state.settings?.defaultSheetLength || 3000));
       dom.sheetMaterial.value = sheet.material || '';
       dom.confirmSheet.textContent = t('sheet.save');
       updateSheetModeControls();
@@ -172,7 +172,7 @@
       const editing = state.sheets.find(sheet => sheet.id === state.editingSheetId);
       if (editing) {
         setLengthInput(dom.sheetHeight, editing.height ?? 1250);
-        setLengthInput(dom.sheetWidth, editing.width ?? 3000);
+        setLengthInput(dom.sheetWidth, editing.width ?? (state.settings?.defaultSheetLength || 3000));
       } else if (!dom.sheetModal.classList.contains('open')) {
         setDefaultSheetDimensions();
       }

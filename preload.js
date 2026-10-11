@@ -78,6 +78,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   loadAppSettings: () => ipcRenderer.invoke('load-app-settings'),
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
+  // Only fires when the user ticks an opt-in box in the onboarding dialog
+  // AND provides a valid email. See main/ipc/feedback.js for the gate
+  // behaviour and the Netlify endpoint config.
+  submitOnboarding: (payload) => ipcRenderer.invoke('submit-onboarding', payload),
   loadJobState: () => ipcRenderer.invoke('load-job-state'),
   saveJobState: (jobState) => ipcRenderer.invoke('save-job-state', jobState),
   writeDebugSVG: (payload) => ipcRenderer.invoke('write-debug-svg', payload),

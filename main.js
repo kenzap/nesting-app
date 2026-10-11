@@ -10,6 +10,7 @@ const { registerFileIpc } = require('./main/ipc/files');
 const { registerSparrowIpc } = require('./main/ipc/sparrow');
 const { registerExportDxfIpc } = require('./main/ipc/export-dxf');
 const { registerExportReportIpc } = require('./main/ipc/export-report');
+const { registerFeedbackIpc } = require('./main/ipc/feedback');
 
 initializeDiagnostics({
   productName: packageJson.productName || 'Kenzap Nesting',
@@ -22,5 +23,6 @@ registerAppMenuIpc();
 registerSparrowIpc();
 registerExportDxfIpc();
 registerExportReportIpc();
+registerFeedbackIpc();
 
 initializeApp({ isDevMode, isDxfDebugMode });
