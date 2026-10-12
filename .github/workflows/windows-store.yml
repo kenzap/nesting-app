@@ -66,6 +66,12 @@ jobs:
       - name: Check DXF shared-edge export
         run: npm run test:dxf-shared-edges
 
+      - name: Verify Windows Store icons
+        run: npm run preflight:appx-assets
+
+      - name: Check Windows Store icon regressions
+        run: npm run test:appx-assets
+
       - name: Verify bundled Windows helper
         run: npm run preflight:win-helpers
 
@@ -83,6 +89,29 @@ jobs:
           }
           $package = $packages[0]
           if ($package.Length -eq 0) { throw 'The AppX package is empty.' }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($package.FullName)
+          try {
+            $manifest = Get-Content -LiteralPath scripts/appx-assets-manifest.json -Raw | ConvertFrom-Json
+            foreach ($asset in $manifest.assets.PSObject.Properties) {
+              $entry = $archive.Entries | Where-Object {
+                $_.FullName.Replace('\', '/') -eq "assets/$($asset.Name)"
+              } | Select-Object -First 1
+              if ($null -eq $entry) { throw "AppX package is missing icon $($asset.Name)." }
+              $stream = $entry.Open()
+              $sha = [System.Security.Cryptography.SHA256]::Create()
+              try {
+                $hash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+                if ($hash -ne $asset.Value.sha256) { throw "AppX package contains an outdated icon: $($asset.Name)." }
+              } finally {
+                $sha.Dispose()
+                $stream.Dispose()
+              }
+            }
+          } finally {
+            $archive.Dispose()
+          }
 
           node scripts/make-appxupload.js $package.FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

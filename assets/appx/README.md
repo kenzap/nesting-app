@@ -1,26 +1,39 @@
-Place optional AppX / MSIX tile and Store assets in this folder.
+# Windows Store Icons
 
-Electron Builder looks for these filenames here because `build.directories.buildResources`
-points at `/Users/pavel/Extensions/nesting-app/assets`.
+AppX launcher, tile, Store, and splash images are generated from
+`assets/icon-square-windows.svg`, the current blue nesting-blocks artwork.
+The EXE uses `assets/icon-square.ico`; changing that ICO alone does not update
+Store launcher icons. Electron Builder reads this folder because
+`build.directories.buildResources` is `assets`.
 
-Recommended asset filenames:
+After editing the Windows vector icon, run:
 
-- `StoreLogo.png`
-- `Square150x150Logo.png`
-- `Square44x44Logo.png`
-- `Wide310x150Logo.png`
+```bash
+npm run appx:assets
+npm run preflight:appx-assets
+```
 
-Optional assets:
+Commit the generated PNGs and `scripts/appx-assets-manifest.json` together with
+the source change. The manifest records the source and image checksums so
+verification works across macOS, Windows, and Linux without rendering again.
+`@resvg/resvg-js` is a development-only renderer, not part of the shipped app.
 
-- `BadgeLogo.png`
-- `LargeTile.png`
-- `SmallTile.png`
-- `SplashScreen.png`
+Generated families:
 
-If these files are absent, Electron Builder can fall back to generated defaults,
-but adding branded PNG assets here produces a cleaner Microsoft Store package.
+- `StoreLogo`, `Square44x44Logo`, and `Square150x150Logo`
+- `Wide310x150Logo`, `LargeTile`, `SmallTile`, and `SplashScreen`
+- Base images and 100%, 125%, 150%, 200%, 250%, 300%, and 400% scale variants
+- `Square44x44Logo` target sizes from 16 to 256 pixels, including unplated
+  and light-unplated variants for taskbar, Start, and search icons
 
-Source assets in this folder:
+Every resolution is rendered directly from the vector source, not enlarged from
+a small PNG. Square app-list icons use the full icon; tiles and rectangular
+images center it with padding. The same branded icon works on both themes.
 
-- `logo-k.svg` is a square-friendly `K` cropped from `/Users/pavel/Extensions/nesting-app/assets/logo.dark.svg`
-- `logo.dark.svg` remains the source for the wide and splash wordmark-style assets
+Local AppX builds, direct electron-builder AppX builds, and GitHub Actions reject
+missing, modified, or outdated assets. GitHub Actions also checks the image
+checksums inside the finished AppX before creating its upload archive.
+`npm run test:appx-assets` covers generation and these failure cases.
+
+For Windows resource naming and size requirements, see
+[Microsoft's app icon guidance](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction).

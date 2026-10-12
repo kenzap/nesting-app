@@ -193,8 +193,12 @@ created, and no Store credentials or signing certificates are required for this
 Store-only build. Standard runner execution is free for public repositories;
 artifact storage remains subject to GitHub's account limits.
 
-The workflow checks translations and regressions and verifies that the bundled
-Windows helper starts. It packages the checked-in `native/windows/bin/sparrow.exe`
+The workflow checks translations and regressions, verifies that the bundled
+Windows helper starts, and checks Store icons both before and after packaging.
+AppX icons are generated from the current Windows vector artwork, independently
+of the EXE's ICO. After changing that artwork, run `npm run appx:assets` and
+commit its PNGs and checksum manifest. See `assets/appx/README.md` for details.
+It packages the checked-in `native/windows/bin/sparrow.exe`
 without recompiling it, so update that binary separately when the native engine
 changes. The app version comes from `package.json`; increase it before submitting
 a Store update. These checks do not replace testing the packaged app on Windows

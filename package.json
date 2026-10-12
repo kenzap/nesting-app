@@ -20,6 +20,9 @@
     "verify:i18n": "node scripts/verify-locales.js",
     "test:onboarding-localization": "node scripts/test-onboarding-localization.js",
     "test:snap-packaging": "node scripts/test-snap-packaging.js",
+    "test:appx-assets": "node scripts/test-appx-assets.js",
+    "appx:assets": "node scripts/generate-appx-assets.js",
+    "preflight:appx-assets": "node scripts/generate-appx-assets.js --check",
     "preflight:mac-helpers": "node scripts/verify-mac-helpers.js",
     "preflight:linux-helpers": "node scripts/verify-linux-helpers.js",
     "preflight:win-helpers": "node scripts/verify-win-helpers.js",
@@ -35,9 +38,10 @@
     "dist:snap": "npm run preflight:linux-helpers && node scripts/build-snap.js --linux snap",
     "dist:win": "npm run preflight:win-helpers && electron-builder --win nsis",
     "dist:win-portable": "npm run preflight:win-helpers && electron-builder --win portable",
-    "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && electron-builder --win appx --x64 && npm run appx:upload"
+    "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && npm run preflight:appx-assets && electron-builder --win appx --x64 && npm run appx:upload"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "electron": "^42.4.0",
     "electron-builder": "^26.15.3"
   },

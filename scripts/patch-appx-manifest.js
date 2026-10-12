@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { verifyAssets } = require('./generate-appx-assets');
 
 const VCLIBS_DEPENDENCY = [
   '<PackageDependency',
@@ -12,6 +13,9 @@ module.exports = async function patchAppxManifest(manifestPath) {
   if (!manifestPath) {
     throw new Error('AppX manifest path was not provided to patch-appx-manifest.');
   }
+
+  // Also guard direct electron-builder builds, not only npm scripts and CI.
+  await verifyAssets();
 
   const xml = fs.readFileSync(manifestPath, 'utf8');
   if (xml.includes('Microsoft.VCLibs.140.00.UWPDesktop')) {
