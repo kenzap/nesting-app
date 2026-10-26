@@ -38,7 +38,8 @@
     "dist:snap": "npm run preflight:linux-helpers && node scripts/build-snap.js --linux snap",
     "dist:win": "npm run preflight:win-helpers && electron-builder --win nsis",
     "dist:win-portable": "npm run preflight:win-helpers && electron-builder --win portable",
-    "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && npm run preflight:appx-assets && electron-builder --win appx --x64 && npm run appx:upload"
+    "dist:appx": "npm run preflight:win-helpers && npm run preflight:appx-host && npm run preflight:appx-assets && electron-builder --win appx --x64 && npm run appx:upload",
+    "test:contour-detection": "node scripts/test-dxf-contour-detection.js"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",

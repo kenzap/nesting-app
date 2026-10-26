@@ -98,11 +98,9 @@
   // normal closed-contour path instead.
   function isEffectivelyClosedArc(ent) {
     if (ent?.type !== 'ARC' || !ent.center || !Number.isFinite(ent.radius)) return false;
-    let span = Number.isFinite(ent.angleLength)
-      ? Math.abs(ent.angleLength)
-      : Math.abs((ent.endAngle || 0) - (ent.startAngle || 0));
+    let span = (ent.endAngle ?? 0) - (ent.startAngle ?? 0);
+    while (span <= 0) span += TWO_PI;
     while (span > TWO_PI) span -= TWO_PI;
-    if (span <= 0) span += TWO_PI;
     if (span >= TWO_PI - 1e-3) return true;
 
     const endpoints = getArcEndpoints(ent);
@@ -387,9 +385,7 @@
       if (!points.length) append(start);
 
       if (entity?.type === 'ARC' && entity.center && Number.isFinite(entity.radius)) {
-        let span = Number.isFinite(entity.angleLength)
-          ? Math.abs(entity.angleLength)
-          : (entity.endAngle || 0) - (entity.startAngle || 0);
+        let span = (entity.endAngle ?? 0) - (entity.startAngle ?? 0);
         while (span <= 0) span += TWO_PI;
         while (span > TWO_PI) span -= TWO_PI;
         const startAngle = Math.atan2(start.y - entity.center.y, start.x - entity.center.x);
