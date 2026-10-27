@@ -1,6 +1,6 @@
 {
   "name": "nesting-app",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "DXF Nesting Application",
   "author": "Kenzap Pte Ltd",
   "main": "main.js",
@@ -11,6 +11,7 @@
     "dev:dxf": "electron . --dev --dxf-debug",
     "debug:dxf-contour": "node scripts/debug-dxf-contour.js",
     "test:dxf-grouping": "node scripts/test-dxf-grouping.js",
+    "test:dxf-open-polylines": "node scripts/test-dxf-open-polylines.js",
     "test:nesting-previews": "node scripts/test-sparrow-previews.js",
     "test:preferred-alignment": "node scripts/test-preferred-alignment.js",
     "test:source-contour": "node scripts/test-source-contour.js",

@@ -12,7 +12,6 @@
     samePoint,
     getLineEndpoints,
     getArcEndpoints,
-    pointKey,
     dedupePoints,
     normalizedClosedPointSignature,
     bboxFromPoints,
@@ -116,7 +115,7 @@
   function isClosedEntity(ent) {
     if (!ent) return false;
     if ((ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') && ent.vertices?.length >= 3) {
-      return ent.closed !== false;
+      return geometry.isPolylineClosed(ent);
     }
     if (ent.type === 'CIRCLE') return true;
     if (isEffectivelyClosedArc(ent)) return true;
@@ -138,7 +137,7 @@
         return dedupePoints(ent.points || [], true);
       case 'LWPOLYLINE':
       case 'POLYLINE':
-        return geometry.polylineVerticesToPoints(ent.vertices, true);
+        return geometry.polylineVerticesToPoints(ent.vertices, geometry.isPolylineClosed(ent));
       case 'CIRCLE':
         return geometry.circleToPoints(ent);
       case 'ARC':
@@ -196,8 +195,8 @@
           y: entity.center.y + entity.radius * Math.sin(angle),
         };
       }
-      if (entity.type === 'SPLINE') {
-        const pts = geometry.splineToPoints(entity);
+      if (['SPLINE', 'POLYLINE', 'LWPOLYLINE'].includes(entity.type)) {
+        const pts = sampleOpenCurvePoints(entity);
         if (!pts.length) return null;
         const pt = reversed ? pts[pts.length - 1] : pts[0];
         return { x: pt.x, y: pt.y };
@@ -218,10 +217,8 @@
         d += ` L${f(end.x - ox)},${f(originMaxY - end.y)}`;
       } else if (entity.type === 'ARC') {
         d += ` ${arcChainSegment(entity, ox, originMaxY, reversed)}`;
-      } else if (entity.type === 'SPLINE') {
-        // Tessellate the spline into polyline segments. Skip the first point
-        // since the previous edge already lands on it.
-        const pts = geometry.splineToPoints(entity);
+      } else if (['SPLINE', 'POLYLINE', 'LWPOLYLINE'].includes(entity.type)) {
+        const pts = sampleOpenCurvePoints(entity);
         const segPts = reversed ? [...pts].reverse() : pts;
         segPts.slice(1).forEach(pt => {
           d += ` L${f(pt.x - ox)},${f(originMaxY - pt.y)}`;
@@ -243,18 +240,22 @@
     return pathFromPoints(points, ox, originMaxY, true);
   }
 
-  // Returns the {start, end} endpoints of an open LINE, ARC, or SPLINE entity,
+  function sampleOpenCurvePoints(entity) {
+    return entity.type === 'SPLINE'
+      ? geometry.splineToPoints(entity)
+      : geometry.polylineVerticesToPoints(entity.vertices, false);
+  }
+
+  // Returns the {start, end} endpoints of an open line or curve entity,
   // or null for any other type. Used by buildClosedContoursFromLines to build
   // the graph of connectable edges.
   function getOpenEdgeEndpoints(ent) {
     if (isEffectivelyClosedArc(ent)) return null;
     if (ent?.type === 'LINE') return getLineEndpoints(ent);
     if (ent?.type === 'ARC') return getArcEndpoints(ent);
-    if (ent?.type === 'SPLINE' && !ent.closed) {
-      // Prefer fitPoints (on-curve) over control points (off-curve) for endpoints.
-      const pts = (ent.fitPoints?.length > 1 ? ent.fitPoints : null)
-               || (ent.controlPoints?.length > 1 ? ent.controlPoints : null);
-      if (!pts) return null;
+    if (['SPLINE', 'POLYLINE', 'LWPOLYLINE'].includes(ent?.type) && !isClosedEntity(ent)) {
+      const pts = sampleOpenCurvePoints(ent);
+      if (pts.length < 2) return null;
       const first = pts[0];
       const last  = pts[pts.length - 1];
       if (!Number.isFinite(first?.x) || !Number.isFinite(last?.x)) return null;
@@ -295,7 +296,7 @@
   // endpoints.
   function buildPlanarOpenEdges(entities) {
     const rawEdges = entities
-      .filter(ent => (ent?.type === 'LINE' || ent?.type === 'ARC' || (ent?.type === 'SPLINE' && !ent.closed)))
+      .filter(ent => ['LINE', 'ARC', 'SPLINE', 'POLYLINE', 'LWPOLYLINE'].includes(ent?.type) && !isClosedEntity(ent))
       .map((entity, index) => {
         const endpoints = getOpenEdgeEndpoints(entity);
         if (!endpoints || samePoint(endpoints.start, endpoints.end, LOOP_TOLERANCE)) return null;
@@ -367,7 +368,7 @@
 
   // The half-edge graph only needs entity endpoints, but endpoint-only rings
   // are not accurate enough for area and containment checks on curved parts.
-  // Rebuild the finished ring with sampled ARC/SPLINE geometry while keeping
+  // Rebuild the finished ring with sampled curve geometry while keeping
   // the graph nodes as the exact joins between consecutive entities.
   function sampleOrderedLoopPoints(orderedEdges, pointKeys, nodes) {
     if (!orderedEdges?.length || pointKeys?.length !== orderedEdges.length + 1) return [];
@@ -388,7 +389,7 @@
 
       if (entity?.type === 'ARC' && entity.center && Number.isFinite(entity.radius)) {
         let span = Number.isFinite(entity.angleLength)
-          ? Math.abs(entity.angleLength)
+          ? entity.angleLength
           : (entity.endAngle || 0) - (entity.startAngle || 0);
         while (span <= 0) span += TWO_PI;
         while (span > TWO_PI) span -= TWO_PI;
@@ -402,8 +403,8 @@
             y: entity.center.y + entity.radius * Math.sin(angle),
           });
         }
-      } else if (entity?.type === 'SPLINE') {
-        const sampled = geometry.splineToPoints(entity);
+      } else if (['SPLINE', 'POLYLINE', 'LWPOLYLINE'].includes(entity?.type)) {
+        const sampled = sampleOpenCurvePoints(entity);
         const directed = reversed ? [...sampled].reverse() : sampled;
         directed.slice(1, -1).forEach(append);
       }
@@ -435,11 +436,16 @@
     const snapTol = Math.max(LOOP_TOLERANCE, span * 1e-4);
     const adjacency = new Map();
     const nodes = new Map();
+    const snapEndpoint = geometry.createEndpointSnapper(snapTol);
+    const nodeKeys = new Map();
 
     function ensureNode(point) {
-      const key = pointKey(point, snapTol);
-      if (!adjacency.has(key)) adjacency.set(key, []);
-      if (!nodes.has(key)) nodes.set(key, { x: point.x, y: point.y, key });
+      const snapped = snapEndpoint(point);
+      if (nodeKeys.has(snapped)) return nodeKeys.get(snapped);
+      const key = String(nodes.size);
+      nodeKeys.set(snapped, key);
+      adjacency.set(key, []);
+      nodes.set(key, { ...snapped, key });
       return key;
     }
 
@@ -527,7 +533,13 @@
         pointKeys.push(current.toKey);
 
         if (current.toKey === startHalfEdge.fromKey) {
-          const points = dedupePoints(pointKeys.map(key => nodes.get(key)), true);
+          // A curved face can have only two graph nodes (a curve and its
+          // closing edge). Its area comes from the full curve, not its chord.
+          const orderedEdges = edgeIndices.map((edgeIdx, i) => ({
+            entity: openEdges[edgeIdx].entity,
+            reversed: pointKeys[i] !== openEdges[edgeIdx].startKey,
+          }));
+          const points = sampleOrderedLoopPoints(orderedEdges, pointKeys, nodes);
           if (points.length < 3) return null;
           const area = polygonSignedArea(points);
           if (Math.abs(area) <= EPS) return null;
@@ -663,8 +675,12 @@
           curTo = nextEdge.toKey;
         }
 
-        if (!closed || edgeIndices.length < 3) return;
-        const points = dedupePoints(pointKeys.map(key => nodes.get(key)), true);
+        if (!closed || edgeIndices.length < 2) return;
+        const orderedEdgesCW = edgeIndices.map((edgeIdx, i) => ({
+          entity: openEdges[edgeIdx].entity,
+          reversed: pointKeys[i] !== openEdges[edgeIdx].startKey,
+        }));
+        const points = sampleOrderedLoopPoints(orderedEdgesCW, pointKeys, nodes);
         if (points.length < 3) return;
         const compId = edgeComponent.get(edgeIndices[0]);
         const area = polygonSignedArea(points);
@@ -672,11 +688,6 @@
         const maxInterior = maxInteriorAreaByComponent.get(compId) || 0;
         if (absArea <= maxInterior * 1.001) return;
 
-        const orderedEdgesCW = edgeIndices.map((edgeIdx, i) => {
-          const currentEdge = openEdges[edgeIdx];
-          const fromKey = pointKeys[i];
-          return { entity: currentEdge.entity, reversed: fromKey !== currentEdge.startKey };
-        });
         const ccwEdges = area < 0
           ? [...orderedEdgesCW].reverse().map(item => ({ entity: item.entity, reversed: !item.reversed }))
           : orderedEdgesCW;

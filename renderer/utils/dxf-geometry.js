@@ -36,6 +36,43 @@
     return !!a && !!b && Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <= eps;
   }
 
+  // Search neighboring cells so close joins are not lost at grid boundaries.
+  function createEndpointSnapper(tolerance) {
+    const cells = new Map();
+    return point => {
+      const x = Math.floor(point.x / tolerance);
+      const y = Math.floor(point.y / tolerance);
+      let nearest = null;
+      let distance = tolerance;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (const candidate of cells.get(`${x + dx},${y + dy}`) || []) {
+            const gap = dist(point, candidate);
+            if (gap <= distance) {
+              nearest = candidate;
+              distance = gap;
+            }
+          }
+        }
+      }
+      if (nearest) return nearest;
+      const canonical = { x: point.x, y: point.y };
+      const key = `${x},${y}`;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(canonical);
+      return canonical;
+    };
+  }
+
+  // dxf-parser names the DXF closure bit `shape`; exported records use `closed`.
+  // An open polyline may also explicitly repeat its first vertex to form a ring.
+  function isPolylineClosed(entity) {
+    if (entity?.closed ?? entity?.shape ?? false) return true;
+    const vertices = entity?.vertices;
+    return Array.isArray(vertices) && vertices.length >= 3 &&
+      samePoint(vertices[0], vertices[vertices.length - 1], EPS);
+  }
+
   // Extracts {start, end} from a LINE entity regardless of whether the parser
   // stored the data in ent.start/ent.end or ent.vertices, normalising the
   // two formats into one consistent shape.
@@ -519,7 +556,7 @@
       case 'LWPOLYLINE':
       case 'POLYLINE':
         if (!ent.vertices) return null;
-        polylineVerticesToPoints(ent.vertices, ent.closed !== false).forEach(vertex => { xs.push(vertex.x); ys.push(vertex.y); });
+        polylineVerticesToPoints(ent.vertices, isPolylineClosed(ent)).forEach(vertex => { xs.push(vertex.x); ys.push(vertex.y); });
         break;
       case 'LINE': {
         const endpoints = getLineEndpoints(ent);
@@ -582,6 +619,8 @@
     pointInPoly,
     dist,
     samePoint,
+    isPolylineClosed,
+    createEndpointSnapper,
     getLineEndpoints,
     getArcEndpoints,
     pointKey,

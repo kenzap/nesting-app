@@ -1,7 +1,7 @@
 (function attachNestDxfSvg(global) {
   'use strict';
 
-  const { getLineEndpoints, polylineVerticesToPoints, splineToPoints, circleToPoints, TWO_PI } = global.NestDxfGeometry;
+  const { getLineEndpoints, isPolylineClosed, polylineVerticesToPoints, splineToPoints, circleToPoints, TWO_PI } = global.NestDxfGeometry;
 
   // Short coordinate formatters used wherever SVG output is serialised.
   // f rounds to 3 decimal places; f1 to 1 — keeping the output compact
@@ -135,7 +135,7 @@
       case 'LWPOLYLINE':
       case 'POLYLINE': {
         if (!ent.vertices || ent.vertices.length < 2) return '';
-        const isClosed = ent.closed !== false;
+        const isClosed = isPolylineClosed(ent);
         const points = polylineVerticesToPoints(ent.vertices, isClosed);
         const d = pathFromPoints(points, ox, originMaxY, isClosed);
         return d ? `<path d="${d}" ${sw} stroke-linecap="round" stroke-linejoin="round"/>` : '';

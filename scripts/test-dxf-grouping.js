@@ -87,6 +87,58 @@ for (let seed = 1; seed <= 10; seed++) {
   compare(entities);
 }
 
+const polyline = (id, vertices, closed = false) => ({ id, type: 'POLYLINE', vertices, closed });
+const denseWave = (id, count, offset) => polyline(id, Array.from({ length: count + 1 }, (_, i) => ({
+  x: -15 + 30 * i / count,
+  y: Math.sin(6 * i / count) * 5 + offset,
+})));
+
+// These records have overlapping bounding boxes but no intersecting segments.
+// The reference index deliberately returns every segment, not just nearby ones.
+compare([denseWave('wave-a', 250, 0), denseWave('wave-b', 250, 1.5)]);
+assert.equal(indexed.buildSketchGroups([denseWave('a', 250, 0), denseWave('b', 250, 1.5)]).length, 2);
+
+const chain = polyline('dense-chain', Array.from({ length: 301 }, (_, i) => ({ x: i - 300, y: 0 })));
+for (const gap of [0, 0.0005, 0.001, 0.0011, 0.005]) {
+  const entities = [chain, line('near', gap, 0, 2, 0)];
+  compare(entities);
+  assert.equal(indexed.buildSketchGroups(entities).length, gap <= 0.001 ? 1 : 2);
+  compare([...entities].reverse()); // Either record can own the larger segment index.
+}
+compare([chain, line('cross-interior', -150.5, -1, -150.5, 1)]);
+compare([chain, line('collinear-overlap', -100.5, 0, -102.5, 0)]);
+compare([chain, polyline('reverse-duplicate', [...chain.vertices].reverse())]);
+
+const denseRing = polyline('dense-ring', Array.from({ length: 360 }, (_, i) => ({
+  x: Math.cos(i * Math.PI / 180) * 10,
+  y: Math.sin(i * Math.PI / 180) * 10,
+})), true);
+const contained = [denseRing, line('interior-line', -1, 0, 1, 0), circle('interior-circle', 3, 0, 0.5)];
+compare(contained);
+assert.equal(indexed.buildSketchGroups(contained).length, 1,
+  'containment must still run when the segment index finds no edge contacts');
+
+let segmentCandidates = 0;
+let segmentTrees = 0;
+const denseIndexed = groupingService(Tree => class CountingSegmentRBush extends Tree {
+  load(items) {
+    this.isSegmentIndex = !!items[0]?.segment;
+    if (this.isSegmentIndex) segmentTrees++;
+    return super.load(items);
+  }
+  search(box) {
+    const found = super.search(box);
+    if (this.isSegmentIndex) segmentCandidates += found.length;
+    return found;
+  }
+});
+assert.equal(denseIndexed.buildSketchGroups([
+  denseWave('dense-a', 3000, 0), denseWave('dense-b', 3000, 1.5),
+  denseWave('dense-c', 3000, 3),
+]).length, 3);
+assert.equal(segmentTrees, 2, 'segment trees are built lazily and reused across record pairs');
+assert.ok(segmentCandidates < 270000, 'prune at least 99% of the 27 million dense segment pairs');
+
 let candidates = 0;
 const disjoint = groupingService(Tree => class CountingRBush extends Tree {
   search(box) {
@@ -100,4 +152,4 @@ const largeDrawing = Array.from({ length: 20214 }, (_, id) =>
 assert.equal(disjoint.buildSketchGroups(largeDrawing).length, largeDrawing.length);
 assert.equal(candidates, largeDrawing.length, 'disjoint records should only find themselves');
 
-console.log('DXF grouping matches all-pairs checks; 20,214 disjoint records produce 20,214 candidates.');
+console.log(`DXF grouping matches all-pairs checks, including dense curves and tolerance boundaries. Dense segment candidates: ${segmentCandidates}/27000000; 20,214 disjoint records produce 20,214 candidates.`);

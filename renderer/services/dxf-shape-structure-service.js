@@ -62,7 +62,7 @@
     if (entity.type === 'CIRCLE') return true;
     if (entity.type === 'ARC') return isClosedArc(entity);
     if ((entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') && entity.vertices?.length >= 3) {
-      return entity.closed !== false;
+      return geometry.isPolylineClosed(entity);
     }
     if (entity.type === 'ELLIPSE') {
       const start = entity.startParameter ?? entity.startAngle ?? 0;
@@ -79,7 +79,7 @@
       case 'LWPOLYLINE':
       case 'POLYLINE':
         return Array.isArray(entity.vertices)
-          ? polylineVerticesToPoints(entity.vertices, entity.closed !== false)
+          ? polylineVerticesToPoints(entity.vertices, geometry.isPolylineClosed(entity))
           : [];
       case 'CIRCLE':
         return circleToPoints(entity);
@@ -382,10 +382,12 @@
     return groupMeta
       .map(group => {
         const extracted = extractPolygonForEntities(group.entities);
-        const polygonPoints = extracted?.polygonPoints?.length
+        const extractedPoints = extracted?.polygonPoints?.length
           ? extracted.polygonPoints
           : null;
-        const inferredLoop = !polygonPoints
+        // A closed entity in this group may be a hole, not the outer boundary.
+        // Compare it with loops assembled from the open outline as well.
+        const inferredLoop = group.openCount > 0
           ? buildClosedContoursFromLines(group.entities)
               .slice()
               .sort((a, b) => polygonArea(b?.points || []) - polygonArea(a?.points || []))[0]
@@ -393,6 +395,9 @@
         const inferredPoints = Array.isArray(inferredLoop?.points) && inferredLoop.points.length >= 4
           ? closePointRing(inferredLoop.points)
           : null;
+        const polygonPoints = polygonArea(inferredPoints) > polygonArea(extractedPoints)
+          ? inferredPoints
+          : extractedPoints;
         let envelope = null;
         if (!polygonPoints && !inferredPoints && group.openCount > 0) {
           const envelopes = buildRasterEnvelopes(group.entities, {
@@ -567,7 +572,30 @@
       ? (extractPolygonForEntities(ownedEntities)?.polygonPoints || null)
       : parentContour?.polygonPoints || null;
     const outerPolygon = primaryPolygon || fallbackPolygon;
-    const childClosedContours = collectContourCandidates(ownedEntities)
+    const inferredContours = buildClosedContoursFromLines(openEntities)
+      .map((loop, loopIndex) => {
+        const points = closePointRing(loop.points);
+        return {
+          id: `inferred_${index}_${loopIndex}`,
+          points,
+          polygonPoints: points,
+          area: polygonArea(points),
+          componentId: loop.componentId,
+        };
+      });
+    // Faces in the outer outline's connected component can be construction
+    // lines. Only disconnected, closed interior loops are cutout candidates.
+    const outerComponents = new Set(inferredContours
+      .filter(candidate => coincidesWithOuterBoundary(candidate, outerPolygon))
+      .map(candidate => candidate.componentId));
+    const outerRing = closePointRing(outerPolygon || []);
+    const outerBox = pointsBBox(outerRing);
+    const inferredHoles = inferredContours.filter(candidate =>
+      candidate.area > EPS && !outerComponents.has(candidate.componentId) &&
+      outerBox && candidate.points.every(point =>
+        bboxContainsPoint(outerBox, point) && pointInPoly(point.x, point.y, outerRing))
+    );
+    const childClosedContours = [...collectContourCandidates(ownedEntities), ...inferredHoles]
       .filter(candidate => !peerOuters.some(peer => peer.id === candidate.id))
       .filter(candidate => !coincidesWithOuterBoundary(candidate, outerPolygon));
 

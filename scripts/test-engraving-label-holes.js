@@ -7,11 +7,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const DxfParser = require('dxf-parser');
-const Flatten = require('@flatten-js/core');
 
 const root = path.resolve(__dirname, '..');
 const sandbox = {
-  console, Flatten, URL, Blob, setTimeout, clearTimeout,
+  console, URL, Blob, setTimeout, clearTimeout,
   location: { href: 'file:///engraving-label-test', search: '' },
 };
 sandbox.window = sandbox;
@@ -19,6 +18,7 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 [
   'shared/constants.js', 'shared/settings.js', 'shared/engraving-layout.js',
+  'node_modules/@flatten-js/core/dist/main.umd.js',
   'node_modules/jsts/dist/jsts.min.js', 'renderer/vendor/concaveman.js', 'node_modules/rbush/rbush.min.js',
   'renderer/utils/dxf-color.js', 'renderer/utils/dxf-geometry.js', 'renderer/utils/dxf-svg.js',
   'renderer/utils/dxf-preview-state.js', 'renderer/services/dxf-layer-service.js',

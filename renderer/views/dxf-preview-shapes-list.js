@@ -39,7 +39,7 @@
         const layerCmp = layerOrder.indexOf(a.layer) - layerOrder.indexOf(b.layer);
         if (layerCmp !== 0) return layerCmp;
         if ((a.visible !== false) !== (b.visible !== false)) return a.visible === false ? 1 : -1;
-        return a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name, undefined, { numeric: true });
       });
 
       let lastLayer = null;

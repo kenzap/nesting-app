@@ -64,7 +64,7 @@
       case 'LWPOLYLINE':
       case 'POLYLINE':
         return Array.isArray(entity.vertices)
-          ? polylineVerticesToPoints(entity.vertices, entity.closed !== false)
+          ? polylineVerticesToPoints(entity.vertices, geometry.isPolylineClosed(entity))
           : [];
       case 'ELLIPSE':
         return ellipseToPoints(entity, false);

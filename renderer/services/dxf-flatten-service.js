@@ -33,7 +33,7 @@
     if (!entity?.type) return false;
     if (entity.type === 'CIRCLE') return true;
     if ((entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') && entity.vertices?.length >= 3) {
-      return entity.closed !== false;
+      return geometry.isPolylineClosed(entity);
     }
     if (entity.type === 'ELLIPSE') {
       const start = entity.startParameter ?? entity.startAngle ?? 0;
@@ -78,7 +78,7 @@
       case 'LWPOLYLINE':
       case 'POLYLINE':
         return Array.isArray(entity.vertices)
-          ? polylineVerticesToPoints(entity.vertices, entity.closed !== false)
+          ? polylineVerticesToPoints(entity.vertices, geometry.isPolylineClosed(entity))
           : [];
       case 'ELLIPSE':
         return ellipseToPoints(entity, isEntityClosed(entity));
@@ -195,7 +195,7 @@
       }
 
       if ((entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') && Array.isArray(entity.vertices) && entity.vertices.length >= 2) {
-        const shapes = polylineShapesFromVertices(entity.vertices, entity.closed !== false);
+        const shapes = polylineShapesFromVertices(entity.vertices, geometry.isPolylineClosed(entity));
         if (!shapes.length) return null;
         const polygon = new Flatten.Polygon();
         polygon.addFace(shapes);
@@ -267,7 +267,10 @@
         entity,
         polygon: entityToFlattenPolygon(entity),
       }))
-      .filter(entry => entry.polygon);
+      // Some exporters mark retraced straight splines as closed. They have
+      // no area and can make the polygon Boolean operation loop indefinitely.
+      // Keep their source linework, but never treat it as a filled polygon.
+      .filter(entry => entry.polygon && Math.abs(entry.polygon.area()) > EPS);
     if (!polygonEntries.length) return null;
 
     const sampledFallback = polygonEntries.length === 1
@@ -332,8 +335,37 @@
     if (!a || !b) return false;
     if (bboxGap(a.bbox, b.bbox) > LOOP_TOLERANCE * 20) return false;
 
-    for (const sa of a.segments) {
-      for (const sb of b.segments) {
+    // Keep tiny comparisons cheap; index dense curves lazily and reuse their
+    // trees across record pairs. Only the broad phase changes, not the tests.
+    const useIndex = Math.max(a.segments.length, b.segments.length) >= 16 &&
+      a.segments.length * b.segments.length >= 256;
+    const indexA = useIndex && a.segments.length > b.segments.length;
+    const indexedRecord = indexA ? a : b;
+    const queryRecord = indexA ? b : a;
+    if (useIndex && !indexedRecord.segmentIndex) {
+      indexedRecord.segmentIndex = new RBush();
+      indexedRecord.segmentIndex.load(indexedRecord.segments.map(segment => ({
+        minX: Math.min(segment.ps.x, segment.pe.x),
+        minY: Math.min(segment.ps.y, segment.pe.y),
+        maxX: Math.max(segment.ps.x, segment.pe.x),
+        maxY: Math.max(segment.ps.y, segment.pe.y),
+        segment,
+      })));
+    }
+
+    for (const query of queryRecord.segments) {
+      const candidates = useIndex
+        ? indexedRecord.segmentIndex.search({
+          minX: Math.min(query.ps.x, query.pe.x) - LOOP_TOLERANCE,
+          minY: Math.min(query.ps.y, query.pe.y) - LOOP_TOLERANCE,
+          maxX: Math.max(query.ps.x, query.pe.x) + LOOP_TOLERANCE,
+          maxY: Math.max(query.ps.y, query.pe.y) + LOOP_TOLERANCE,
+        })
+        : indexedRecord.segments;
+      for (const candidate of candidates) {
+        const segment = useIndex ? candidate.segment : candidate;
+        const sa = indexA ? segment : query;
+        const sb = indexA ? query : segment;
         if (sa.intersect(sb).length) return true;
         if (sa.ps.distanceTo(sb.ps)[0] <= LOOP_TOLERANCE) return true;
         if (sa.ps.distanceTo(sb.pe)[0] <= LOOP_TOLERANCE) return true;

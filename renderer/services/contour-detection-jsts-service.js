@@ -67,7 +67,7 @@
     return points;
   }
 
-  function pointsToSegments(points, close, tolerance) {
+  function pointsToSegments(points, close) {
     if (!Array.isArray(points) || points.length < 2) return [];
     const segments = [];
     const limit = close ? points.length : points.length - 1;
@@ -75,30 +75,31 @@
       const a = points[i];
       const b = points[(i + 1) % points.length];
       if (!a || !b) continue;
-      if (dist(a, b) <= tolerance) continue;
+      // Short links still connect the curve; snap-rounding removes duplicates later.
+      if (dist(a, b) <= EPS) continue;
       segments.push([a, b]);
     }
     return segments;
   }
 
-  function entityToSegments(entity, tolerance) {
+  function entityToSegments(entity) {
     if (!entity?.type) return [];
     switch (entity.type) {
       case 'LINE': {
         const ep = getLineEndpoints(entity);
-        if (!ep || dist(ep.start, ep.end) <= tolerance) return [];
+        if (!ep || dist(ep.start, ep.end) <= EPS) return [];
         return [[ep.start, ep.end]];
       }
       case 'ARC':
-        return pointsToSegments(sampleArcPoints(entity), false, tolerance);
+        return pointsToSegments(sampleArcPoints(entity), false);
       case 'CIRCLE':
-        return pointsToSegments(circleToPoints(entity), true, tolerance);
+        return pointsToSegments(circleToPoints(entity), true);
       case 'LWPOLYLINE':
       case 'POLYLINE': {
         const verts = Array.isArray(entity.vertices) ? entity.vertices : [];
         if (verts.length < 2) return [];
         const segs = [];
-        const closed = entity.closed !== false;
+        const closed = geometry.isPolylineClosed(entity);
         const count = closed ? verts.length : verts.length - 1;
         for (let i = 0; i < count; i++) {
           const a = verts[i];
@@ -107,22 +108,22 @@
           const bulge = Number(a.bulge) || 0;
           if (Math.abs(bulge) > EPS) {
             const arcPts = [{ x: a.x, y: a.y }, ...bulgeToPoints(a, b, bulge, 6)];
-            segs.push(...pointsToSegments(arcPts, false, tolerance));
-          } else if (dist(a, b) > tolerance) {
+            segs.push(...pointsToSegments(arcPts, false));
+          } else if (dist(a, b) > EPS) {
             segs.push([{ x: a.x, y: a.y }, { x: b.x, y: b.y }]);
           }
         }
         // Use polyline helper as backup if the manual walk produced nothing
         // (handles rare bulge-only or vertex-format quirks).
         if (!segs.length) {
-          return pointsToSegments(polylineVerticesToPoints(verts, closed), closed, tolerance);
+          return pointsToSegments(polylineVerticesToPoints(verts, closed), closed);
         }
         return segs;
       }
       case 'ELLIPSE':
-        return pointsToSegments(ellipseToPoints(entity, false), false, tolerance);
+        return pointsToSegments(ellipseToPoints(entity, false), false);
       case 'SPLINE':
-        return pointsToSegments(splineToPoints(entity), !!entity.closed, tolerance);
+        return pointsToSegments(splineToPoints(entity), !!entity.closed);
       default:
         return [];
     }
@@ -342,8 +343,15 @@
 
     // 1. Sample entities into segments.
     const segments = [];
+    const snapEndpoint = geometry.createEndpointSnapper(tolerance);
     (shapeRecord?.entities || []).forEach(entity => {
-      segments.push(...entityToSegments(entity, tolerance));
+      const sampled = entityToSegments(entity);
+      if (!sampled.length) return;
+      // Weld entity joins, not interior curve samples. Grid rounding alone
+      // misses near-identical endpoints on opposite sides of a cell boundary.
+      sampled[0][0] = snapEndpoint(sampled[0][0]);
+      sampled[sampled.length - 1][1] = snapEndpoint(sampled[sampled.length - 1][1]);
+      segments.push(...sampled);
     });
     if (segments.length < 3) return reportEmpty('insufficient-segments', { segmentCount: segments.length });
 
