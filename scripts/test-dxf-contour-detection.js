@@ -57,22 +57,19 @@ function createAppContext() {
 
 const app = createAppContext();
 
-// Test 1: Plate with composite outer boundary (lines + arcs) and internal slot + circles
+// Test 1: Composite boundary with internal cutouts (КБ.01 structure)
 function testCompositeBoundaryWithCutouts() {
   const entities = [
-    // Central slot (2 arcs, 2 lines)
-    { id: 's_arc1', type: 'ARC', center: { x: 7.5, y: 0 }, radius: 4.0, startAngle: 1.5 * Math.PI, endAngle: 0.5 * Math.PI },
-    { id: 's_line1', type: 'LINE', vertices: [{ x: -7.5, y: -4.0 }, { x: 7.5, y: -4.0 }] },
-    { id: 's_arc2', type: 'ARC', center: { x: -7.5, y: 0 }, radius: 4.0, startAngle: 0.5 * Math.PI, endAngle: 1.5 * Math.PI },
-    { id: 's_line2', type: 'LINE', vertices: [{ x: 7.5, y: 4.0 }, { x: -7.5, y: 4.0 }] },
+    // 1 circular hole in the center
+    { id: 'hole_circle', type: 'CIRCLE', center: { x: 0, y: 0 }, radius: 2.5 },
 
-    // 4 Corner circular holes
-    { id: 'hole1', type: 'CIRCLE', center: { x: 12.5, y: -15.0 }, radius: 2.5 },
-    { id: 'hole2', type: 'CIRCLE', center: { x: -12.5, y: -15.0 }, radius: 2.5 },
-    { id: 'hole3', type: 'CIRCLE', center: { x: 12.5, y: 15.0 }, radius: 2.5 },
-    { id: 'hole4', type: 'CIRCLE', center: { x: -12.5, y: 15.0 }, radius: 2.5 },
+    // 1 internal slot (2 lines + 2 arcs)
+    { id: 'slot_arc1', type: 'ARC', center: { x: -6.0, y: -2.0 }, radius: 1.0, startAngle: 0.5 * Math.PI, endAngle: 1.5 * Math.PI },
+    { id: 'slot_line1', type: 'LINE', vertices: [{ x: -6.0, y: -3.0 }, { x: 6.0, y: -3.0 }] },
+    { id: 'slot_arc2', type: 'ARC', center: { x: 6.0, y: -2.0 }, radius: 1.0, startAngle: 1.5 * Math.PI, endAngle: 0.5 * Math.PI },
+    { id: 'slot_line2', type: 'LINE', vertices: [{ x: 6.0, y: -1.0 }, { x: -6.0, y: -1.0 }] },
 
-    // Outer boundary (35 x 40 mm rounded plate: 4 corner arcs + 4 lines)
+    // Outer boundary (4 lines + 4 rounded corner arcs, 35x40 mm outer envelope)
     { id: 'out_arc1', type: 'ARC', center: { x: 12.5, y: -15.0 }, radius: 5.0, startAngle: 1.5 * Math.PI, endAngle: 0 },
     { id: 'out_line1', type: 'LINE', vertices: [{ x: 17.5, y: -15.0 }, { x: 17.5, y: 15.0 }] },
     { id: 'out_arc2', type: 'ARC', center: { x: 12.5, y: 15.0 }, radius: 5.0, startAngle: 0, endAngle: 0.5 * Math.PI },
@@ -117,19 +114,47 @@ function testArcCrossingZeroSweep() {
 
 // Test 3: Test sample DXF files if available
 function testSampleFilesIfPresent() {
-  const downloads = 'C:/Users/HP/Downloads';
-  if (!fs.existsSync(downloads)) return;
-
-  const files = fs.readdirSync(downloads).filter(f => f.toUpperCase().endsWith('.DXF') && f.includes('Пластина'));
-  if (!files.length) return;
-
   const parser = new DxfParser();
-  for (const file of files) {
-    const raw = fs.readFileSync(path.join(downloads, file), 'utf-8');
-    const dxf = parser.parseSync(raw);
-    const parsed = app.NestDxfPreviewService.parseDXFToShapes(dxf, raw, {});
-    assert.equal(parsed.shapes.length, 1, `File ${file} must parse into exactly 1 shape, got ${parsed.shapes.length}`);
-    assert.equal(parsed.shapes[0].exportEntities.length, dxf.entities.length, `File ${file} must retain all ${dxf.entities.length} entities`);
+
+  // Check Downloads directory for plate files
+  const downloads = 'C:/Users/HP/Downloads';
+  if (fs.existsSync(downloads)) {
+    const files = fs.readdirSync(downloads).filter(f => f.toUpperCase().endsWith('.DXF') && f.includes('Пластина'));
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(downloads, file), 'utf-8');
+      const dxf = parser.parseSync(raw);
+      const parsed = app.NestDxfPreviewService.parseDXFToShapes(dxf, raw, {});
+      assert.equal(parsed.shapes.length, 1, `File ${file} must parse into exactly 1 shape, got ${parsed.shapes.length}`);
+      assert.equal(parsed.shapes[0].exportEntities.length, dxf.entities.length, `File ${file} must retain all ${dxf.entities.length} entities`);
+    }
+  }
+
+  // Check recent directory for door pattern and text files
+  const recentDir = 'C:/Users/HP/Downloads/recent';
+  if (fs.existsSync(recentDir)) {
+    const textFile = path.join(recentDir, 'Text.dxf');
+    if (fs.existsSync(textFile)) {
+      const raw = fs.readFileSync(textFile, 'utf-8');
+      const dxf = parser.parseSync(raw);
+      const shapes = app.NestDxfShapeStructureService.detectShapes(dxf.entities);
+      assert.equal(shapes.length, 8, `Text.dxf must detect 8 shapes, got ${shapes.length}`);
+      for (const s of shapes) {
+        assert.ok(s.polygonPoints && s.polygonPoints.length >= 3, `Shape ${s.id} in Text.dxf must have closed polygon points`);
+      }
+    }
+
+    const doorFile = path.join(recentDir, '6pRDp-door-pattern-wall-screen.dxf');
+    if (fs.existsSync(doorFile)) {
+      const raw = fs.readFileSync(doorFile, 'utf-8');
+      const dxf = parser.parseSync(raw);
+      const start = Date.now();
+      const shapes = app.NestDxfShapeStructureService.detectShapes(dxf.entities);
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed < 10000, `Door pattern parsing must complete within 10s, took ${elapsed}ms`);
+      assert.equal(shapes.length, 1, `Door pattern must group into 1 shape, got ${shapes.length}`);
+      assert.equal(shapes[0].entities.length, dxf.entities.length, 'Door pattern must retain all entities');
+      assert.ok(shapes[0].polygonPoints && shapes[0].polygonPoints.length > 50, 'Door pattern must extract outer boundary polygon');
+    }
   }
 }
 
@@ -137,4 +162,4 @@ testCompositeBoundaryWithCutouts();
 testArcCrossingZeroSweep();
 testSampleFilesIfPresent();
 
-console.log('Contour detection tests passed: multi-entity boundaries, internal cutouts, and 0°-crossing arcs verified.');
+console.log('Contour detection tests passed: multi-entity boundaries, internal cutouts, 0°-crossing arcs, text letter cycles, and dense spline envelopes verified.');
