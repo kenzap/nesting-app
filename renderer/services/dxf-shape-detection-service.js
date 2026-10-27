@@ -98,11 +98,9 @@
   // normal closed-contour path instead.
   function isEffectivelyClosedArc(ent) {
     if (ent?.type !== 'ARC' || !ent.center || !Number.isFinite(ent.radius)) return false;
-    let span = Number.isFinite(ent.angleLength)
-      ? Math.abs(ent.angleLength)
-      : Math.abs((ent.endAngle || 0) - (ent.startAngle || 0));
+    let span = (ent.endAngle ?? 0) - (ent.startAngle ?? 0);
+    while (span <= 0) span += TWO_PI;
     while (span > TWO_PI) span -= TWO_PI;
-    if (span <= 0) span += TWO_PI;
     if (span >= TWO_PI - 1e-3) return true;
 
     const endpoints = getArcEndpoints(ent);
@@ -387,9 +385,7 @@
       if (!points.length) append(start);
 
       if (entity?.type === 'ARC' && entity.center && Number.isFinite(entity.radius)) {
-        let span = Number.isFinite(entity.angleLength)
-          ? Math.abs(entity.angleLength)
-          : (entity.endAngle || 0) - (entity.startAngle || 0);
+        let span = (entity.endAngle ?? 0) - (entity.startAngle ?? 0);
         while (span <= 0) span += TWO_PI;
         while (span > TWO_PI) span -= TWO_PI;
         const startAngle = Math.atan2(start.y - entity.center.y, start.x - entity.center.x);
@@ -435,11 +431,32 @@
     const snapTol = Math.max(LOOP_TOLERANCE, span * 1e-4);
     const adjacency = new Map();
     const nodes = new Map();
+    const spatialGrid = new Map();
 
     function ensureNode(point) {
-      const key = pointKey(point, snapTol);
-      if (!adjacency.has(key)) adjacency.set(key, []);
-      if (!nodes.has(key)) nodes.set(key, { x: point.x, y: point.y, key });
+      const gx = Math.round(point.x / snapTol);
+      const gy = Math.round(point.y / snapTol);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const neighborKey = `${gx + dx},${gy + dy}`;
+          const candidates = spatialGrid.get(neighborKey);
+          if (candidates) {
+            for (const candidateKey of candidates) {
+              const candNode = nodes.get(candidateKey);
+              if (Math.hypot(candNode.x - point.x, candNode.y - point.y) <= snapTol) {
+                return candidateKey;
+              }
+            }
+          }
+        }
+      }
+      const baseKey = `${gx},${gy}`;
+      let key = baseKey;
+      if (nodes.has(key)) key = `${baseKey}_${nodes.size}`;
+      nodes.set(key, { x: point.x, y: point.y, key });
+      adjacency.set(key, []);
+      if (!spatialGrid.has(baseKey)) spatialGrid.set(baseKey, []);
+      spatialGrid.get(baseKey).push(key);
       return key;
     }
 

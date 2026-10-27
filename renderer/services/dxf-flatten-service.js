@@ -263,25 +263,74 @@
 
   function extractPolygonForEntities(entities) {
     const polygonEntries = entities
-      .map(entity => ({
-        entity,
-        polygon: entityToFlattenPolygon(entity),
-      }))
-      .filter(entry => entry.polygon);
+      .map(entity => {
+        const polygon = entityToFlattenPolygon(entity);
+        if (!polygon) return null;
+        let area = 0;
+        try { area = Math.abs(polygon.area()); } catch (_) {}
+        if (!Number.isFinite(area) || area <= EPS) return null;
+        return {
+          entity,
+          polygon,
+          area,
+          box: polygon.box,
+        };
+      })
+      .filter(Boolean);
     if (!polygonEntries.length) return null;
 
     const sampledFallback = polygonEntries.length === 1
       ? sampledClosedEntityPolygon(polygonEntries[0].entity)
       : null;
 
-    let merged = polygonEntries[0].polygon;
-    for (let i = 1; i < polygonEntries.length; i++) {
-      try {
-        merged = Flatten.BooleanOperations.unify(merged, polygonEntries[i].polygon);
-      } catch (_) {
-        // Keep the polygons we can merge; disconnected faces are still preserved
-        // by unify when it succeeds, so failure here just means we skip this one.
+    if (polygonEntries.length === 1) {
+      const single = polygonEntries[0];
+      const faces = [...single.polygon.faces];
+      const primary = faces[0];
+      if (primary) {
+        const polygonPoints = faceToPoints(primary);
+        if (polygonPoints.length >= 4) {
+          return { polygonPoints, area: single.area, faceCount: 1 };
+        }
       }
+      return sampledFallback;
+    }
+
+    // Sort descending by area so the largest enclosing candidate is first
+    polygonEntries.sort((a, b) => b.area - a.area);
+
+    let merged = polygonEntries[0].polygon;
+    let mergedBox = polygonEntries[0].box;
+    const maxUnifications = 8;
+    let unifications = 0;
+
+    for (let i = 1; i < polygonEntries.length; i++) {
+      const candidate = polygonEntries[i];
+      if (!candidate.box) continue;
+
+      // Disjoint bounding boxes can never merge to expand the primary face
+      if (!mergedBox.intersect(candidate.box)) continue;
+
+      // Interior cutout check: if candidate is contained within merged bounding box
+      // and merged is significantly larger, candidate is an interior hole/feature.
+      const isInteriorBox = candidate.box.xmin >= mergedBox.xmin &&
+                            candidate.box.xmax <= mergedBox.xmax &&
+                            candidate.box.ymin >= mergedBox.ymin &&
+                            candidate.box.ymax <= mergedBox.ymax;
+      if (isInteriorBox && polygonEntries[0].area > candidate.area * 1.5) {
+        continue;
+      }
+
+      if (unifications >= maxUnifications) break;
+
+      try {
+        const nextMerged = Flatten.BooleanOperations.unify(merged, candidate.polygon);
+        if (nextMerged && nextMerged.faces && nextMerged.faces.size > 0) {
+          merged = nextMerged;
+          mergedBox = merged.box;
+          unifications++;
+        }
+      } catch (_) {}
     }
 
     const faces = [...merged.faces];
@@ -332,16 +381,6 @@
     if (!a || !b) return false;
     if (bboxGap(a.bbox, b.bbox) > LOOP_TOLERANCE * 20) return false;
 
-    for (const sa of a.segments) {
-      for (const sb of b.segments) {
-        if (sa.intersect(sb).length) return true;
-        if (sa.ps.distanceTo(sb.ps)[0] <= LOOP_TOLERANCE) return true;
-        if (sa.ps.distanceTo(sb.pe)[0] <= LOOP_TOLERANCE) return true;
-        if (sa.pe.distanceTo(sb.ps)[0] <= LOOP_TOLERANCE) return true;
-        if (sa.pe.distanceTo(sb.pe)[0] <= LOOP_TOLERANCE) return true;
-      }
-    }
-
     if (a.polygon && b.samplePoint) {
       try {
         if (a.polygon.contains(new Flatten.Point(b.samplePoint.x, b.samplePoint.y))) return true;
@@ -353,9 +392,25 @@
       } catch (_) {}
     }
 
+    for (const sa of a.segments) {
+      const boxA = sa.box;
+      for (const sb of b.segments) {
+        const boxB = sb.box;
+        if (boxA && boxB) {
+          const dx = Math.max(0, boxA.xmin - boxB.xmax, boxB.xmin - boxA.xmax);
+          const dy = Math.max(0, boxA.ymin - boxB.ymax, boxB.ymin - boxA.ymax);
+          if (dx > LOOP_TOLERANCE || dy > LOOP_TOLERANCE) continue;
+        }
+        if (sa.intersect(sb).length) return true;
+        if (sa.ps.distanceTo(sb.ps)[0] <= LOOP_TOLERANCE) return true;
+        if (sa.ps.distanceTo(sb.pe)[0] <= LOOP_TOLERANCE) return true;
+        if (sa.pe.distanceTo(sb.ps)[0] <= LOOP_TOLERANCE) return true;
+        if (sa.pe.distanceTo(sb.pe)[0] <= LOOP_TOLERANCE) return true;
+      }
+    }
+
     return false;
   }
-
   function buildSketchGroups(entities) {
     const records = entities
       .map(entityToFlattenRecord)

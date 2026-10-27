@@ -49,11 +49,9 @@
 
   function isClosedArc(entity) {
     if (entity?.type !== 'ARC' || !entity.center || !Number.isFinite(entity.radius)) return false;
-    let span = Number.isFinite(entity.angleLength)
-      ? Math.abs(entity.angleLength)
-      : Math.abs((entity.endAngle || 0) - (entity.startAngle || 0));
+    let span = (entity.endAngle ?? 0) - (entity.startAngle ?? 0);
+    while (span <= 0) span += TWO_PI;
     while (span > TWO_PI) span -= TWO_PI;
-    if (span <= 0) span += TWO_PI;
     return span >= TWO_PI - 1e-3;
   }
 
@@ -316,7 +314,21 @@
     if (!Array.isArray(points) || points.length < 4 || !point) return false;
     const bbox = pointsBBox(points);
     if (!bbox || !bboxContainsPoint(bbox, point, LOOP_TOLERANCE * 12)) return false;
-    return pointInPoly(point.x, point.y, points);
+    if (pointInPoly(point.x, point.y, points)) return true;
+
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      if (len2 <= EPS) continue;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2));
+      const px = a.x + dx * t;
+      const py = a.y + dy * t;
+      if (Math.hypot(point.x - px, point.y - py) <= LOOP_TOLERANCE * 8) return true;
+    }
+    return false;
   }
 
   function polygonArea(points) {
@@ -360,16 +372,24 @@
         const polygonPoints = extracted?.polygonPoints?.length
           ? extracted.polygonPoints
           : null;
-        const inferredLoop = !polygonPoints
-          ? buildClosedContoursFromLines(group.entities)
-              .slice()
-              .sort((a, b) => polygonArea(b?.points || []) - polygonArea(a?.points || []))[0]
-          : null;
+        const inferredLoop = buildClosedContoursFromLines(group.entities)
+          .slice()
+          .sort((a, b) => polygonArea(b?.points || []) - polygonArea(a?.points || []))[0];
         const inferredPoints = Array.isArray(inferredLoop?.points) && inferredLoop.points.length >= 4
           ? closePointRing(inferredLoop.points)
           : null;
+        const extArea = polygonPoints ? polygonArea(polygonPoints) : 0;
+        const infArea = inferredPoints ? polygonArea(inferredPoints) : 0;
+        let ownerPoints = null;
+        if (infArea > extArea) {
+          ownerPoints = inferredPoints;
+        } else if (extArea > 0) {
+          ownerPoints = polygonPoints;
+        } else if (inferredPoints) {
+          ownerPoints = inferredPoints;
+        }
         let envelope = null;
-        if (!polygonPoints && !inferredPoints && group.openCount > 0) {
+        if (!ownerPoints && group.openCount > 0) {
           const envelopes = buildRasterEnvelopes(group.entities, {
             strokeRadius: undefined,
             sampleStep: undefined,
@@ -378,10 +398,10 @@
           envelope = envelopes
             .slice()
             .sort((a, b) => (b.entities?.length || 0) - (a.entities?.length || 0))[0];
+          if (envelope?.polygonPoints?.length) {
+            ownerPoints = envelope.polygonPoints;
+          }
         }
-        const ownerPoints = polygonPoints ||
-          inferredPoints ||
-          (envelope?.polygonPoints?.length ? envelope.polygonPoints : null);
         return {
           group,
           envelopePoints: ownerPoints,
@@ -559,6 +579,55 @@
     };
   }
 
+  function mergeStencilBridgeGroups(groupRecords) {
+    if (!Array.isArray(groupRecords) || groupRecords.length <= 1) return groupRecords;
+    const bboxes = groupRecords.map(group => {
+      let box = null;
+      (group.entities || []).forEach(e => { box = unionBBox(box, entityBBox(e)); });
+      return box;
+    });
+    const parent = groupRecords.map((_, i) => i);
+    const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const union = (i, j) => {
+      const ri = find(i), rj = find(j);
+      if (ri !== rj) parent[ri] = rj;
+    };
+    // Standard stencil bridge gap threshold in CAM/CAD (typically 1.0 - 3.5 mm).
+    const STENCIL_BRIDGE_MAX_GAP = 3.5;
+    for (let i = 0; i < groupRecords.length; i++) {
+      const b1 = bboxes[i];
+      if (!b1) continue;
+      for (let j = i + 1; j < groupRecords.length; j++) {
+        const b2 = bboxes[j];
+        if (!b2) continue;
+        const dx = Math.max(0, b1.minX - b2.maxX, b2.minX - b1.maxX);
+        const dy = Math.max(0, b1.minY - b2.maxY, b2.minY - b1.maxY);
+        if (Math.hypot(dx, dy) <= STENCIL_BRIDGE_MAX_GAP) union(i, j);
+      } 
+    }
+    const mergedByRoot = new Map();
+    groupRecords.forEach((group, i) => {
+      const root = find(i);
+      if (!mergedByRoot.has(root)) {
+        mergedByRoot.set(root, { entities: [], envelopePoints: group.envelopePoints || null });
+      }
+      mergedByRoot.get(root).entities.push(...(group.entities || []));
+      if (!mergedByRoot.get(root).envelopePoints && group.envelopePoints) {
+        mergedByRoot.get(root).envelopePoints = group.envelopePoints;
+      }
+    });
+    const merged = [...mergedByRoot.values()];
+    // Sort merged groups left-to-right (minX) for natural reading order in nesting/preview
+    return merged.sort((a, b) => {
+      let bA = null, bB = null;
+      (a.entities || []).forEach(e => { bA = unionBBox(bA, entityBBox(e)); });
+      (b.entities || []).forEach(e => { bB = unionBBox(bB, entityBBox(e)); });
+      const xDelta = (bA?.minX || 0) - (bB?.minX || 0);
+      if (Math.abs(xDelta) > EPS) return xDelta;
+      return (bA?.minY || 0) - (bB?.minY || 0);
+    });
+  }
+
   function buildShapeGroupRecords(entities, options = {}) {
     const renderableEntities = (entities || []).filter(isRenderableEntity);
     if (!renderableEntities.length) return { renderableEntities: [], groupRecords: [] };
@@ -566,9 +635,12 @@
     const initialGroups = options.singleSketch
       ? [renderableEntities]
       : (options.initialGroups || buildSketchGroups(renderableEntities));
-    const groupRecords = options.singleSketch
-      ? initialGroups
+    const rawGroupRecords = options.singleSketch
+      ? [{ entities: renderableEntities }]
       : mergeClosedGroupsIntoOpenOwners(splitGroupsByClosedness(initialGroups));
+    const groupRecords = options.singleSketch
+      ? rawGroupRecords
+      : mergeStencilBridgeGroups(rawGroupRecords);
 
     return { renderableEntities, groupRecords };
   }
