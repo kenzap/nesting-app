@@ -753,6 +753,38 @@ body.platform-linux .linux-menubar {
   background: var(--surface3); color: var(--text);
 }
 
+/* Cursor-following label on the nesting canvas: the source file of the part
+   under the pointer. Fixed to the body (not the scrolling viewport) so panning
+   and the viewport's own transforms can never offset it; it stays invisible to
+   the pointer so it never steals hover from the part it describes. */
+.part-tooltip {
+  position: fixed;
+  top: 0; left: 0;
+  z-index: 60;
+  max-width: 340px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+  font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 80ms ease;
+}
+.part-tooltip.visible { opacity: 1; visibility: visible; }
+.part-tooltip-name { overflow-wrap: anywhere; }
+.part-tooltip-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.part-tooltip-sub[hidden] { display: none; }
+
 /* Overlay SVG for the measurement line/circles/distance chip. Sits above the
    nesting SVG and matches the viewport's pixel dimensions. */
 .measure-overlay {

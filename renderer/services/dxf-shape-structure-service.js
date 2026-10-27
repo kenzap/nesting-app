@@ -324,6 +324,31 @@
     return Math.abs(geometry.polygonSignedArea(points.slice(0, -1)));
   }
 
+  // A closed contour inside a shape is a hole — unless it *is* the shape's own
+  // outline. That happens when the outline can't be promoted to the parent
+  // contour (a part drawn as one single outline has nothing attached to it, so
+  // the "strong attachment" test can never pass): the same loop is then
+  // reported twice, as the outer polygon and as a child contour. Downstream
+  // that phantom hole covers the whole part, so no engraving label could ever
+  // be placed on it. A real hole sits strictly inside the outline, so matching
+  // bounding box and area is a safe test for "same loop".
+  function coincidesWithOuterBoundary(candidate, outerPolygon) {
+    if (!candidate || !Array.isArray(outerPolygon) || outerPolygon.length < 3) return false;
+    const outerRing = closePointRing(outerPolygon);
+    const candidateRing = closePointRing(candidate.polygonPoints || candidate.points || []);
+    if (outerRing.length < 4 || candidateRing.length < 4) return false;
+    const outerArea = polygonArea(outerRing);
+    if (!(outerArea > EPS)) return false;
+    const outerBox = pointsBBox(outerRing);
+    const candidateBox = pointsBBox(candidateRing);
+    if (!outerBox || !candidateBox) return false;
+    const span = Math.max(outerBox.maxX - outerBox.minX, outerBox.maxY - outerBox.minY);
+    const tolerance = Math.max(LOOP_TOLERANCE * 20, span * 5e-4);
+    const sameBox = ['minX', 'minY', 'maxX', 'maxY']
+      .every(key => Math.abs(candidateBox[key] - outerBox[key]) <= tolerance);
+    return sameBox && Math.abs(polygonArea(candidateRing) - outerArea) <= outerArea * 0.02;
+  }
+
   function bboxArea(bbox) {
     if (!bbox) return 0;
     return Math.max(0, bbox.maxX - bbox.minX) * Math.max(0, bbox.maxY - bbox.minY);
@@ -536,13 +561,15 @@
     let bbox = null;
     ownedEntities.forEach(entity => { bbox = unionBBox(bbox, entityBBox(entity)); });
 
-    const childClosedContours = collectContourCandidates(ownedEntities)
-      .filter(candidate => !peerOuters.some(peer => peer.id === candidate.id));
     const openEntities = ownedEntities.filter(entity => !isClosedEntity(entity));
     const fallbackPolygon = groupRecord.envelopePoints?.length ? groupRecord.envelopePoints : null;
     const primaryPolygon = usePeerOuters
       ? (extractPolygonForEntities(ownedEntities)?.polygonPoints || null)
       : parentContour?.polygonPoints || null;
+    const outerPolygon = primaryPolygon || fallbackPolygon;
+    const childClosedContours = collectContourCandidates(ownedEntities)
+      .filter(candidate => !peerOuters.some(peer => peer.id === candidate.id))
+      .filter(candidate => !coincidesWithOuterBoundary(candidate, outerPolygon));
 
     return {
       id: `shape_${index}`,

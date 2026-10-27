@@ -524,6 +524,10 @@
       // diagnostics, but they clutter the end-user preview and can flash
       // prominently during live updates. Remove them from the in-app SVG only.
       styled = styled.replace(/<g\b[^>]*id="collision_lines"[^>]*>[\s\S]*?<\/g>/gi, '');
+      // Sparrow tags every placed part with a <title> of engine debug text
+      // ("item, id: 0, transf: …"). Browsers show it as a native tooltip, which
+      // would double up with the part-name tooltip and says nothing useful.
+      styled = styled.replace(/<use\b([^>]*)>\s*<title>[\s\S]*?<\/title>\s*<\/use>/g, '<use$1/>');
       if (strip) {
         styled = adjustSvgForSheet(styled, strip);
       }

@@ -433,6 +433,17 @@ measureToolApi.init();
 // sheet lingers on top of another sheet's parts.
 window.measureToolApi = measureToolApi;
 
+// Part-name tooltip — a cursor-following label naming the source file of the
+// part under the pointer. It is a cursor readout like the coordinate chip, so
+// it follows the same View → Live Coordinates switch, and it steps aside while
+// the measure tool is active so it never crowds the crosshair and snap ring.
+const partHoverTooltipApi = window.NestPartHoverTooltip.createPartHoverTooltip({
+  state,
+  dom,
+  isEnabled: () => measureToolApi.isShowCursorCoords() && !measureToolApi.isActive(),
+});
+partHoverTooltipApi.init();
+
 // ─── Global surface ───────────────────────────────────────────────────────────
 // A handful of functions need to be reachable from other script files (notably
 // dxf-preview.js which runs in its own module scope).  We attach only what is
