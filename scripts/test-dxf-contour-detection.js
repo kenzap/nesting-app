@@ -137,7 +137,7 @@ function testSampleFilesIfPresent() {
       const raw = fs.readFileSync(textFile, 'utf-8');
       const dxf = parser.parseSync(raw);
       const shapes = app.NestDxfShapeStructureService.detectShapes(dxf.entities);
-      assert.equal(shapes.length, 8, `Text.dxf must detect 8 shapes, got ${shapes.length}`);
+      assert.equal(shapes.length, 5, `Text.dxf must detect 5 letter shapes, got ${shapes.length}`);
       for (const s of shapes) {
         assert.ok(s.polygonPoints && s.polygonPoints.length >= 3, `Shape ${s.id} in Text.dxf must have closed polygon points`);
       }

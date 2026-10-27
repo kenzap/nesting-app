@@ -579,6 +579,55 @@
     };
   }
 
+  function mergeStencilBridgeGroups(groupRecords) {
+    if (!Array.isArray(groupRecords) || groupRecords.length <= 1) return groupRecords;
+    const bboxes = groupRecords.map(group => {
+      let box = null;
+      (group.entities || []).forEach(e => { box = unionBBox(box, entityBBox(e)); });
+      return box;
+    });
+    const parent = groupRecords.map((_, i) => i);
+    const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const union = (i, j) => {
+      const ri = find(i), rj = find(j);
+      if (ri !== rj) parent[ri] = rj;
+    };
+    // Standard stencil bridge gap threshold in CAM/CAD (typically 1.0 - 3.5 mm).
+    const STENCIL_BRIDGE_MAX_GAP = 3.5;
+    for (let i = 0; i < groupRecords.length; i++) {
+      const b1 = bboxes[i];
+      if (!b1) continue;
+      for (let j = i + 1; j < groupRecords.length; j++) {
+        const b2 = bboxes[j];
+        if (!b2) continue;
+        const dx = Math.max(0, b1.minX - b2.maxX, b2.minX - b1.maxX);
+        const dy = Math.max(0, b1.minY - b2.maxY, b2.minY - b1.maxY);
+        if (Math.hypot(dx, dy) <= STENCIL_BRIDGE_MAX_GAP) union(i, j);
+      } 
+    }
+    const mergedByRoot = new Map();
+    groupRecords.forEach((group, i) => {
+      const root = find(i);
+      if (!mergedByRoot.has(root)) {
+        mergedByRoot.set(root, { entities: [], envelopePoints: group.envelopePoints || null });
+      }
+      mergedByRoot.get(root).entities.push(...(group.entities || []));
+      if (!mergedByRoot.get(root).envelopePoints && group.envelopePoints) {
+        mergedByRoot.get(root).envelopePoints = group.envelopePoints;
+      }
+    });
+    const merged = [...mergedByRoot.values()];
+    // Sort merged groups left-to-right (minX) for natural reading order in nesting/preview
+    return merged.sort((a, b) => {
+      let bA = null, bB = null;
+      (a.entities || []).forEach(e => { bA = unionBBox(bA, entityBBox(e)); });
+      (b.entities || []).forEach(e => { bB = unionBBox(bB, entityBBox(e)); });
+      const xDelta = (bA?.minX || 0) - (bB?.minX || 0);
+      if (Math.abs(xDelta) > EPS) return xDelta;
+      return (bA?.minY || 0) - (bB?.minY || 0);
+    });
+  }
+
   function buildShapeGroupRecords(entities, options = {}) {
     const renderableEntities = (entities || []).filter(isRenderableEntity);
     if (!renderableEntities.length) return { renderableEntities: [], groupRecords: [] };
@@ -586,9 +635,12 @@
     const initialGroups = options.singleSketch
       ? [renderableEntities]
       : (options.initialGroups || buildSketchGroups(renderableEntities));
-    const groupRecords = options.singleSketch
-      ? initialGroups
+    const rawGroupRecords = options.singleSketch
+      ? [{ entities: renderableEntities }]
       : mergeClosedGroupsIntoOpenOwners(splitGroupsByClosedness(initialGroups));
+    const groupRecords = options.singleSketch
+      ? rawGroupRecords
+      : mergeStencilBridgeGroups(rawGroupRecords);
 
     return { renderableEntities, groupRecords };
   }
