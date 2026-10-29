@@ -36,6 +36,7 @@ sandbox.Flatten = guardedFlatten;
   'renderer/utils/dxf-preview-state.js', 'renderer/services/dxf-layer-service.js',
   'renderer/services/dxf-export-metadata-service.js', 'renderer/services/dxf-flatten-service.js',
   'renderer/services/dxf-shape-detection-service.js', 'renderer/utils/contour-helpers.js',
+  'renderer/services/dxf-raster-envelope-service.js',
   'renderer/services/contour-detection-jsts-service.js', 'renderer/services/contour-detection-service.js',
   'renderer/services/dxf-shape-structure-service.js', 'renderer/services/dxf-preview-service.js',
 ].forEach(file => vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), sandbox, { filename: file }));
@@ -188,4 +189,49 @@ assert.equal(degenerateResult.shapes.length, 1);
 assert.equal(degenerateResult.shapes[0].holes.length, 2, 'real cutouts are retained');
 assert.equal(degenerateResult.shapes[0].exportEntities.length, 4, 'degenerate source linework is retained');
 assert.ok(degenerateResult.shapes[0].exportEntities.some(entity => entity.type === 'SPLINE'));
-console.log('Open DXF polylines retain their curves, assemble closed contours, and preserve cutouts.');
+// A notched plate with a short break in a straight top edge and an overshoot
+// at the bottom of the notch. Interior slots must not become a hull outline.
+function notchedPlate(gap = 0.3, verticalOffset = 0) {
+  const outline = [
+    [[0, 0], [50, 0]], [[50, 0], [50, 65]],
+    [[50, 65], [27 + gap, 65]], [[27, 65 - verticalOffset], [27, 48]],
+    [[27, 48], [23.7, 48]], [[24, 48], [24, 65]],
+    [[24, 65], [0, 65]], [[0, 65], [0, 0]],
+  ];
+  const holes = [[4, 26], [29, 26], [4, 51], [29, 51]].flatMap(([x, y]) => {
+    const points = [[x, y], [x + 15, y], [x + 15, y + 3], [x, y + 3]];
+    return points.map((p, i) => [p, points[(i + 1) % 4]]);
+  });
+  return document([...outline, ...holes].map(([a, b]) =>
+    line({ x: a[0], y: a[1] }, { x: b[0], y: b[1] })).join(''));
+}
+const notchedText = notchedPlate();
+const notchedEntities = parse(notchedText).entities;
+const notchedOriginal = JSON.stringify(notchedEntities);
+const notchedResult = sandbox.NestDxfPreviewService.parseDXFToShapes({ entities: notchedEntities }, notchedText, {
+  multiSketchDetection: true,
+});
+assert.equal(notchedResult.shapes.length, 1);
+const notched = notchedResult.shapes[0];
+assert.equal(notched.selectionPolygonSource, 'jsts-arrangement');
+assert.equal(notched.nestingPolygonBuilderDebug.gapBridgeCount, 1);
+assert.equal(notched.holes.length, 4);
+assert.equal(notched.exportEntities.length, 24, 'repair is not added to exported source linework');
+assert.ok(Math.abs(notched.nestingPolygon.area - 3199) < 0.1, 'notch is retained, slots do not distort the outer');
+assert.deepEqual(notchedEntities.map(e => e.vertices), JSON.parse(notchedOriginal).map(e => e.vertices));
+const detectNotched = text => sandbox.NestDxfContourDetectionJstsService.buildArrangementContour({
+  entities: parse(text).entities,
+}, { tolerance: 0.001 });
+assert.equal(detectNotched(notchedPlate(0)).builderDebug.gapBridgeCount, undefined, 'valid outline needs no repair');
+assert.equal(detectNotched(notchedPlate(2)).builderDebug.gapBridgeCount, undefined, 'large openings are not bridged');
+assert.equal(detectNotched(notchedPlate(0.3, 0.3)).builderDebug.gapBridgeCount, undefined, 'no diagonal invented edges');
+const appendLinework = body => notchedText.replace('0\nENDSEC', `${body}0\nENDSEC`);
+assert.equal(detectNotched(appendLinework(line({ x: 27.1, y: 65 }, { x: 27.1, y: 60 })))
+  .builderDebug.gapBridgeCount, undefined, 'ambiguous competing endpoints are not bridged');
+assert.equal(detectNotched(appendLinework(line({ x: 27.1, y: 64 }, { x: 27.1, y: 66 })))
+  .builderDebug.gapBridgeCount, undefined, 'a repair must not cross other linework');
+const reversed = parse(notchedText).entities.reverse().map(e => ({ ...e, vertices: [...e.vertices].reverse() }));
+const reverseResult = sandbox.NestDxfContourDetectionJstsService.buildArrangementContour({ entities: reversed });
+assert.equal(reverseResult.builderDebug.gapBridgeCount, 1, 'repair is independent of line order and direction');
+assert.ok(Math.abs(reverseResult.area - 3199) < 0.1);
+console.log('Open DXF curves, cutouts, degenerate splines, and bounded straight-gap repair passed.');

@@ -321,6 +321,76 @@
     return out;
   }
 
+  function findStraightGapBridges(entities, segments, span, tolerance) {
+    if (!global.RBush) return [];
+    const maxGap = span * 0.01;
+    if (maxGap <= tolerance) return [];
+    const tree = new global.RBush();
+    tree.load(segments.map(([a, b]) => ({
+      minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y),
+      maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y), a, b,
+    })));
+    const near = (p, radius) => tree.search({
+      minX: p.x - radius, minY: p.y - radius,
+      maxX: p.x + radius, maxY: p.y + radius,
+    });
+    const onSegment = (p, a, b) => {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+      return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy) <= tolerance;
+    };
+    const terminals = [];
+    for (const entity of entities) {
+      if (entity.type !== 'LINE') continue;
+      const ends = getLineEndpoints(entity);
+      if (!ends || dist(ends.start, ends.end) <= tolerance) continue;
+      for (const [p, other] of [[ends.start, ends.end], [ends.end, ends.start]]) {
+        // Already joined endpoints (including T-junctions) are not gaps.
+        if (near(p, tolerance).filter(s => onSegment(p, s.a, s.b)).length === 1) {
+          terminals.push({ p, other, entity });
+        }
+      }
+    }
+    // Only repair a small number of unambiguous breaks, never a fragmented drawing.
+    if (terminals.length > 32) return [];
+    const extendsTo = (a, b) => {
+      const dx = a.p.x - a.other.x, dy = a.p.y - a.other.y;
+      const gx = b.p.x - a.p.x, gy = b.p.y - a.p.y;
+      return dx * gx + dy * gy > 0 && Math.abs(dx * gy - dy * gx) / Math.hypot(dx, dy) <= tolerance;
+    };
+    const intersector = new jsts.algorithm.RobustLineIntersector();
+    const crossesLinework = (a, b) => {
+      const bounds = {
+        minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y),
+        maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y),
+      };
+      for (const segment of tree.search(bounds)) {
+        intersector.computeIntersection(
+          new jsts.geom.Coordinate(a.x, a.y), new jsts.geom.Coordinate(b.x, b.y),
+          new jsts.geom.Coordinate(segment.a.x, segment.a.y), new jsts.geom.Coordinate(segment.b.x, segment.b.y)
+        );
+        for (let i = 0; i < intersector.getIntersectionNum(); i++) {
+          const point = intersector.getIntersection(i);
+          if (dist(point, a) > tolerance && dist(point, b) > tolerance) return true;
+        }
+      }
+      return false;
+    };
+    const candidates = terminals.map((a, i) => terminals.flatMap((b, j) => {
+      if (i === j || a.entity === b.entity) return [];
+      const gap = dist(a.p, b.p);
+      if (gap <= tolerance || gap > Math.min(maxGap, dist(a.p, a.other) * 0.1, dist(b.p, b.other) * 0.1)) return [];
+      if (!extendsTo(a, b) && !extendsTo(b, a)) return [];
+      return [j];
+    }));
+    return terminals.flatMap((a, i) => {
+      const [j] = candidates[i];
+      if (candidates[i].length !== 1 || j <= i || candidates[j].length !== 1) return [];
+      if (crossesLinework(a.p, terminals[j].p)) return [];
+      return [{ type: 'LINE', vertices: [a.p, terminals[j].p] }];
+    });
+  }
+
   function buildArrangementContour(shapeRecord, options = {}) {
     const tolerance = Math.max(LOOP_TOLERANCE * 4, options.tolerance || LOOP_TOLERANCE * 8);
     const bbox = computeEntitiesBBox(shapeRecord?.entities || []);
@@ -354,6 +424,21 @@
       segments.push(...sampled);
     });
     if (segments.length < 3) return reportEmpty('insufficient-segments', { segmentCount: segments.length });
+
+    const retryWithGapBridges = () => {
+      if (options.gapRepairAttempted) return null;
+      const bridges = findStraightGapBridges(shapeRecord.entities, segments, span, tolerance);
+      if (!bridges.length) return null;
+      const repaired = buildArrangementContour({
+        ...shapeRecord, entities: [...shapeRecord.entities, ...bridges],
+      }, { ...options, gapRepairAttempted: true });
+      // A repair must yield a full, single silhouette, not another guessed hull.
+      if (repaired.source !== 'jsts-arrangement' || repaired.builderDebug?.needsFallback !== false) return null;
+      repaired.builderDebug.sourceEntityCount = shapeRecord.entities.length;
+      repaired.builderDebug.gapBridgeCount = bridges.length;
+      repaired.builderDebug.maxGapBridged = Math.max(...bridges.map(e => dist(...e.vertices)));
+      return repaired;
+    };
 
     // 2. Build snap-rounded LineStrings.
     const pm = new jsts.geom.PrecisionModel(scale);
@@ -393,6 +478,8 @@
       }
     }
     if (!facePolygons.length) {
+      const repaired = retryWithGapBridges();
+      if (repaired) return repaired;
       // Polygonize found zero bounded faces. This happens for shapes made of
       // open curves whose endpoints don't snap-connect — e.g. curved-letter
       // glyphs in Text.dxf, where each ARC is sampled into many segments but
@@ -605,6 +692,8 @@
     let fallbackReason = null;
     let fallbackArea = null;
     if (needsFallback) {
+      const repaired = retryWithGapBridges();
+      if (repaired) return repaired;
       const hull = buildConcavemanCandidate(segments, {
         tolerance,
         scale,
