@@ -19,6 +19,13 @@
         { key: 'menu.exit', options: { product: 'Kenzap Nesting' }, action: 'quit', type: 'ipc' },
       ],
       edit: [
+        { key: 'menu.editLayout', action: 'toggle-layout-edit', type: 'ipc',
+          keyNow: () => (globalScope.layoutEditorApi?.isActive() ? 'menu.saveLayout' : 'menu.editLayout'),
+          isEnabled: () => !!globalScope.layoutEditorApi?.isActive()
+            || !document.getElementById('editLayout')?.disabled },
+        { key: 'menu.resetLayout', action: 'reset-layout', type: 'ipc',
+          isEnabled: () => !!globalScope.layoutEditorApi?.canReset() },
+        { type: 'separator' },
         { key: 'menu.settings', action: 'open-settings', type: 'ipc' },
       ],
       view: [
@@ -207,8 +214,9 @@
         const entry = document.createElement('button');
         entry.type = 'button';
         entry.className = 'linux-menu-item';
-        entry.textContent = t(item.key, item.options);
+        entry.textContent = t(item.keyNow ? item.keyNow() : item.key, item.options);
         entry.setAttribute('role', 'menuitem');
+        if (item.isEnabled && !item.isEnabled()) entry.disabled = true;
         entry.addEventListener('click', async () => {
           closeOpenMenu();
           await invokeMenuItem(item);

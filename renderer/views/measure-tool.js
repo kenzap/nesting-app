@@ -461,6 +461,7 @@
 
     function setMeasureMode(next) {
       const target = !!next;
+      if (target && globalScope.layoutEditorApi?.isActive()) globalScope.layoutEditorApi.exit();
       if (measureMode === target) return;
       measureMode = target;
       anchorSheet = null;

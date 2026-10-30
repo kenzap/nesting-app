@@ -125,6 +125,36 @@ mod.exports.registerExportDxfIpc();
       assert.equal(parsed.entities.filter(e => e.layer === 'SHEET_BOUNDARY').length, 1);
       if (!removeSharedEdges) assert.ok(entities.every(e => e.shape), 'disabled leaves closed part contours intact');
     }
-    console.log('Shared-edge export: partial/reversed overlaps, transforms, tolerances, protected geometry, joining, settings, and real DXF output passed.');
+    for (const unlimited of [false, true]) {
+      const placements = [0, 10].map(tx => ({ item_id: 0, transformation: { rotation: 0, translation: [tx, 0] } }));
+      fs.writeFileSync(jsonPath, JSON.stringify({ solution: unlimited ? { placed_items: placements } : { layout: { placed_items: placements } } }));
+      const strip = { index: 1, json_path: jsonPath, sheet_width: 20, strip_width: 20, strip_height: 10,
+        manual_edits: [{ sourceIndex: 1, translation: [5, 0] }] };
+      const edited = await exportDxf(null, { outputDir: dir, inputPath, strips: [strip], removeSharedEdges: false });
+      assert.equal(edited.success, true, edited.error);
+      const parsed = new DxfParser().parseSync(fs.readFileSync(path.join(dir, '01_sheet_10x20.dxf'), 'utf8'));
+      assert.equal(parsed.entities.length, 1, 'deleted copy is absent from DXF');
+      assert.equal(Math.min(...parsed.entities[0].vertices.map(p => p.x)), 5, 'DXF uses edited X');
+      assert.equal(Math.max(...parsed.entities[0].vertices.map(p => p.x)), 15);
+      const rotated = await exportDxf(null, { outputDir: dir, inputPath, strips: [{ ...strip,
+        manual_edits: [{ sourceIndex: 1, translation: [15, 0], rotation: 90 }] }], removeSharedEdges: false });
+      assert.equal(rotated.success, true, rotated.error);
+      const turned = new DxfParser().parseSync(fs.readFileSync(path.join(dir, '01_sheet_10x20.dxf'), 'utf8'));
+      assert.equal(turned.entities[0].vertices[0].x, 15, 'DXF uses the edited rotation, not the solver angle');
+      assert.equal(turned.entities[0].vertices[0].y, 0);
+      assert.ok(Math.abs(turned.entities[0].vertices[1].x - 15) < 1e-9);
+      assert.ok(Math.abs(turned.entities[0].vertices[1].y - 10) < 1e-9);
+      const arbitrary = await exportDxf(null, { outputDir: dir, inputPath, strips: [{ ...strip,
+        strip_height: 30, manual_edits: [{ sourceIndex: 1, translation: [8, 5], rotation: 32.5 }] }], removeSharedEdges: false });
+      assert.equal(arbitrary.success, true, arbitrary.error);
+      const angled = new DxfParser().parseSync(fs.readFileSync(path.join(dir, '01_sheet_30x20.dxf'), 'utf8'));
+      const vertex = angled.entities[0].vertices[1];
+      assert.ok(Math.abs(vertex.x - (8 + 10 * Math.cos(32.5 * Math.PI / 180))) < 1e-4);
+      assert.ok(Math.abs(vertex.y - (5 + 10 * Math.sin(32.5 * Math.PI / 180))) < 1e-4, 'fractional rotation survives four-decimal DXF coordinates');
+      const invalid = await exportDxf(null, { outputDir: dir, inputPath, strips: [{ ...strip,
+        manual_edits: [{ sourceIndex: 1, translation: [19, 0] }] }] });
+      assert.equal(invalid.success, false, 'invalid manual placement must not be exported');
+    }
+    console.log('Shared-edge and manual-placement DXF export tests passed, including moves, deletions, and unlimited sheets.');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

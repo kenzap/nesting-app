@@ -545,6 +545,29 @@ function terminateAllSparrowRuns(options = {}) {
 }
 
 function registerSparrowIpc() {
+  ipcMain.handle('load-placement-editor', async (_event, runId) => {
+    try {
+      const run = sparrowRuns.get(runId);
+      if (!run || !['completed', 'stopped'].includes(run.status)) throw new Error('Wait for nesting to finish.');
+      const artifacts = attachRunSheetMetadata(collectSparrowArtifacts(run.runDir, run.safeName), run.runDir, run.safeName);
+      const strips = artifacts.summary?.strips;
+      if (!strips?.length || artifacts.summary.is_preview || strips.some(s => s.is_preview)) {
+        throw new Error('Final placement data is unavailable.');
+      }
+      const input = readJsonIfExists(run.inputPath);
+      const editor = require('../../shared/placement-editor');
+      return {
+        success: true,
+        items: Object.fromEntries((input?.items || []).map(item => [item.id, item])),
+        strips: strips.map(strip => ({
+          json_path: strip.json_path,
+          placements: editor.readPlacements(readJsonIfExists(strip.json_path)),
+        })),
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
   app.on('before-quit', () => {
     terminateAllSparrowRuns({ markStopped: true, graceful: false, forceAfterMs: 1000 });
   });

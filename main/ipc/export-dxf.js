@@ -792,7 +792,7 @@ function registerExportDxfIpc() {
         return entities;
       }
 
-      function writeEntity(lines, entity, rotation, tx, ty, emitDebug = null, nextHandle = null) {
+      function writeEntity(lines, entity, rotation, tx, ty, emitDebug = null, nextHandle = null, ownerHandle = null) {
         if (!entity?.type) {
           if (emitDebug) emitDebug.skipped.push({ reason: 'missing-type', entity: entity || null });
           return false;
@@ -800,9 +800,12 @@ function registerExportDxfIpc() {
         const layer = entity.layer || '0';
         const pushHeader = (typeName) => {
           lines.push('0', typeName);
-          if (nextHandle) lines.push('5', nextHandle());
+          const handle = nextHandle ? nextHandle() : null;
+          if (handle) lines.push('5', handle);
+          if (ownerHandle) lines.push('330', ownerHandle);
           lines.push('100', 'AcDbEntity');
           lines.push('8', layer);
+          return handle;
         };
 
         if (entity.type === 'LINE') {
@@ -921,10 +924,10 @@ function registerExportDxfIpc() {
           const closed = polylineClosed(entity);
           const normalizedVertices = normalizeClosedPolylineVertices(entity.vertices, closed);
           const extrusion = entity.extrusionDirection || {};
-          pushHeader('POLYLINE');
+          const polylineHandle = pushHeader('POLYLINE');
           writeColor(lines, entity);
           lines.push('66', '1');
-          lines.push('100', 'AcDb2dPolyline');
+          lines.push('100', entity.is3dPolyline ? 'AcDb3dPolyline' : 'AcDb2dPolyline');
           lines.push('10', '0', '20', '0', '30', `${Number.isFinite(entity.elevation) ? entity.elevation : 0}`);
           if (Number.isFinite(entity.thickness) && entity.thickness !== 0) lines.push('39', `${entity.thickness}`);
           lines.push('70', `${polylineFlags(entity)}`);
@@ -940,6 +943,7 @@ function registerExportDxfIpc() {
             const point = transformPoint(vertex, rotation, tx, ty);
             lines.push('0', 'VERTEX');
             if (nextHandle) lines.push('5', nextHandle());
+            if (ownerHandle) lines.push('330', ownerHandle);
             lines.push('100', 'AcDbEntity');
             lines.push('8', layer);
             lines.push('100', 'AcDbVertex');
@@ -958,6 +962,7 @@ function registerExportDxfIpc() {
 
           lines.push('0', 'SEQEND');
           if (nextHandle) lines.push('5', nextHandle());
+          if (polylineHandle) lines.push('330', polylineHandle);
           lines.push('100', 'AcDbEntity');
           lines.push('8', layer);
           if (emitDebug) emitDebug.emitted.POLYLINE = (emitDebug.emitted.POLYLINE || 0) + 1;
@@ -1108,6 +1113,16 @@ function registerExportDxfIpc() {
         const L = s => lines.push(s);
         let handleSeed = 0x100;
         const nextHandle = () => (handleSeed++).toString(16).toUpperCase();
+        const beginTable = (name, count) => {
+          const handle = nextHandle();
+          L('0'); L('TABLE');
+          L('2'); L(name);
+          L('5'); L(handle);
+          L('330'); L('0');
+          L('100'); L('AcDbSymbolTable');
+          L('70'); L(String(count));
+          return handle;
+        };
         const sheetBoundaryEntities = includeSheetOutline
           ? buildSheetBoundaryEntities(sheetFrame)
           : [];
@@ -1126,7 +1141,9 @@ function registerExportDxfIpc() {
         L('9'); L('$ACADVER');
         L('1'); L('AC1014');
         L('9'); L('$HANDSEED');
-        L('5'); L('FFFF');
+        L('5');
+        const handSeedValueIndex = lines.length;
+        L('0');
         L('9'); L('$INSBASE');
         L('10'); L('0.0');
         L('20'); L('0.0');
@@ -1156,32 +1173,35 @@ function registerExportDxfIpc() {
         L('0'); L('SECTION');
         L('2'); L('TABLES');
 
-        L('0'); L('TABLE');
-        L('2'); L('VPORT');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('0');
+        beginTable('VPORT', 0);
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('LTYPE');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('3');
+        const ltypeTableHandle = beginTable('LTYPE', 3);
         L('0'); L('LTYPE');
         L('5'); L(nextHandle());
+        L('330'); L(ltypeTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbLinetypeTableRecord');
         L('2'); L('BYBLOCK');
         L('70'); L('0');
+        L('3'); L('');
+        L('72'); L('65');
+        L('73'); L('0');
+        L('40'); L('0.0');
         L('0'); L('LTYPE');
         L('5'); L(nextHandle());
+        L('330'); L(ltypeTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbLinetypeTableRecord');
         L('2'); L('BYLAYER');
         L('70'); L('0');
+        L('3'); L('');
+        L('72'); L('65');
+        L('73'); L('0');
+        L('40'); L('0.0');
         L('0'); L('LTYPE');
         L('5'); L(nextHandle());
+        L('330'); L(ltypeTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbLinetypeTableRecord');
         L('2'); L('CONTINUOUS');
@@ -1192,13 +1212,10 @@ function registerExportDxfIpc() {
         L('40'); L('0.0');
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('STYLE');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('1');
+        const styleTableHandle = beginTable('STYLE', 1);
         L('0'); L('STYLE');
         L('5'); L(nextHandle());
+        L('330'); L(styleTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbTextStyleTableRecord');
         L('2'); L('STANDARD');
@@ -1213,65 +1230,47 @@ function registerExportDxfIpc() {
         // produces a blank line in the output that many DXF parsers reject.
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('VIEW');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('0');
+        beginTable('VIEW', 0);
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('UCS');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('0');
+        beginTable('UCS', 0);
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('APPID');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('1');
+        const appidTableHandle = beginTable('APPID', 1);
         L('0'); L('APPID');
         L('5'); L(nextHandle());
+        L('330'); L(appidTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbRegAppTableRecord');
         L('2'); L('ACAD');
         L('70'); L('0');
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('DIMSTYLE');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('0');
+        beginTable('DIMSTYLE', 0);
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('BLOCK_RECORD');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L('2');
+        const blockTableHandle = beginTable('BLOCK_RECORD', 2);
+        const modelSpaceHandle = nextHandle();
         L('0'); L('BLOCK_RECORD');
-        L('5'); L(nextHandle());
+        L('5'); L(modelSpaceHandle);
+        L('330'); L(blockTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbBlockTableRecord');
         L('2'); L('*MODEL_SPACE');
+        const paperSpaceHandle = nextHandle();
         L('0'); L('BLOCK_RECORD');
-        L('5'); L(nextHandle());
+        L('5'); L(paperSpaceHandle);
+        L('330'); L(blockTableHandle);
         L('100'); L('AcDbSymbolTableRecord');
         L('100'); L('AcDbBlockTableRecord');
         L('2'); L('*PAPER_SPACE');
         L('0'); L('ENDTAB');
 
-        L('0'); L('TABLE');
-        L('2'); L('LAYER');
-        L('5'); L(nextHandle());
-        L('100'); L('AcDbSymbolTable');
-        L('70'); L(String(layerDefs.length));
+        const layerTableHandle = beginTable('LAYER', layerDefs.length);
         layerDefs.forEach(layer => {
           L('0'); L('LAYER');
           L('5'); L(nextHandle());
+          L('330'); L(layerTableHandle);
           L('100'); L('AcDbSymbolTableRecord');
           L('100'); L('AcDbLayerTableRecord');
           L('2'); L(layer.name);
@@ -1287,9 +1286,10 @@ function registerExportDxfIpc() {
         L('2'); L('BLOCKS');
         L('0'); L('BLOCK');
         L('5'); L(nextHandle());
+        L('330'); L(modelSpaceHandle);
         L('100'); L('AcDbEntity');
-        L('100'); L('AcDbBlockBegin');
         L('8'); L('0');
+        L('100'); L('AcDbBlockBegin');
         L('2'); L('*MODEL_SPACE');
         L('70'); L('0');
         L('10'); L('0');
@@ -1299,14 +1299,16 @@ function registerExportDxfIpc() {
         L('1'); L('');
         L('0'); L('ENDBLK');
         L('5'); L(nextHandle());
+        L('330'); L(modelSpaceHandle);
         L('100'); L('AcDbEntity');
-        L('100'); L('AcDbBlockEnd');
         L('8'); L('0');
+        L('100'); L('AcDbBlockEnd');
         L('0'); L('BLOCK');
         L('5'); L(nextHandle());
+        L('330'); L(paperSpaceHandle);
         L('100'); L('AcDbEntity');
-        L('100'); L('AcDbBlockBegin');
         L('8'); L('0');
+        L('100'); L('AcDbBlockBegin');
         L('2'); L('*PAPER_SPACE');
         L('70'); L('0');
         L('10'); L('0');
@@ -1316,18 +1318,19 @@ function registerExportDxfIpc() {
         L('1'); L('');
         L('0'); L('ENDBLK');
         L('5'); L(nextHandle());
+        L('330'); L(paperSpaceHandle);
         L('100'); L('AcDbEntity');
-        L('100'); L('AcDbBlockEnd');
         L('8'); L('0');
+        L('100'); L('AcDbBlockEnd');
         L('0'); L('ENDSEC');
 
         L('0'); L('SECTION');
         L('2'); L('ENTITIES');
 
         sheetBoundaryEntities.forEach(entity => {
-          writeEntity(lines, entity, 0, 0, 0, emitDebug, nextHandle);
+          writeEntity(lines, entity, 0, 0, 0, emitDebug, nextHandle, modelSpaceHandle);
         });
-        sheetEntities.forEach(entity => writeEntity(lines, entity.entity, entity.rotation, entity.tx, entity.ty, emitDebug, nextHandle));
+        sheetEntities.forEach(entity => writeEntity(lines, entity.entity, entity.rotation, entity.tx, entity.ty, emitDebug, nextHandle, modelSpaceHandle));
         engravings.forEach(engraving => {
           if (engraving.engravingLayer && engraving.placedPolygon?.length) {
             const labelEntities = buildStrokeLabelEntities(
@@ -1337,7 +1340,7 @@ function registerExportDxfIpc() {
               engraving.placedHoles || [],
             );
             labelEntities.forEach(entity => {
-              writeEntity(lines, entity, 0, 0, 0, emitDebug, nextHandle);
+              writeEntity(lines, entity, 0, 0, 0, emitDebug, nextHandle, modelSpaceHandle);
             });
           }
         });
@@ -1350,6 +1353,7 @@ function registerExportDxfIpc() {
         L('2'); L('OBJECTS');
         L('0'); L('DICTIONARY');
         L('5'); L(namedObjHandle);
+        L('330'); L('0');
         L('100'); L('AcDbDictionary');
         L('281'); L('1');
         L('3'); L('ACAD_GROUP');
@@ -1363,6 +1367,8 @@ function registerExportDxfIpc() {
 
         L('0'); L('EOF');
 
+        // HANDSEED is the next unused handle, including vertices and dictionaries.
+        lines[handSeedValueIndex] = handleSeed.toString(16).toUpperCase();
         return lines.join('\n');
       }
 
@@ -1379,7 +1385,14 @@ function registerExportDxfIpc() {
           continue;
         }
 
-        const placedItems = stripData.solution?.layout?.placed_items || [];
+        const placementEditor = require('../../shared/placement-editor');
+        const originalPlacements = placementEditor.readPlacements(stripData);
+        const placedItems = strip.manual_edits === undefined ? originalPlacements
+          : placementEditor.validateEdits(originalPlacements, strip.manual_edits,
+            Object.fromEntries(Object.entries(globalItemsById).map(([id, item]) => [id, { ...item, export: exportItems[id] }])),
+            { width: Number(strip.sheet_width), height: Number(strip.strip_height),
+              margin: Math.max(0, Number(strip.sheet_margin ?? exportSettings.sheetMargin) || 0) },
+            Math.max(0, Number(exportSettings.partSpacing) || 0));
         let sheetEntities = [];
         const engravings = [];
         const debugRows = [];

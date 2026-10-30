@@ -27,6 +27,12 @@ let mainWindow = null;
 let appMenuIpcRegistered = false;
 let nativeThemeBridgeRegistered = false;
 let lastMenuOptions = {};
+// Mirrors the renderer's layout editor: Edit → Reset Layout is only enabled
+// while the current nest has manual placement changes.
+let layoutResetAvailable = false;
+// Edit → Edit Layout is enabled once a finished nest can be edited, and reads
+// Save Layout while editing (choosing it leaves edit mode).
+let layoutEditState = { canEdit: false, active: false };
 
 function getLinuxEnvironmentName() {
   try {
@@ -172,6 +178,23 @@ function buildApplicationMenu({ isDevMode = false, isDxfDebugMode = false } = {}
         { role: 'undo', label: t('menu.undo') },
         { role: 'redo', label: t('menu.redo') },
         { type: 'separator' },
+        {
+          id: 'toggle-layout-edit',
+          label: t(layoutEditState.active ? 'menu.saveLayout' : 'menu.editLayout'),
+          enabled: layoutEditState.canEdit || layoutEditState.active,
+          click: (_menuItem, browserWindow) => {
+            dispatchRendererMenuAction('toggle-layout-edit', browserWindow || mainWindow);
+          },
+        },
+        {
+          id: 'reset-layout',
+          label: t('menu.resetLayout'),
+          enabled: layoutResetAvailable,
+          click: (_menuItem, browserWindow) => {
+            dispatchRendererMenuAction('reset-layout', browserWindow || mainWindow);
+          },
+        },
+        { type: 'separator' },
         { role: 'cut', label: t('menu.cut') },
         { role: 'copy', label: t('menu.copy') },
         { role: 'paste', label: t('menu.paste') },
@@ -305,6 +328,22 @@ function registerAppMenuIpc() {
     return { success: true, ...localization };
   });
 
+  ipcMain.on('layout-edit-state', (_event, next = {}) => {
+    const previous = layoutEditState;
+    layoutEditState = { canEdit: !!next.canEdit, active: !!next.active };
+    // Menu item labels cannot be changed in place on every platform: rebuild
+    // when the label flips, otherwise just toggle the enabled state.
+    if (previous.active !== layoutEditState.active) { buildApplicationMenu(lastMenuOptions); return; }
+    const item = Menu.getApplicationMenu()?.getMenuItemById('toggle-layout-edit');
+    if (item) item.enabled = layoutEditState.canEdit || layoutEditState.active;
+  });
+
+  ipcMain.on('layout-reset-availability', (_event, available) => {
+    layoutResetAvailable = !!available;
+    const item = Menu.getApplicationMenu()?.getMenuItemById('reset-layout');
+    if (item) item.enabled = layoutResetAvailable;
+  });
+
   ipcMain.handle('get-system-theme', async () => ({
     success: true,
     theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
@@ -348,6 +387,12 @@ function registerAppMenuIpc() {
         case 'canvas-zoom-out':
           if (!dispatchRendererMenuAction(action, win)) {
             return { success: false, error: 'No active window to receive canvas zoom action' };
+          }
+          break;
+        case 'toggle-layout-edit':
+        case 'reset-layout':
+          if (!dispatchRendererMenuAction(action, win)) {
+            return { success: false, error: 'No active window to receive layout action' };
           }
           break;
         case 'open-settings':

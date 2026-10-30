@@ -19,7 +19,7 @@
     const MIN_ZOOM = 0.2;
     const MAX_ZOOM = 4;
     const ZOOM_STEP = 0.15;
-    let displayedRemainderSvg = null;
+    let displayedExactSvg = null;
 
     function isLightTheme() {
       return typeof document !== 'undefined'
@@ -82,6 +82,33 @@
       });
 
       return itemColor;
+    }
+
+    // Sparrow nests outer contours only, so its SVG part definitions have no
+    // holes or internal cutouts. The source holes kept for export are in the
+    // same coordinates as the outline Sparrow received, so add them as extra
+    // even-odd subpaths (the layout editor draws parts the same way). A part
+    // is only touched when its stored outline matches the SVG path's bounds,
+    // so stale metadata can never draw holes in the wrong place.
+    function addPartHoles(svg) {
+      const items = state.lastPlacementExportItems;
+      if (!items || typeof items !== 'object') return svg;
+      const bounds = values => {
+        const xs = [], ys = [];
+        for (let i = 0; i + 1 < values.length; i += 2) { xs.push(values[i]); ys.push(values[i + 1]); }
+        return xs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : null;
+      };
+      return svg.replace(/<g id="item_(\d+)">(\s*)<path([^>]*?)\bd="([^"]*)"([^>]*)\/>/g, (match, id, gap, before, d, after) => {
+        const item = items[id];
+        const holes = (item?.holes || []).filter(hole => Array.isArray(hole) && hole.length >= 3);
+        if (!holes.length || !Array.isArray(item.polygon)) return match;
+        const pathBox = bounds((d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number));
+        const outlineBox = bounds(item.polygon.flat().map(Number));
+        if (!pathBox || !outlineBox || pathBox.some((value, i) => !(Math.abs(value - outlineBox[i]) < 1e-3))) return match;
+        const holePath = holes.map(hole => `M${hole.map(([x, y]) => `${x},${y}`).join(' L')} z`).join(' ');
+        const withoutRule = attrs => attrs.replace(/\s*fill-rule="[^"]*"/, '');
+        return `<g id="item_${id}">${gap}<path${withoutRule(before)} d="${d} ${holePath}" fill-rule="evenodd"${withoutRule(after)}/>`;
+      });
     }
 
     function previewThemeColors() {
@@ -517,6 +544,10 @@
     // Injects the preview grid, applies the active theme palette, strips solver
     // stat labels, and normalises the frame when the sheet is in fixed-width mode.
     function styleStripSVG(svg, strip = null) {
+      const manualSvg = globalScope.layoutEditorApi?.svgForStrip(strip, {
+        colors: previewThemeColors(), itemColors: buildItemColorMap(),
+      });
+      if (manualSvg) return manualSvg;
       if (!svg) return '';
 
       let styled = svg;
@@ -528,6 +559,11 @@
       // ("item, id: 0, transf: …"). Browsers show it as a native tooltip, which
       // would double up with the part-name tooltip and says nothing useful.
       styled = styled.replace(/<use\b([^>]*)>\s*<title>[\s\S]*?<\/title>\s*<\/use>/g, '<use$1/>');
+      // Sparrow also draws each part's simplified collision shape as a dashed
+      // outline on top of the part (#highlight_cd_shapes). Over real contours
+      // it reads as dashed part edges, and the layout editor and exports never
+      // show it. Drop the per-part copies; the group's strip frame path stays.
+      styled = styled.replace(/<use\b[^>]*\bhref="#cd_shape_\d+"[^>]*\/>/g, '');
       if (strip) {
         styled = adjustSvgForSheet(styled, strip);
       }
@@ -555,7 +591,9 @@
       );
       styled = styled.replace(
         /fill="#7A7A7A"\s+fill-opacity="0\.5"\s+fill-rule="nonzero"\s+stroke="black"\s+stroke-width="([\d.]+)"/gi,
-        (_, sw) => `fill="${colors.partFill}" fill-opacity="${colors.partFillOpacity}" fill-rule="nonzero" stroke="${colors.partStroke}" stroke-width="${(sw * 0.7).toFixed(4)}"${colors.partFilter}`
+        // Same outline as the layout editor: 1 screen pixel at every zoom level
+        // (Sparrow's width is in millimetres and grew or shrank with zoom).
+        () => `fill="${colors.partFill}" fill-opacity="${colors.partFillOpacity}" fill-rule="nonzero" stroke="${colors.partStroke}" stroke-width="1" vector-effect="non-scaling-stroke"${colors.partFilter}`
       );
       styled = styled.replace(
         /fill="none"\s+stroke="black"\s+stroke-dasharray="([^"]+)"\s+stroke-linecap="([^"]+)"\s+stroke-linejoin="([^"]+)"\s+stroke-opacity="0\.3"\s+stroke-width="([\d.]+)"/gi,
@@ -580,6 +618,7 @@
           }
         );
       }
+      styled = addPartHoles(styled);
       // Apply the vertical flip last so it is guaranteed to survive every
       // preceding regex pass and cannot be defeated by any DOM round-trip.
       styled = flipSolverSvgVertically(styled);
@@ -865,7 +904,7 @@
     // re-runs `innerHTML = ...` + `applyZoom(true)` several times per second
     // during barrier-mode optimization, which re-centers the viewport and
     // makes pan/zoom feel jittery.
-    function showNestResult(sheetIndex) {
+    function showNestResult(sheetIndex, { preserveView = false } = {}) {
       const t = globalScope.NestI18n.t;
       const strip = state.nestResult?.strips?.[sheetIndex] || null;
       if (strip?.svg) {
@@ -877,15 +916,23 @@
         const sourcePath = String(strip.svg_path || '');
         const sourcePreviewState = String(!!(strip.is_preview || state.nestResult.is_preview));
         const isRemainder = !!(strip.is_remainder_preview || strip.is_retained_preview);
-        // Sparse sheets can move between sampled hash positions without
-        // changing the signature. Check their actual rendered content too.
+        const needsExactComparison = isRemainder || strip.manual_edits !== undefined
+          || !!globalScope.layoutEditorApi?.isActive();
+        // Small placement changes can fall between sampled hash positions.
+        // Editing (including undo/reset) must compare the actual SVG as well.
         const sameSvg = sameStrip && dom.svgContainer.dataset.svgLen === String(styled.length)
           && dom.svgContainer.dataset.svgHash === quickSvgHash(styled)
-          && (!isRemainder || displayedRemainderSvg === styled);
+          && (!needsExactComparison || displayedExactSvg === styled);
         const sameSource = sameStrip
           && dom.svgContainer.dataset.svgSource === sourcePath
           && dom.svgContainer.dataset.svgPreview === sourcePreviewState;
         const didSwap = !(sameSvg && sameSource);
+        // A freshly inserted SVG has no inline size until applyZoom sets it, and
+        // applyZoom's layout read happens first: the browser clamps the scroll
+        // position to that smaller, intermediate content size. Keep the view
+        // exactly where it was when it is meant to be preserved.
+        const keptScroll = didSwap && preserveView && dom.viewport
+          ? [dom.viewport.scrollLeft, dom.viewport.scrollTop] : null;
         if (didSwap) {
           dom.svgContainer.innerHTML = styled;
           dom.svgContainer.dataset.activeIndex = String(sheetIndex);
@@ -893,7 +940,7 @@
           dom.svgContainer.dataset.svgHash = quickSvgHash(styled);
           dom.svgContainer.dataset.svgSource = sourcePath;
           dom.svgContainer.dataset.svgPreview = sourcePreviewState;
-          displayedRemainderSvg = isRemainder ? styled : null;
+          displayedExactSvg = needsExactComparison ? styled : null;
         }
         dom.svgContainer.style.display = 'grid';
         dom.emptyState.style.display = 'none';
@@ -905,7 +952,7 @@
         const previewPrefix = strip.is_preview || state.nestResult.is_preview ? `${t('canvas.preview')} · ` : '';
         const placementLabel = stripPlacementLabel(strip, sheetIndex);
         setNestStatsTone('');
-        const partsText = placed > 0 ? ` · ${t('canvas.partsPlaced', { count: placed })}` : '';
+        const partsText = placed > 0 || strip.manual_edits !== undefined ? ` · ${t('canvas.partsPlaced', { count: placed })}` : '';
         const utilText = density ? ` · ${t('canvas.utilization', { value: density })}` : '';
         const sharedLength = state.nestResult.total_shared_edge_length_mm;
         // Parts can only share an edge when they may touch. With part spacing
@@ -921,8 +968,10 @@
         // Only re-center the viewport when the SVG actually got swapped — a
         // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
         // which is exactly what we want to avoid on same-sheet re-polls.
-        if (didSwap) applyZoom(true);
+        if (didSwap) applyZoom(!preserveView);
         else scheduleSheetDimensionBadgeSync();
+        if (keptScroll) [dom.viewport.scrollLeft, dom.viewport.scrollTop] = keptScroll;
+        window.dispatchEvent(new CustomEvent('nest-canvas-rendered'));
         return;
       }
 
@@ -931,7 +980,7 @@
         state.activeStripIndex = sheetIndex;
         // Never leave the previous sheet's geometry under a queued sheet tab.
         dom.svgContainer.innerHTML = '';
-        displayedRemainderSvg = null;
+        displayedExactSvg = null;
         dom.svgContainer.style.display = 'none';
         dom.emptyState.style.display = 'none';
         delete dom.svgContainer.dataset.activeIndex;
@@ -947,7 +996,7 @@
       const result = generateMockNestSVG(sheetIndex);
       if (!result) return;
       dom.svgContainer.innerHTML = result.svg;
-      displayedRemainderSvg = null;
+      displayedExactSvg = null;
       dom.svgContainer.dataset.activeIndex = String(sheetIndex);
       dom.svgContainer.dataset.svgLen = String(result.svg.length);
       dom.svgContainer.dataset.svgHash = quickSvgHash(result.svg);
@@ -1037,11 +1086,12 @@
       setZoom(1, { recenter: true });
     }
 
+    // Plain wheel / two-finger scroll always scrolls the canvas. Zoom is a
+    // trackpad pinch (reported with ctrlKey) or Cmd/Ctrl + wheel, matching the
+    // part preview modal. Guessing "mouse wheel" from large deltas misfired on
+    // fast trackpad swipes and momentum scrolling, zooming instead of scrolling.
     function handleViewportWheel(event) {
-      const isPinchZoom = event.ctrlKey || event.metaKey;
-      const isDiscreteWheel = event.deltaMode !== 0
-        || (Math.abs(event.deltaY) >= 40 && Math.abs(event.deltaX) < 2);
-      if (!isPinchZoom && !isDiscreteWheel) return;
+      if (!event.ctrlKey && !event.metaKey) return;
 
       event.preventDefault();
       const direction = event.deltaY < 0 ? 1 : -1;

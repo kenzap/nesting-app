@@ -541,6 +541,7 @@
             throw err;
           }
           activeSparrowRunId = result.runId;
+          state.nestRunId = result.runId;
           setNestStatsTone('');
           dom.nestStats.textContent = t('nesting.placementRunning');
           dom.nestStats.title = result.inputPath || '';

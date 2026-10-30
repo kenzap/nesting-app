@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   savePlacementJSON: (payload) => ipcRenderer.invoke('save-placement-json', payload),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   appMenuAction: (action) => ipcRenderer.invoke('app-menu-action', action),
+  setLayoutResetAvailable: (available) => ipcRenderer.send('layout-reset-availability', !!available),
+  setLayoutEditState: (state) => ipcRenderer.send('layout-edit-state', { canEdit: !!state?.canEdit, active: !!state?.active }),
   onAppMenuCommand: (handler) => {
     if (typeof handler !== 'function') return () => {};
     const listener = (_event, payload) => handler(payload);
@@ -89,6 +91,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getNativeEngineInfo: () => ipcRenderer.invoke('get-native-engine-info'),
   runSparrow: (payload, options) => ipcRenderer.invoke('run-sparrow', payload, options),
   pollSparrow: (runId) => ipcRenderer.invoke('poll-sparrow', runId),
+  loadPlacementEditor: (runId) => ipcRenderer.invoke('load-placement-editor', runId),
   stopSparrow: (runId) => ipcRenderer.invoke('stop-sparrow', runId),
   chooseExportFolder: () => ipcRenderer.invoke('choose-export-folder'),
   printSheetsReport: (payload) => ipcRenderer.invoke('print-sheets-report', payload),

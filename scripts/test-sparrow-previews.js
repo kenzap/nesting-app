@@ -24,6 +24,7 @@ const { collectRunningSparrowArtifacts, collectSparrowArtifacts, attachRunSheetM
 const canvasSource = fs.readFileSync(path.join(root, 'renderer/views/canvas-view.js'), 'utf8');
 assert.ok(canvasSource.includes('      renderTabs,\n'));
 const window = {
+  dispatchEvent() {},
   NestHelpers: {},
   NestUnits: {
     resolveMeasurementSystem: () => 'metric',
@@ -58,7 +59,7 @@ const document = { documentElement: { getAttribute: () => 'dark' }, createElemen
   };
 } };
 vm.runInNewContext(canvasSource.replace('      renderTabs,\n', '      sheetDimensionLabel,\n      displayStripWidth,\n      stripPlacementLabel,\n      styleStripSVG,\n      quickSvgHash,\n      renderTabs,\n'), {
-  window, document, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
+  window, document, CustomEvent, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
   DOMParser: class { parseFromString() { return { querySelector: () => null }; } },
 });
 const state = { zoom: 1, sheets: [{ width: 2500, height: 1250, widthMode: 'fixed' }] };
@@ -366,6 +367,31 @@ try {
   view.showNestResult(0);
   assert.notEqual(dom.svgContainer.innerHTML, displayed, 'small remainder movements must reach the canvas even when their sampled hashes collide');
   assert.equal(dom.svgContainer.innerHTML, nextStyled);
+
+  const originalStyled = view.styleStripSVG(firstSvg);
+  let editedSvg = originalStyled;
+  let editing = true;
+  window.layoutEditorApi = { isActive: () => editing, svgForStrip: () => editedSvg };
+  const editedStrip = { index: 1, svg: firstSvg, svg_path: 'final.svg', item_count: 1, strip_width: 300 };
+  state.nestResult = { strips: [editedStrip] };
+  view.showNestResult(0, { preserveView: true });
+  editedSvg = nextStyled;
+  view.showNestResult(0, { preserveView: true });
+  assert.equal(dom.svgContainer.innerHTML, nextStyled, 'manual movement must repaint immediately even when the sampled hash is unchanged');
+  editedSvg = originalStyled;
+  view.showNestResult(0, { preserveView: true });
+  assert.equal(dom.svgContainer.innerHTML, originalStyled, 'undo must also repaint without deselecting');
+  editing = false;
+  editedStrip.manual_edits = [{ sourceIndex: 0, translation: [200, 0] }];
+  editedSvg = nextStyled;
+  view.showNestResult(0, { preserveView: true });
+  assert.equal(dom.svgContainer.innerHTML, nextStyled, 'edited geometry stays current after leaving edit mode');
+  let swaps = 0;
+  Object.defineProperty(dom.svgContainer, 'innerHTML', { configurable: true,
+    get: () => nextStyled, set: () => { swaps += 1; } });
+  view.showNestResult(0, { preserveView: true });
+  assert.equal(swaps, 0, 'unchanged edited layouts still avoid unnecessary DOM swaps');
+  delete window.layoutEditorApi;
 } finally {
   fs.rmSync(runDir, { recursive: true, force: true });
 }

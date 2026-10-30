@@ -117,6 +117,7 @@ function setStatus(status) {
     error: t('app.status.error'),
   };
   label.textContent = labels[status] || status;
+  window.dispatchEvent(new CustomEvent('nest-status-changed'));
 }
 
 // Tints the bottom status bar red when the solver returns an error so the
@@ -253,6 +254,8 @@ window.electronAPI?.onAppMenuCommand?.(({ action } = {}) => {
   if (action === 'open-settings') settingsModalApi.open();
   else if (action === 'toggle-measure') measureToolApi.toggle();
   else if (action === 'toggle-cursor-coords') toggleShowCursorCoords();
+  else if (action === 'reset-layout') window.layoutEditorApi?.resetLayout();
+  else if (action === 'toggle-layout-edit') window.layoutEditorApi?.toggle();
   else if (action === 'canvas-fit-view') canvasViewApi.fitView();
   else if (action === 'canvas-zoom-in') canvasViewApi.zoomIn();
   else if (action === 'canvas-zoom-out') canvasViewApi.zoomOut();
@@ -432,6 +435,11 @@ measureToolApi.init();
 // when the user switches sheet tabs — otherwise a ruler drawn against one
 // sheet lingers on top of another sheet's parts.
 window.measureToolApi = measureToolApi;
+
+window.layoutEditorApi = window.NestPlacementEditorView.createPlacementEditorView({
+  state, dom, canvasView: canvasViewApi,
+});
+window.layoutEditorApi.bind();
 
 // Part-name tooltip — a cursor-following label naming the source file of the
 // part under the pointer. It is a cursor readout like the coordinate chip, so
