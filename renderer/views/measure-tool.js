@@ -23,6 +23,7 @@
     let coordChipEl = null;
     let modeChipEl = null;
     let overlaySvgEl = null;
+    let layerEl = null;
     let rulerBtn = null;
 
     let measureMode = false;
@@ -395,16 +396,30 @@
 
     // ── DOM: chips, button, overlay ──────────────────────────────────────
 
+    // Overlay and chips live in a layer placed over the viewport's visible
+    // area, as a sibling of the scroll container rather than inside it. Inside
+    // it they had to be pinned with a scroll-offset transform, and transformed
+    // boxes still count as scrollable overflow: after zooming out the pinned
+    // overlay kept the old, larger scroll range alive, so Fit centred the
+    // sheet inside empty space and zoom-out could leave it off-screen.
+    function ensureLayer() {
+      if (layerEl || !dom.viewport?.parentElement) return layerEl;
+      layerEl = document.createElement('div');
+      layerEl.className = 'measure-layer';
+      dom.viewport.insertAdjacentElement('afterend', layerEl);
+      return layerEl;
+    }
+
     function ensureCoordChip() {
-      if (coordChipEl || !dom.viewport) return;
+      if (coordChipEl || !ensureLayer()) return;
       coordChipEl = document.createElement('div');
       coordChipEl.className = 'measure-coord-chip';
       coordChipEl.hidden = true;
-      dom.viewport.appendChild(coordChipEl);
+      layerEl.appendChild(coordChipEl);
     }
 
     function ensureModeChip() {
-      if (modeChipEl || !dom.viewport) return;
+      if (modeChipEl || !ensureLayer()) return;
       modeChipEl = document.createElement('div');
       modeChipEl.className = 'measure-mode-chip';
       modeChipEl.hidden = true;
@@ -417,18 +432,18 @@
         </button>`;
       modeChipEl.querySelector('.measure-mode-close')
         .addEventListener('click', (e) => { e.stopPropagation(); setMeasureMode(false); });
-      dom.viewport.appendChild(modeChipEl);
+      layerEl.appendChild(modeChipEl);
     }
 
     function ensureOverlay() {
-      if (overlaySvgEl || !dom.viewport) return;
+      if (overlaySvgEl || !ensureLayer()) return;
       const NS = 'http://www.w3.org/2000/svg';
       overlaySvgEl = document.createElementNS(NS, 'svg');
       overlaySvgEl.setAttribute('class', 'measure-overlay');
       // pixel-space viewBox — width/height updated on redraw
       overlaySvgEl.setAttribute('preserveAspectRatio', 'none');
       overlaySvgEl.style.pointerEvents = 'none';
-      dom.viewport.appendChild(overlaySvgEl);
+      layerEl.appendChild(overlaySvgEl);
     }
 
     function ensureRulerButton() {
@@ -495,20 +510,18 @@
       </g>`;
     }
 
-    // Overlay and chips live INSIDE the viewport (a scroll container), so
-    // they naturally scroll with the SVG content. That desyncs them from the
-    // visible viewport frame where all our screen-space math anchors — marks
-    // drift off cursor position by the scroll offset. Countering with an
-    // inverse CSS transform pins them back to the visible frame so a click
-    // at cursor (X, Y) lands at exactly (X, Y) on screen.
+    // Keeps the layer over the viewport's visible client area (inside the
+    // scrollbar gutters), which is where all screen-space math anchors.
     function pinToVisibleFrame() {
-      if (!dom.viewport) return;
-      const dx = dom.viewport.scrollLeft;
-      const dy = dom.viewport.scrollTop;
-      const transform = (dx || dy) ? `translate(${dx}px, ${dy}px)` : '';
-      if (overlaySvgEl) overlaySvgEl.style.transform = transform;
-      if (modeChipEl) modeChipEl.style.transform = transform;
-      if (coordChipEl) coordChipEl.style.transform = transform;
+      if (!dom.viewport || !layerEl) return;
+      const vp = dom.viewport;
+      const gutterX = Math.max(0, (vp.offsetWidth - vp.clientWidth) / 2);
+      const style = layerEl.style;
+      const set = (name, value) => { if (style[name] !== value) style[name] = value; };
+      set('left', `${vp.offsetLeft + gutterX}px`);
+      set('top', `${vp.offsetTop + vp.clientTop}px`);
+      set('width', `${vp.clientWidth}px`);
+      set('height', `${vp.clientHeight}px`);
     }
 
     function chooseMeasurementLabelPosition({
@@ -895,6 +908,10 @@
             redrawOverlay();
           });
           ro.observe(dom.svgContainer);
+          // The layer tracks the viewport's frame (e.g. when the layout-edit
+          // toolbar appears above it and the viewport shrinks).
+          ensureLayer();
+          new ResizeObserver(() => pinToVisibleFrame()).observe(dom.viewport);
         }
       },
       toggle() { setMeasureMode(!measureMode); },

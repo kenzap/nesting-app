@@ -17,8 +17,15 @@
     const SVG_PREVIEW_MARGIN_X = 80;
     const SVG_PREVIEW_MARGIN_Y = 44;
     const MIN_ZOOM = 0.2;
-    const MAX_ZOOM = 4;
-    const ZOOM_STEP = 0.15;
+    // Zoom is relative to "fit", so a fixed cap gave far less detail on large
+    // sheets. The cap is at least 400% and always high enough to reach
+    // MAX_PX_PER_MM screen pixels per millimetre (~0.1 mm per pixel).
+    const MIN_MAX_ZOOM = 4;
+    const MAX_PX_PER_MM = 12;
+    const ZOOM_CAP = 200;
+    // Multiplicative steps so the larger range stays a few clicks away.
+    const ZOOM_FACTOR = 1.25;
+    let fitPxPerUnit = 1;
     let displayedExactSvg = null;
 
     function isLightTheme() {
@@ -931,7 +938,12 @@
         // applyZoom's layout read happens first: the browser clamps the scroll
         // position to that smaller, intermediate content size. Keep the view
         // exactly where it was when it is meant to be preserved.
-        const keptScroll = didSwap && preserveView && dom.viewport
+        // Re-centre only when a different sheet is shown (or on its first
+        // render). Live nesting updates and other refreshes of the same sheet
+        // keep the user's zoom and scroll, so panning around while nesting runs
+        // is not reset on every update.
+        const recenter = !preserveView && !sameStrip;
+        const keptScroll = didSwap && !recenter && dom.viewport
           ? [dom.viewport.scrollLeft, dom.viewport.scrollTop] : null;
         if (didSwap) {
           dom.svgContainer.innerHTML = styled;
@@ -965,10 +977,8 @@
         })}`;
         dom.nestStats.textContent = `${previewPrefix}${placementLabel}${partsText}${utilText} · ${t('canvas.widthValue', { value: usedWidth })}${sharedText}`;
         dom.nestStats.title = dom.nestStats.textContent;
-        // Only re-center the viewport when the SVG actually got swapped — a
-        // no-op call to `applyZoom(true)` still resets scrollLeft/scrollTop,
-        // which is exactly what we want to avoid on same-sheet re-polls.
-        if (didSwap) applyZoom(!preserveView);
+        // Only touch the view when the SVG actually got swapped; see `recenter`.
+        if (didSwap) applyZoom(recenter);
         else scheduleSheetDimensionBadgeSync();
         if (keptScroll) [dom.viewport.scrollLeft, dom.viewport.scrollTop] = keptScroll;
         window.dispatchEvent(new CustomEvent('nest-canvas-rendered'));
@@ -1016,10 +1026,16 @@
     // This scrolls to the midpoint of the overflow so the content stays centred.
     function centerViewportOnContent() {
       if (!dom.viewport) return;
-      const maxScrollLeft = Math.max(0, dom.viewport.scrollWidth - dom.viewport.clientWidth);
-      const maxScrollTop = Math.max(0, dom.viewport.scrollHeight - dom.viewport.clientHeight);
-      dom.viewport.scrollLeft = maxScrollLeft / 2;
-      dom.viewport.scrollTop = maxScrollTop / 2;
+      // Measure the content, not scrollWidth/scrollHeight: the measure overlay
+      // is pinned to the visible frame with a scroll-offset transform, which
+      // keeps the previous (larger) zoom's scroll range alive until it is
+      // re-pinned. Centering inside that stale range left the sheet off-centre
+      // and then drifting as the range collapsed, so re-pin right away.
+      const contentWidth = dom.svgContainer?.offsetWidth || dom.viewport.scrollWidth;
+      const contentHeight = dom.svgContainer?.offsetHeight || dom.viewport.scrollHeight;
+      dom.viewport.scrollLeft = Math.max(0, contentWidth - dom.viewport.clientWidth) / 2;
+      dom.viewport.scrollTop = Math.max(0, contentHeight - dom.viewport.clientHeight) / 2;
+      globalScope.measureToolApi?.onCanvasUpdated?.();
     }
 
     // Resizes the SVG element to reflect state.zoom relative to the SVG's natural dimensions.
@@ -1034,6 +1050,8 @@
         const fitWidth = Math.max(1, (dom.viewport?.clientWidth || baseWidth) - (FIT_INSET_X * 2));
         const fitHeight = Math.max(1, (dom.viewport?.clientHeight || baseHeight) - (FIT_INSET_Y * 2));
         const fitScale = Math.min(fitWidth / baseWidth, fitHeight / baseHeight, 1);
+        fitPxPerUnit = fitScale;
+        state.zoom = clampZoom(state.zoom);
         el.dataset.baseWidth = String(baseWidth);
         el.dataset.baseHeight = String(baseHeight);
         el.style.width = `${baseWidth * fitScale * state.zoom}px`;
@@ -1051,8 +1069,14 @@
       }
     }
 
+    // SVG user units are millimetres, so fitPxPerUnit is the fit scale in px/mm.
+    function maxZoom() {
+      const needed = fitPxPerUnit > 0 ? MAX_PX_PER_MM / fitPxPerUnit : MIN_MAX_ZOOM;
+      return Math.min(ZOOM_CAP, Math.max(MIN_MAX_ZOOM, needed));
+    }
+
     function clampZoom(value) {
-      return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+      return Math.min(maxZoom(), Math.max(MIN_ZOOM, value));
     }
 
     function setZoom(nextZoom, { recenter = false, anchorEvent = null } = {}) {
@@ -1074,12 +1098,19 @@
       dom.viewport.scrollTop += afterRect.top + (anchorY * afterRect.height) - anchorEvent.clientY;
     }
 
+    // Buttons zoom around the centre of the visible area, so the part being
+    // inspected stays in view (zooming from the top-left corner lost it).
+    function viewportCenterAnchor() {
+      const rect = dom.viewport?.getBoundingClientRect();
+      return rect ? { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } : null;
+    }
+
     function zoomIn() {
-      setZoom(state.zoom + ZOOM_STEP);
+      setZoom(state.zoom * ZOOM_FACTOR, { anchorEvent: viewportCenterAnchor() });
     }
 
     function zoomOut() {
-      setZoom(state.zoom - ZOOM_STEP);
+      setZoom(state.zoom / ZOOM_FACTOR, { anchorEvent: viewportCenterAnchor() });
     }
 
     function fitView() {
@@ -1094,8 +1125,10 @@
       if (!event.ctrlKey && !event.metaKey) return;
 
       event.preventDefault();
-      const direction = event.deltaY < 0 ? 1 : -1;
-      setZoom(state.zoom + (direction * ZOOM_STEP), { anchorEvent: event });
+      // Proportional to the gesture: a trackpad pinch sends many small deltas,
+      // a mouse wheel notch one large one (capped at about ×1.28 per notch).
+      const delta = Math.max(-50, Math.min(50, event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY));
+      setZoom(state.zoom * Math.exp(-delta * 0.005), { anchorEvent: event });
     }
 
     // Wires up all canvas interaction: zoom-in/out/fit buttons update state.zoom and call

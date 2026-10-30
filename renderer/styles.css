@@ -791,6 +791,17 @@ body.platform-linux .linux-menubar {
 }
 .part-tooltip-sub[hidden] { display: none; }
 
+/* Layer for the measure overlay and chips: a sibling of the scrolling
+   viewport, placed over its visible area by measure-tool.js, so it never
+   scrolls and never enlarges the viewport's scroll range. */
+.measure-layer {
+  position: absolute;
+  z-index: 15;
+  overflow: hidden;
+  pointer-events: none;
+}
+.measure-layer .measure-mode-chip { pointer-events: auto; }
+
 /* Overlay SVG for the measurement line/circles/distance chip. Sits above the
    nesting SVG and matches the viewport's pixel dimensions. */
 .measure-overlay {
