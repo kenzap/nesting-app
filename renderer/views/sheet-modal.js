@@ -142,10 +142,13 @@
       showDialog();
     }
 
+    // Leaves the form as it is: resetting it here flipped the controls (e.g.
+    // the length-optimization switch) back to defaults during the fade-out.
+    // Every open fills the form again (add resets it, edit loads the sheet).
     function closeSheetDialog() {
       stage.stop();
       dom.sheetModal.classList.remove('open');
-      resetSheetForm();
+      state.editingSheetId = null;
     }
 
     // Reflects the select's mode on the switch, the optimization toggle,

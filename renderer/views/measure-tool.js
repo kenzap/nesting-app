@@ -250,14 +250,17 @@
     // are what its own solver reports), so applying the <use> transform to
     // each defs-side vertex yields the sheet-space snap point directly —
     // no getScreenCTM round-trip, no dependence on the visual flip.
-    // Cached until the SVG resizes (see ResizeObserver in init()).
+    // Targets are in sheet millimetres, so zoom and scroll never change them:
+    // the cache lives as long as the rendered SVG element (and sheet size).
     function getSnapTargets() {
-      if (snapTargetsCache) return snapTargetsCache;
-      const vertices = [];
-      const edges = [];
       const sheet = activeSheet();
       const w = Number(sheet?.width) || 0;
       const h = Number(sheet?.height) || 0;
+      const currentSvg = activeSvgEl();
+      if (snapTargetsCache && snapTargetsCache.svg === currentSvg
+          && snapTargetsCache.w === w && snapTargetsCache.h === h) return snapTargetsCache;
+      const vertices = [];
+      const edges = [];
       if (w > 0 && h > 0) {
         const c00 = { x: 0, y: 0 };
         const cW0 = { x: w, y: 0 };
@@ -266,9 +269,9 @@
         vertices.push(c00, cW0, cWH, c0H);
         edges.push([c00, cW0], [cW0, cWH], [cWH, c0H], [c0H, c00]);
       }
-      const svg = activeSvgEl();
+      const svg = currentSvg;
       if (!svg) {
-        snapTargetsCache = { vertices, edges };
+        snapTargetsCache = { svg, w, h, vertices, edges, index: buildSnapIndex(vertices, edges) };
         return snapTargetsCache;
       }
 
@@ -328,8 +331,36 @@
         parsed.vertices.forEach(v => vertices.push(apply(v)));
         parsed.edges.forEach(([a, b]) => edges.push([apply(a), apply(b)]));
       });
-      snapTargetsCache = { vertices, edges };
+      snapTargetsCache = { svg, w, h, vertices, edges, index: buildSnapIndex(vertices, edges) };
       return snapTargetsCache;
+    }
+
+    // Uniform grid over the targets' extent so a hover only looks at the cells
+    // around the cursor instead of every vertex and edge on the sheet (dense
+    // layouts reach hundreds of thousands). Edges spanning many cells, such as
+    // the sheet sides, go in a short list that is always checked.
+    const SNAP_GRID_CELLS = 256;
+    const SNAP_WIDE_EDGE_CELLS = 64;
+    function buildSnapIndex(vertices, edges) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const v of vertices) {
+        if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
+        if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
+      }
+      if (!Number.isFinite(minX)) return null;
+      const size = Math.max(maxX - minX, maxY - minY, 1e-6) / SNAP_GRID_CELLS;
+      const cellOf = (x, y) => [Math.floor((x - minX) / size), Math.floor((y - minY) / size)];
+      const key = (i, j) => i * 4096 + j;
+      const vertexCells = new Map(), edgeCells = new Map(), wideEdges = [];
+      const add = (map, k, value) => { const list = map.get(k); if (list) list.push(value); else map.set(k, [value]); };
+      vertices.forEach((v, n) => { const [i, j] = cellOf(v.x, v.y); add(vertexCells, key(i, j), n); });
+      edges.forEach(([a, b], n) => {
+        const [i0, j0] = cellOf(Math.min(a.x, b.x), Math.min(a.y, b.y));
+        const [i1, j1] = cellOf(Math.max(a.x, b.x), Math.max(a.y, b.y));
+        if ((i1 - i0 + 1) * (j1 - j0 + 1) > SNAP_WIDE_EDGE_CELLS) { wideEdges.push(n); return; }
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) add(edgeCells, key(i, j), n);
+      });
+      return { minX, minY, size, cellOf, key, vertexCells, edgeCells, wideEdges, stamp: new Uint32Array(edges.length), query: 0 };
     }
 
     // Returns the snap target closest to the cursor within SNAP_RADIUS_PX,
@@ -339,46 +370,64 @@
     // expect corners to "grab" more strongly than the middle of an edge.
     function findSnap(clientX, clientY) {
       if (!dom.viewport) return null;
-      const { vertices, edges } = getSnapTargets();
+      const { vertices, edges, index } = getSnapTargets();
       if (!vertices.length && !edges.length) return null;
-      // Use the overlay's own origin, same as sheetToViewportPx — so the
-      // distance calc happens in the same pixel space that marks are drawn in.
-      const originRect = (overlaySvgEl || dom.viewport).getBoundingClientRect();
-      const cx = clientX - originRect.left;
-      const cy = clientY - originRect.top;
+      // Work in sheet millimetres: one inverse transform for the cursor, and
+      // the pixel radius converted with the zoom scale (the SVG transform is
+      // uniform, so screen distance = sheet distance × scale).
+      const svg = activeSvgEl();
+      const ctm = svg?.getScreenCTM?.();
+      const scale = ctm ? Math.hypot(ctm.a, ctm.b) : 0;
+      const cursor = screenToSheet(clientX, clientY);
+      if (!cursor || !(scale > 0)) return null;
+      const radius = SNAP_RADIUS_PX / scale;
+      const minEdgeLength2 = 1 / (scale * scale);
+
+      let i0 = 0, i1 = -1, j0 = 0, j1 = -1;
+      if (index) {
+        const clamp = value => Math.max(0, Math.min(SNAP_GRID_CELLS, value));
+        [i0, j0] = index.cellOf(cursor.x - radius, cursor.y - radius).map(clamp);
+        [i1, j1] = index.cellOf(cursor.x + radius, cursor.y + radius).map(clamp);
+      }
+      const eachInCells = (cells, fn) => {
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+          const list = cells.get(index.key(i, j));
+          if (list) for (const n of list) fn(n);
+        }
+      };
 
       let bestVertex = null;
-      let bestVertexDist = SNAP_RADIUS_PX;
-      for (const v of vertices) {
-        const px = sheetToViewportPx(v);
-        if (!px) continue;
-        const d = Math.hypot(px.x - cx, px.y - cy);
+      let bestVertexDist = radius;
+      if (index) eachInCells(index.vertexCells, n => {
+        const v = vertices[n];
+        const d = Math.hypot(v.x - cursor.x, v.y - cursor.y);
         if (d < bestVertexDist) { bestVertex = v; bestVertexDist = d; }
-      }
+      });
       if (bestVertex) return bestVertex;
 
       let bestEdge = null;
-      let bestEdgeDist = SNAP_RADIUS_PX;
-      for (const [a, b] of edges) {
-        const pa = sheetToViewportPx(a);
-        const pb = sheetToViewportPx(b);
-        if (!pa || !pb) continue;
-        const dx = pb.x - pa.x;
-        const dy = pb.y - pa.y;
+      let bestEdgeDist = radius;
+      const query = index ? ++index.query : 0;
+      const testEdge = n => {
+        if (index) { if (index.stamp[n] === query) return; index.stamp[n] = query; }
+        const [a, b] = edges[n];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
         const len2 = dx * dx + dy * dy;
-        if (len2 < 1) continue;
+        if (len2 < minEdgeLength2) return;
         // t = fraction along the segment where the cursor's perpendicular
         // foot lands, clamped to [0,1] so we stay on the segment.
-        const t = Math.max(0, Math.min(1, ((cx - pa.x) * dx + (cy - pa.y) * dy) / len2));
-        const fx = pa.x + t * dx;
-        const fy = pa.y + t * dy;
-        const d = Math.hypot(fx - cx, fy - cy);
-        if (d < bestEdgeDist) {
-          // Lerp in sheet space so the returned snap point matches the
-          // screen-space foot after the round-trip through sheetToViewportPx.
-          bestEdge = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
-          bestEdgeDist = d;
-        }
+        const t = Math.max(0, Math.min(1, ((cursor.x - a.x) * dx + (cursor.y - a.y) * dy) / len2));
+        const fx = a.x + t * dx;
+        const fy = a.y + t * dy;
+        const d = Math.hypot(fx - cursor.x, fy - cursor.y);
+        if (d < bestEdgeDist) { bestEdge = { x: fx, y: fy }; bestEdgeDist = d; }
+      };
+      if (index) {
+        eachInCells(index.edgeCells, testEdge);
+        index.wideEdges.forEach(testEdge);
+      } else {
+        edges.forEach((_, n) => testEdge(n));
       }
       return bestEdge;
     }
@@ -872,9 +921,8 @@
     function onViewportChange() {
       // Zoom, pan, scroll, or window resize all mutate the SVG → screen
       // transform. Re-project the anchor/cursor so committed measurements
-      // stick to the geometry they were placed on, and drop cached snap
-      // targets since their screen-space rects have moved with the viewport.
-      invalidateSnapCache();
+      // stick to the geometry they were placed on. Snap targets are in sheet
+      // space and stay valid.
       redrawOverlay();
     }
 
@@ -903,10 +951,7 @@
         // changes and re-projects committed measurements so they follow the
         // zoom instead of visually drifting off the geometry.
         if (typeof ResizeObserver !== 'undefined' && dom.svgContainer) {
-          const ro = new ResizeObserver(() => {
-            invalidateSnapCache();
-            redrawOverlay();
-          });
+          const ro = new ResizeObserver(() => redrawOverlay());
           ro.observe(dom.svgContainer);
           // The layer tracks the viewport's frame (e.g. when the layout-edit
           // toolbar appears above it and the viewport shrinks).
@@ -953,7 +998,7 @@
       /** Called by canvas-view after rendering or resizing the SVG so the
        *  overlay and committed measurement follow its current transform. */
       onCanvasUpdated() {
-        invalidateSnapCache();
+        // Snap targets re-validate themselves against the rendered SVG.
         redrawOverlay();
       },
     };
