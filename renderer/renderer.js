@@ -86,7 +86,7 @@ const dom = {
 // files, sheets, the last solver result, etc. Persistence (save/load) is
 // handled inside createAppStore so the rest of the app doesn't have to think
 // about it.
-const { state, schedulePersistJobState, hydrateJobState } = window.NestStore.createAppStore();
+const { state, schedulePersistJobState, persistJobStateNow, hydrateJobState } = window.NestStore.createAppStore();
 const { DEFAULT_ENGRAVING_COLOR } = window.NestConstants;
 const { FALLBACK_PALETTE = [] } = window.NestDxfLayerService || {};
 const { partLabelFromName } = window.NestHelpers;
@@ -389,7 +389,7 @@ const filesPaneApi = window.NestFilesPane.createFilesPane({
   hydrateFileShapesForList: dxfServiceApi.hydrateFileShapesForList,
 });
 
-// Parts history — session-scoped snapshot stack that powers the revert popover
+// Parts history — persisted snapshot stack that powers the revert popover
 // in the Parts header. Snapshots only fire when a nesting run starts, so this
 // needs the files pane (for renderFiles) but must exist before the nesting
 // service (which triggers the snapshot).
@@ -398,6 +398,7 @@ const partsHistoryApi = window.NestPartsHistory.createPartsHistory({
   dom,
   renderFiles: filesPaneApi.renderFiles,
   schedulePersistJobState,
+  persistJobStateNow,
 });
 partsHistoryApi.init();
 

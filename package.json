@@ -23,6 +23,7 @@
     "test:source-contour": "node scripts/test-source-contour.js",
     "test:engraving-label-holes": "node scripts/test-engraving-label-holes.js",
     "test:part-hover-tooltip": "node scripts/test-part-hover-tooltip.js",
+    "test:parts-history": "node scripts/test-parts-history.js",
     "test:shared-edges": "node scripts/test-shared-edges.js",
     "test:dxf-shared-edges": "node scripts/test-dxf-shared-edge-export.js",
     "test:dxf-export-structure": "node scripts/test-dxf-export-structure.js",

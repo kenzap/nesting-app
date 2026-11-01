@@ -187,14 +187,20 @@ function registerFileIpc({ getMainWindow }) {
   });
 
   ipcMain.handle('save-job-state', async (event, jobState) => {
+    const statePath = path.join(app.getPath('userData'), 'job-state.json');
+    const pendingPath = `${statePath}.tmp`;
     try {
       hadPriorInstall();
-      const statePath = path.join(app.getPath('userData'), 'job-state.json');
       fs.mkdirSync(path.dirname(statePath), { recursive: true });
-      fs.writeFileSync(statePath, JSON.stringify(jobState || {}, null, 2), 'utf-8');
+      // Replace only after the complete snapshot is written, keeping the last
+      // saved job and history intact if the write is interrupted.
+      fs.writeFileSync(pendingPath, JSON.stringify(jobState || {}, null, 2), 'utf-8');
+      fs.renameSync(pendingPath, statePath);
       return { success: true, path: statePath };
     } catch (err) {
       return { success: false, error: err.message };
+    } finally {
+      try { fs.unlinkSync(pendingPath); } catch {}
     }
   });
 
