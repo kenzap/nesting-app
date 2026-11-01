@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "无",
     "favorSharedEdges": "优先共边",
+    "exactFitAssist": "允许贴边排布",
+    "exactFitAssistHelp": "尝试让零件边缘相贴，不改变零件尺寸，也不超出板材可用区域。要求零件间距为零，使用固定长度或最大长度板材，多板材策略设为自动。",
+    "exactFitAssistUnavailable": "需要更新排样引擎。仍可使用常规排样。",
+    "exactFitAssistInactive": "要求零件间距为零，多板材策略设为自动。适用于固定长度或最大长度板材。",
     "allowCutoutNesting": "在内孔中排样",
     "cutoutNestingUnavailable": "此版本需要更新排样引擎才能在内孔中排样。",
     "allowCutoutNestingHelp": "实验性功能：在后台准备内孔排样，仅支持一层嵌套。开始时只使用已准备好的结果。内部零件与外部零件一起移动、旋转和删除。",

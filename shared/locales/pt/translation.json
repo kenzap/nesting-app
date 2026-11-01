@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Nenhum",
     "favorSharedEdges": "Favorecer bordas compartilhadas",
+    "exactFitAssist": "Permitir encaixes exatos",
+    "exactFitAssistHelp": "Tenta posicionar as peças borda a borda sem alterar suas dimensões nem ultrapassar a área útil da chapa. Requer espaçamento zero, chapas de comprimento fixo ou máximo e estratégia de múltiplas chapas em Auto.",
+    "exactFitAssistUnavailable": "Requer um mecanismo de nesting atualizado. O nesting normal continua disponível.",
+    "exactFitAssistInactive": "Requer espaçamento zero e estratégia de múltiplas chapas em Auto. Aplica-se a chapas de comprimento fixo ou máximo.",
     "allowCutoutNesting": "Aninhar em recortes internos",
     "cutoutNestingUnavailable": "Esta versão precisa de um mecanismo de aninhamento atualizado para posicionar peças em recortes internos.",
     "allowCutoutNestingHelp": "Experimental: prepara em segundo plano o posicionamento em recortes, em um único nível. Ao iniciar, usa apenas resultados prontos. As peças internas são movidas, giradas e excluídas junto com a peça externa.",

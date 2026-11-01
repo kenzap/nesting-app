@@ -42,12 +42,18 @@ async function checkLaunch(platform, packaged, available = true) {
         app: { isPackaged: packaged, on() {}, getPath: () => temp },
         ipcMain: { handle: (key, fn) => handlers.set(key, fn) },
       };
-      if (name === 'fs') return { ...fs, existsSync(file) {
+      if (name === 'fs') return { ...fs, statSync(file) {
+        return file === expected ? { mtimeMs: 1 } : fs.statSync(file);
+      }, existsSync(file) {
         if (file === expected) return available;
         if (file === baseDir) return true;
         return fs.existsSync(file);
       } };
-      if (name === 'child_process') return { spawn(file, args, options) {
+      if (name === 'child_process') return { execFile(file, args, options, callback) {
+        assert.equal(file, expected);
+        assert.equal(args[0], '--help');
+        callback(null, '--exact-fit-assist');
+      }, spawn(file, args, options) {
         spawned = { file, args, options };
         return child;
       } };
@@ -62,6 +68,8 @@ async function checkLaunch(platform, packaged, available = true) {
   });
   module.exports.registerSparrowIpc();
   const info = await handlers.get('get-native-engine-info')();
+  assert.equal(info.success, true, info.error);
+  assert.equal(info.supportsExactFitAssist, available);
   assert.equal(info.packingPath, expected);
   assert.equal(info.sparrowPath, expected, 'legacy API field remains compatible');
   assert.equal(info.exists.packing, available);

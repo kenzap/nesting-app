@@ -53,6 +53,44 @@ and DXF export. The Windows helper was cross-compiled, not runtime-tested on
 Windows. Linux still needs rebuilding. The older Rust integration suite has
 pre-existing API drift, documented in `BACKPORTS.md`; it is not counted as a pass.
 
+## Allow Exact Fits
+
+Settings > Algorithm > **Allow exact fits** is on by default. Saved explicit
+choices to disable it are preserved. It requires zero
+part spacing, Auto multi-sheet strategy, and Fixed or Optimize up to max length
+sheet mode. Sheet margins and allowed rotations remain in effect.
+
+The native `--exact-fit-assist` pass tries exact contact positions separately
+from the strict-touch optimizer. It can use 0.1 mm of temporary search slack,
+but accepts only complete layouts recovered onto the original usable sheets.
+It never scales parts. Both collision contours and export-precision source
+contours are checked for bounds and intersection, including after finishing
+and the unified-to-local sheet coordinate round trip. Normal completion and
+Stop select between validated plans; failed recovery keeps the normal result.
+
+Assisted layouts use the DXF writer's 0.0001 mm precision for placement
+translations in both validation and final JSON. Original contour coordinates
+are not rounded or scaled. This avoids false overlap failures caused by f32
+centering/serialization of offset decimal-coordinate DXFs. Candidate generation
+also checks nearby representable translations, without relaxing final bounds.
+
+The search uses at most 15% of the run budget, capped at 2 seconds, with limits
+of 512 copies, 1,024 vertices per contour and 32,768 vertices across copies.
+Complex jobs fall back to normal nesting. This is a bounded heuristic, not a
+guarantee of a globally optimal layout. Exact-contact plans are not fed back
+into the strict-touch optimizer, which would separate them again.
+
+Rebuild the helper on each platform when shipping this feature. The app checks
+for the CLI capability before launching; older helpers use normal nesting,
+with the control disabled and an explanatory hint in Settings, rather than
+receiving an unknown flag or preventing a run. The Linux helper still
+needs rebuilding. Sources are in the sibling `nesting` repository.
+
+Checks: `npm run test:exact-fit-assist` and
+`npm run test:exact-fit-assist:native`. The native test also accepts a helper
+path and verifies final DXF dimensions, margins, counts, contacts, multiple
+sheets, and early stopping.
+
 ## Experimental Cutout Nesting
 
 Settings > Algorithm > **Nest inside cutouts** is off by default. It uses a

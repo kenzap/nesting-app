@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "None",
     "favorSharedEdges": "Favor shared edges",
+    "exactFitAssist": "Allow exact fits",
+    "exactFitAssistHelp": "Try to fit parts edge-to-edge without changing their size or exceeding the usable sheet area. Requires zero part spacing, fixed or maximum-length sheets, and Auto multi-sheet strategy.",
+    "exactFitAssistUnavailable": "Requires an updated nesting engine. Normal nesting remains available.",
+    "exactFitAssistInactive": "Requires zero part spacing and Auto multi-sheet strategy. Applies to fixed or maximum-length sheets.",
     "allowCutoutNesting": "Nest inside cutouts",
     "cutoutNestingUnavailable": "This build needs an updated nesting engine to nest inside cutouts.",
     "allowCutoutNestingHelp": "Experimental: prepare one-level placements inside cutouts in the background. Run uses only ready results. Contained parts move, rotate and delete with their parent.",

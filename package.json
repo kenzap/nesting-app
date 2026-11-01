@@ -17,6 +17,8 @@
     "test:dxf-open-polylines": "node scripts/test-dxf-open-polylines.js",
     "test:nesting-previews": "node scripts/test-sparrow-previews.js",
     "test:native-engine-name": "node scripts/test-native-engine-name.js",
+    "test:exact-fit-assist": "node scripts/test-exact-fit-assist.js",
+    "test:exact-fit-assist:native": "node scripts/test-exact-fit-assist-native.js",
     "test:preferred-alignment": "node scripts/test-preferred-alignment.js",
     "test:source-contour": "node scripts/test-source-contour.js",
     "test:engraving-label-holes": "node scripts/test-engraving-label-holes.js",

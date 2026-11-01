@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Nessuno",
     "favorSharedEdges": "Favorisci i bordi condivisi",
+    "exactFitAssist": "Consenti incastri esatti",
+    "exactFitAssistHelp": "Prova a disporre i pezzi con i bordi a contatto senza modificarne le dimensioni né superare l’area utile della lamiera. Richiede distanza tra i pezzi pari a zero, lamiere di lunghezza fissa o massima e strategia multifoglio Auto.",
+    "exactFitAssistUnavailable": "Richiede un motore di nesting aggiornato. Il nesting normale resta disponibile.",
+    "exactFitAssistInactive": "Richiede distanza tra i pezzi pari a zero e strategia multifoglio Auto. Si applica alle lamiere di lunghezza fissa o massima.",
     "allowCutoutNesting": "Annida nei ritagli interni",
     "cutoutNestingUnavailable": "Questa versione richiede un motore di nesting aggiornato per posizionare pezzi nei ritagli interni.",
     "allowCutoutNestingHelp": "Sperimentale: prepara in background i posizionamenti nei ritagli, su un solo livello. All'avvio vengono usati solo i risultati pronti. I pezzi interni vengono spostati, ruotati ed eliminati insieme al pezzo esterno.",

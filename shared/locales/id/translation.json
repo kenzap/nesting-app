@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Tidak ada",
     "favorSharedEdges": "Utamakan sisi bersama",
+    "exactFitAssist": "Izinkan penempatan pas",
+    "exactFitAssistHelp": "Mencoba menempatkan komponen dengan tepi saling bersentuhan tanpa mengubah ukuran atau melampaui area lembaran yang dapat digunakan. Memerlukan jarak antarkomponen nol, lembaran dengan panjang tetap atau maksimum, dan strategi multilembar Otomatis.",
+    "exactFitAssistUnavailable": "Memerlukan mesin nesting yang diperbarui. Nesting biasa tetap tersedia.",
+    "exactFitAssistInactive": "Memerlukan jarak antarkomponen nol dan strategi multilembar Otomatis. Berlaku untuk lembaran dengan panjang tetap atau maksimum.",
     "allowCutoutNesting": "Tempatkan komponen di dalam lubang",
     "cutoutNestingUnavailable": "Versi ini memerlukan mesin penempatan yang diperbarui untuk menempatkan komponen di dalam lubang.",
     "allowCutoutNestingHelp": "Eksperimental: menyiapkan penempatan satu tingkat di dalam lubang di latar belakang. Saat dimulai, hanya hasil yang siap yang digunakan. Komponen di dalam dipindahkan, diputar, dan dihapus bersama komponen luarnya.",

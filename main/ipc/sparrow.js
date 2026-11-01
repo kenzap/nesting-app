@@ -7,20 +7,24 @@ const { logDiagnostic, stderrTail } = require('../utils/diagnostics');
 
 const activeSparrowProcesses = new Map();
 const sparrowRuns = new Map();
-const sharedEdgeSupport = new Map();
+const engineHelpCache = new Map();
 
-async function supportsSharedEdges(executable, cwd) {
+async function supportsEngineFlag(executable, cwd, flag) {
   const key = `${executable}:${fs.statSync(executable).mtimeMs}`;
-  if (!sharedEdgeSupport.has(key)) {
+  if (!engineHelpCache.has(key)) {
     const help = await new Promise((resolve, reject) => {
       execFile(executable, ['--help'], { cwd, timeout: 5000, windowsHide: true }, (error, stdout) => {
         if (error) reject(error);
         else resolve(stdout);
       });
     });
-    sharedEdgeSupport.set(key, help.includes('--favor-shared-edges'));
+    engineHelpCache.set(key, help);
   }
-  return sharedEdgeSupport.get(key);
+  return engineHelpCache.get(key).includes(flag);
+}
+
+async function supportsSharedEdges(executable, cwd) {
+  return supportsEngineFlag(executable, cwd, '--favor-shared-edges');
 }
 
 function isDevMode() {
@@ -587,6 +591,8 @@ function registerSparrowIpc() {
         packingPath,
         sparrowPath: packingPath, // Compatibility for existing renderer integrations.
         supportsCutouts: await require('./cutouts').supportsCutouts(packingPath),
+        supportsExactFitAssist: fs.existsSync(packingPath)
+          && await supportsEngineFlag(packingPath, baseDir, '--exact-fit-assist').catch(() => false),
         exists: {
           packing: fs.existsSync(packingPath),
           sparrow: fs.existsSync(packingPath),
@@ -638,6 +644,15 @@ function registerSparrowIpc() {
         }
         args.push('--favor-shared-edges');
       }
+      const exactFitRequested = !!options.exactFitAssist && options.minItemSeparation === 0
+        && Number.isFinite(options.maxStripLength) && options.maxStripLength > 0
+        && (!options.multiStripMode || options.multiStripMode === 'barriers');
+      const exactFitAssist = exactFitRequested
+        && await supportsEngineFlag(packingPath, runDir, '--exact-fit-assist');
+      if (exactFitRequested && !exactFitAssist) {
+        console.warn('[Packing] Allow exact fits is unavailable with this nesting engine; continuing normal nesting.');
+      }
+      if (exactFitAssist) args.push('--exact-fit-assist');
       if (Number.isFinite(options.maxStripLength) && options.maxStripLength > 0) {
         args.push('--max-strip-length', String(options.maxStripLength));
       }
@@ -710,6 +725,7 @@ function registerSparrowIpc() {
           workers: options.workers,
           earlyTermination: Boolean(options.earlyTermination),
           favorSharedEdges: !!options.favorSharedEdges && options.minItemSeparation === 0,
+          exactFitAssist,
           maxStripLength: options.maxStripLength,
           stripMargin: options.stripMargin,
           minItemSeparation: options.minItemSeparation,

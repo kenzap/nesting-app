@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Aucun",
     "favorSharedEdges": "Favoriser les bords communs",
+    "exactFitAssist": "Autoriser les placements bord à bord",
+    "exactFitAssistHelp": "Essaie de placer les pièces bord à bord sans modifier leurs dimensions ni dépasser la surface utile de la tôle. Nécessite un espacement nul, des tôles de longueur fixe ou maximale et la stratégie multi-tôles Auto.",
+    "exactFitAssistUnavailable": "Nécessite un moteur d’imbrication à jour. L’imbrication normale reste disponible.",
+    "exactFitAssistInactive": "Nécessite un espacement nul et la stratégie multi-tôles Auto. S’applique aux tôles de longueur fixe ou maximale.",
     "allowCutoutNesting": "Imbriquer dans les découpes intérieures",
     "cutoutNestingUnavailable": "Cette version nécessite un moteur d’imbrication mis à jour pour placer des pièces dans les découpes intérieures.",
     "allowCutoutNestingHelp": "Expérimental : prépare en arrière-plan les placements dans les découpes, sur un seul niveau. Seuls les résultats prêts sont utilisés au lancement. Les pièces intérieures sont déplacées, pivotées et supprimées avec la pièce extérieure.",

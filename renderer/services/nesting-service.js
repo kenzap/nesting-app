@@ -506,6 +506,8 @@
             exactCoedge: partSpacing === 0,
             align: String(settings.preferredAlignment || 'bottom-left'),
             favorSharedEdges: !!settings.favorSharedEdges && partSpacing === 0,
+            exactFitAssist: !!settings.exactFitAssist && state.supportsExactFitAssist !== false && partSpacing === 0
+              && primarySheet.widthMode !== 'unlimited' && multiStripMode === 'barriers',
             multiStripMode,
             ...(Number.isFinite(bucketFillWeight) ? { bucketFillWeight } : {}),
           };

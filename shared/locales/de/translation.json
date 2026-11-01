@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Keine",
     "favorSharedEdges": "Gemeinsame Kanten bevorzugen",
+    "exactFitAssist": "Passgenaue Anordnung erlauben",
+    "exactFitAssistHelp": "Versucht, Teile Kante an Kante anzuordnen, ohne ihre Maße zu ändern oder die nutzbare Blechfläche zu überschreiten. Erfordert Teileabstand 0, Bleche mit fester oder maximaler Länge und die Mehrblechstrategie Auto.",
+    "exactFitAssistUnavailable": "Erfordert eine aktualisierte Verschachtelungsengine. Die normale Verschachtelung ist weiterhin verfügbar.",
+    "exactFitAssistInactive": "Erfordert Teileabstand 0 und die Mehrblechstrategie Auto. Gilt für Bleche mit fester oder maximaler Länge.",
     "allowCutoutNesting": "Teile in Ausschnitten verschachteln",
     "cutoutNestingUnavailable": "Diese Version benötigt eine aktualisierte Verschachtelungsengine für die Platzierung in Ausschnitten.",
     "allowCutoutNestingHelp": "Experimentell: bereitet Platzierungen in Ausschnitten mit einer Verschachtelungsebene im Hintergrund vor. Beim Start werden nur fertige Ergebnisse verwendet. Innenliegende Teile werden mit dem umgebenden Teil verschoben, gedreht und gelöscht.",

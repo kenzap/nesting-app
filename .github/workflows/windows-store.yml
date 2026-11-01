@@ -57,6 +57,12 @@ jobs:
       - name: Check preferred alignment
         run: npm run test:preferred-alignment
 
+      - name: Check exact-fit assist settings
+        run: npm run test:exact-fit-assist
+
+      - name: Check exact-fit assist exports
+        run: npm run test:exact-fit-assist:native
+
       - name: Check DXF grouping
         run: npm run test:dxf-grouping
 

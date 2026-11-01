@@ -259,6 +259,15 @@
           <button type="button" class="setting-hint-action" id="sharedEdgesHintAction" data-i18n="settings.setSpacingToZero">Set spacing to 0</button>
         </div>
         <div class="setting-row">
+          <label for="exactFitAssist" data-i18n="settings.exactFitAssist" data-i18n-title="settings.exactFitAssistHelp" title="Try to fit parts edge-to-edge without changing their size or exceeding the usable sheet area. Requires zero part spacing, fixed or maximum-length sheets, and Auto multi-sheet strategy.">Allow exact fits</label>
+          <label class="toggle">
+            <input id="exactFitAssist" type="checkbox" data-setting-key="exactFitAssist" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-hint" id="exactFitAssistHint" data-i18n="settings.exactFitAssistInactive" hidden>Requires zero part spacing and Auto multi-sheet strategy. Applies to fixed or maximum-length sheets.</div>
+        <div class="setting-hint" id="exactFitAssistUnavailableHint" data-i18n="settings.exactFitAssistUnavailable" hidden>Requires an updated nesting engine. Normal nesting remains available.</div>
+        <div class="setting-row">
           <label data-i18n="settings.preferredAlignment">Preferred alignment</label>
           <select data-setting-key="preferredAlignment">
             <option value="none" data-i18n="settings.alignmentNone">None</option>

@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "なし",
     "favorSharedEdges": "共通エッジを優先",
+    "exactFitAssist": "隙間のない配置を許可",
+    "exactFitAssistHelp": "部品寸法を変えず、板材の使用可能領域内で部品の辺同士を接触させる配置を試します。部品間隔をゼロ、板材を固定長または最大長、複数板材の配置方式を自動にする必要があります。",
+    "exactFitAssistUnavailable": "ネスティングエンジンの更新が必要です。通常のネスティングは引き続き利用できます。",
+    "exactFitAssistInactive": "部品間隔をゼロ、複数板材の配置方式を自動にする必要があります。固定長または最大長の板材が対象です。",
     "allowCutoutNesting": "切り抜き内に配置",
     "cutoutNestingUnavailable": "このビルドで切り抜き内に配置するには、ネスティングエンジンの更新が必要です。",
     "allowCutoutNestingHelp": "試験的機能：切り抜き内への1階層の配置をバックグラウンドで準備します。実行時には準備済みの結果のみを使用します。内側のパーツは外側のパーツと一緒に移動、回転、削除されます。",

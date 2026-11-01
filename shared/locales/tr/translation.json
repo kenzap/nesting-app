@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Yok",
     "favorSharedEdges": "Ortak kenarları tercih et",
+    "exactFitAssist": "Tam sığdırmaya izin ver",
+    "exactFitAssistHelp": "Parçaları boyutlarını değiştirmeden ve levhanın kullanılabilir alanını aşmadan kenarları birbirine değecek şekilde yerleştirmeyi dener. Parça aralığı sıfır, levha uzunluğu sabit ya da maksimum ve çoklu levha stratejisi Otomatik olmalıdır.",
+    "exactFitAssistUnavailable": "Güncellenmiş bir yerleştirme motoru gerektirir. Normal yerleştirme kullanılabilir.",
+    "exactFitAssistInactive": "Parça aralığı sıfır, çoklu levha stratejisi Otomatik olmalıdır. Sabit ya da maksimum uzunluklu levhalarda geçerlidir.",
     "allowCutoutNesting": "İç boşluklara yerleştir",
     "cutoutNestingUnavailable": "İç boşluklara yerleştirme için bu sürümdeki yerleştirme motorunun güncellenmesi gerekiyor.",
     "allowCutoutNestingHelp": "Deneysel: iç boşluklara tek seviyeli yerleşimleri arka planda hazırlar. Başlatırken yalnızca hazır sonuçlar kullanılır. İçteki parçalar dıştaki parçayla birlikte taşınır, döndürülür ve silinir.",

@@ -112,6 +112,10 @@
   "settings": {
     "alignmentNone": "Ninguna",
     "favorSharedEdges": "Favorecer bordes compartidos",
+    "exactFitAssist": "Permitir ajustes exactos",
+    "exactFitAssistHelp": "Intenta colocar las piezas borde con borde sin cambiar sus dimensiones ni sobrepasar el área útil de la lámina. Requiere separación entre piezas de cero, láminas de longitud fija o máxima y estrategia de varias láminas en Auto.",
+    "exactFitAssistUnavailable": "Requiere un motor de anidado actualizado. El anidado normal sigue disponible.",
+    "exactFitAssistInactive": "Requiere separación entre piezas de cero y estrategia de varias láminas en Auto. Se aplica a láminas de longitud fija o máxima.",
     "allowCutoutNesting": "Anidar dentro de huecos",
     "cutoutNestingUnavailable": "Esta versión necesita un motor de anidado actualizado para colocar piezas dentro de huecos.",
     "allowCutoutNestingHelp": "Experimental: prepara en segundo plano la colocación dentro de huecos, con un solo nivel. Al iniciar se usan solo los resultados listos. Las piezas interiores se mueven, giran y eliminan junto con la pieza exterior.",
