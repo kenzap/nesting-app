@@ -8,7 +8,7 @@ const { createRequire } = require('node:module');
 const DxfParser = require('dxf-parser');
 const root = path.resolve(__dirname, '..');
 const platform = { darwin: 'macos', win32: 'windows' }[process.platform] || process.platform;
-const binary = process.argv[2] || path.join(root, 'native', platform, 'bin', process.platform === 'win32' ? 'sparrow.exe' : 'sparrow');
+const binary = process.argv[2] || path.join(root, 'native', platform, 'bin', process.platform === 'win32' ? 'packing.exe' : 'packing');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-edge-native-'));
 
 function loadIpc(file, electron, expose = '') {

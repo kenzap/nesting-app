@@ -6,7 +6,7 @@ const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const distDir = path.join(repoRoot, 'dist');
-const helperNames = ['sparrow'];
+const helperNames = ['packing'];
 
 function fail(message) {
   console.error(`[verify-mas-signing] ${message}`);

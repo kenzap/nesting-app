@@ -52,6 +52,9 @@ jobs:
       - name: Check nesting previews
         run: npm run test:nesting-previews
 
+      - name: Check native helper naming
+        run: npm run test:native-engine-name
+
       - name: Check preferred alignment
         run: npm run test:preferred-alignment
 
@@ -106,8 +109,8 @@ jobs:
           verification_dir="$(mktemp -d)"
           trap 'rm -rf "$verification_dir"' EXIT
           unsquashfs -no-progress -d "$verification_dir" "$package" \
-            app/resources/native/linux/bin/sparrow meta/snap.yaml meta/gui
-          packaged_helper="$verification_dir/app/resources/native/linux/bin/sparrow"
+            app/resources/native/linux/bin/packing meta/snap.yaml meta/gui
+          packaged_helper="$verification_dir/app/resources/native/linux/bin/packing"
           test -x "$packaged_helper"
           "$packaged_helper" --help > /dev/null
           test -s "$verification_dir/meta/gui/kenzap-nesting.desktop"
@@ -116,7 +119,7 @@ jobs:
           grep -Fx "Icon=\${SNAP}/meta/gui/kenzap-nesting.png" "$verification_dir/meta/gui/kenzap-nesting.desktop"
 
           app_version="$(node -p "require('./package.json').version")"
-          helper_hash="$(sha256sum native/linux/bin/sparrow | cut -d ' ' -f1)"
+          helper_hash="$(sha256sum native/linux/bin/packing | cut -d ' ' -f1)"
           packaged_helper_hash="$(sha256sum "$packaged_helper" | cut -d ' ' -f1)"
           {
             printf 'App version: %s\n' "$app_version"
@@ -167,7 +170,7 @@ jobs:
 
           Extract the downloaded artifact ZIP and test the .snap on Ubuntu before uploading it to the Snap Store.
           BUILD-INFO.txt and SHA256SUMS.txt are included separately.
-          The checked-in Linux Sparrow helper was packaged without recompiling it.
+          The checked-in Linux packing helper was packaged without recompiling it.
           These checks do not replace testing the installed desktop app.
           Nothing was published to GitHub Releases or submitted to the Snap Store.
           EOF

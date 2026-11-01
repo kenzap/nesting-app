@@ -149,7 +149,7 @@ Watch a live nesting session: **[Demo on YouTube](https://youtu.be/b55Bph1dwPY)*
   - `native/macos/bin/`
   - `native/windows/bin/`
 
-The native binary is **[Sparrow](https://github.com/JeroenGar/sparrow)**. Refer to its repository for compilation instructions if you need to build it for an unsupported architecture.
+The native helper is named **`packing`** (`packing.exe` on Windows), built from our fork of **[Sparrow](https://github.com/JeroenGar/sparrow)**. See [native build instructions](native/README.md) to compile the matching fork for another architecture.
 
 ### Run locally
 
@@ -198,7 +198,7 @@ Windows helper starts, and checks Store icons both before and after packaging.
 AppX icons are generated from the current Windows vector artwork, independently
 of the EXE's ICO. After changing that artwork, run `npm run appx:assets` and
 commit its PNGs and checksum manifest. See `assets/appx/README.md` for details.
-It packages the checked-in `native/windows/bin/sparrow.exe`
+It packages the checked-in `native/windows/bin/packing.exe`
 without recompiling it, so update that binary separately when the native engine
 changes. The app version comes from `package.json`; increase it before submitting
 a Store update. These checks do not replace testing the packaged app on Windows
@@ -228,13 +228,13 @@ The workflow reuses the existing `core24`, GNOME, and strict-confinement
 configuration in `package.json`, setting up Snapcraft and LXD on the runner.
 It checks translations and regressions, verifies the Linux helper starts, and
 checks that the finished Snap contains its desktop launcher, icon, and an
-executable Sparrow helper that starts. `npm run dist:snap` uses a Snap-only
+executable packing helper that starts. `npm run dist:snap` uses a Snap-only
 wrapper to work around electron-builder's core24 desktop-file path mismatch:
 Snapcraft uses the generated `snap/gui` files instead of looking for an entry
 that is not yet present in `prime/meta/gui`. This does not modify installed
 dependencies or change other platform builds. `npm run test:snap-packaging`
 checks the generated manifest and launcher staging without running Snapcraft.
-It packages the **checked-in** `native/linux/bin/sparrow` without compiling Rust
+It packages the **checked-in** `native/linux/bin/packing` without compiling Rust
 or downloading the engine source. Commit and push any updated Linux helper
 before building; local-only changes are not included. No Snap Store credentials
 are required to build. These checks do not replace testing the installed app on
@@ -254,12 +254,12 @@ Store update.
 assets/                 app icons, preview media, branding assets
 main/                   Electron main-process modules
   app.js                window, menu, About panel, app lifecycle
-  ipc/                  file dialogs, Sparrow, DXF export IPC handlers
+  ipc/                  file dialogs, nesting, DXF export IPC handlers
   utils/                main-process helpers (temp retention cleanup, etc.)
 native/                 platform-specific native binaries
-  linux/bin/            Sparrow and preprocess binaries for Ubuntu
-  macos/bin/            Sparrow and preprocess binaries for macOS
-  windows/bin/          Sparrow and preprocess binaries for Windows
+  linux/bin/            packing helper for Ubuntu
+  macos/bin/            packing helper for macOS
+  windows/bin/          packing.exe helper for Windows
 renderer/               Electron renderer application
   state/                app state store and mutations
   views/                panes, modals, canvas, DXF preview UI

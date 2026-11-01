@@ -7,8 +7,8 @@ const { spawnSync } = require('child_process');
 const repoRoot = path.resolve(__dirname, '..');
 const helpers = [
   {
-    label: 'sparrow',
-    file: path.join(repoRoot, 'native', 'windows', 'bin', 'sparrow.exe')
+    label: 'packing',
+    file: path.join(repoRoot, 'native', 'windows', 'bin', 'packing.exe')
   }
 ];
 

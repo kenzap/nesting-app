@@ -51,6 +51,9 @@ jobs:
       - name: Check nesting previews
         run: npm run test:nesting-previews
 
+      - name: Check native helper naming
+        run: npm run test:native-engine-name
+
       - name: Check preferred alignment
         run: npm run test:preferred-alignment
 
@@ -144,7 +147,7 @@ jobs:
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
         run: |
           $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
-          $helperHash = (Get-FileHash -LiteralPath native/windows/bin/sparrow.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $helperHash = (Get-FileHash -LiteralPath native/windows/bin/packing.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           @"
           ## Windows Store build
 

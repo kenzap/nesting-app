@@ -35,7 +35,7 @@ function registerCutoutIpc(ipcMain, resolveExecutable, app) {
   app?.once?.('before-quit', cancel);
   ipcMain.handle('prepare-cutout', async (event, request) => {
     const requestGeneration = generation;
-    const executable = resolveExecutable('sparrow');
+    const executable = resolveExecutable('packing');
     if (!await supportsCutouts(executable)) return { success: false, unsupported: true, error: 'Cutout nesting requires an updated native engine' };
     if (generation !== requestGeneration) return { success: false, error: 'Cutout preparation canceled' };
     if (active) return { success: false, error: 'Cutout preparation is busy' };

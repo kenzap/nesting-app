@@ -71,7 +71,7 @@ assert.equal(nested.exports[0].cutout_children.length,1);
 assert.equal(nested.exports[0].cutout_children[0].export.cutout_children,undefined,'a contained part cannot itself be a package');
 
 async function testNative() {
-  const executable = process.argv[2] || path.resolve(__dirname, '../native', process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', 'bin', process.platform === 'win32' ? 'sparrow.exe' : 'sparrow');
+  const executable = process.argv[2] || path.resolve(__dirname, '../native', process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', 'bin', process.platform === 'win32' ? 'packing.exe' : 'packing');
   const prepare = request => new Promise((resolve,reject) => {
     const worker = new Worker(path.resolve(__dirname,'../main/workers/cutout-worker.js'), {workerData:{executable, request}});
     worker.once('message',resolve); worker.once('error',reject);
