@@ -26,6 +26,7 @@ assert.ok(canvasSource.includes('      renderTabs,\n'));
 const window = {
   dispatchEvent() {},
   NestHelpers: {},
+  NestCutoutPackages: require('../shared/cutout-packages'),
   NestUnits: {
     resolveMeasurementSystem: () => 'metric',
     formatDimensions: require('../shared/units').formatDimensions,
@@ -392,6 +393,13 @@ try {
   view.showNestResult(0, { preserveView: true });
   assert.equal(swaps, 0, 'unchanged edited layouts still avoid unnecessary DOM swaps');
   delete window.layoutEditorApi;
+  state.lastPlacementExportItems = {0:{polygon:[[0,0],[100,0],[100,100],[0,100]],holes:[[[10,10],[90,10],[90,90],[10,90]]],
+    cutout_children:[{item:{shape:{data:[[0,0],[20,0],[20,20],[0,20]]}},export:{holes:[]},
+      transformation:{rotation:90,translation:[40,20]}}]}};
+  const packageSvg = '<svg viewBox="0 0 100 100"><defs><g id="item_0"><path fill="blue" d="M0,0 L100,0 L100,100 L0,100 Z"/></g></defs><use href="#item_0"/></svg>';
+  const packageStyled = view.styleStripSVG(packageSvg);
+  assert.match(packageStyled,/fill-rule="evenodd"/,'live/final preview cuts out the parent hole');
+  assert.match(packageStyled,/M40,20 L40,40 L20,40 L20,20/,'live/final preview includes the rotated child in parent coordinates');
 } finally {
   fs.rmSync(runDir, { recursive: true, force: true });
 }

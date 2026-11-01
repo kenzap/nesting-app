@@ -13,6 +13,7 @@
     const lengthSettingKeys = new Set(['partSpacing', 'sheetMargin']);
     const measurementSystemField = settingsFields.find(field => field.dataset.settingKey === 'measurementSystem');
     const sharedEdgesField = settingsFields.find(field => field.dataset.settingKey === 'favorSharedEdges');
+    const cutoutField = settingsFields.find(field => field.dataset.settingKey === 'allowCutoutNesting');
     const partSpacingField = settingsFields.find(field => field.dataset.settingKey === 'partSpacing');
     const t = globalScope.NestI18n.t;
     const devOnlyRows = Array.from(document.querySelectorAll('[data-dev-only-setting]'));
@@ -105,6 +106,9 @@
         applySettingFieldValue(field, settings[field.dataset.settingKey], dialogUnitSystem);
       });
       updateSharedEdgesAvailability();
+      if (cutoutField) cutoutField.disabled = state.supportsCutoutNesting === false;
+      const cutoutHint = document.getElementById('cutoutUnavailableHint');
+      if (cutoutHint) cutoutHint.hidden = state.supportsCutoutNesting !== false;
     }
 
     // Shared edges only exist where parts can touch, so any positive spacing
@@ -168,6 +172,7 @@
     async function persistCurrentSettings() {
       state.settings = normalizeDialogSettings({ ...state.settings, ...collectSettingsFromDialog() });
       applySettingsToDialog(state.settings);
+      window.dispatchEvent(new CustomEvent('nest-cutout-input-changed'));
       if (!window.electronAPI?.saveAppSettings) return;
       const result = await window.electronAPI.saveAppSettings(state.settings);
       if (!result?.success) {
@@ -197,6 +202,7 @@
         try {
           const engineInfo = await window.electronAPI.getNativeEngineInfo();
           isDevBuild = !!(engineInfo?.success && !engineInfo?.packaged);
+          state.supportsCutoutNesting = !!engineInfo?.supportsCutouts;
         } catch {
           isDevBuild = false;
         }

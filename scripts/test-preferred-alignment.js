@@ -41,12 +41,12 @@ for (const [align, expected] of Object.entries({
 const field = { dataset: { settingKey: 'preferredAlignment' }, type: 'select-one', value: 'bottom-left' };
 let saved;
 const state = {};
-const window = { NestSettings: settings, NestUnits: {
+const window = { dispatchEvent() {}, NestSettings: settings, NestUnits: {
   resolveMeasurementSystem: () => 'metric', unitLabel: () => 'mm',
   fromDisplayLength: Number, formatInputLength: String,
 }, NestI18n: { t: key => key }, electronAPI: { async saveAppSettings(value) { saved = JSON.parse(JSON.stringify(value)); return { success: true }; } } };
 vm.runInNewContext(fs.readFileSync(path.join(root, 'renderer/views/settings-modal.js'), 'utf8'), {
-  window, document: { querySelectorAll: () => [] },
+  window, CustomEvent, document: { querySelectorAll: () => [], getElementById: () => null },
 });
 const modal = window.NestSettingsModal.createSettingsModal({ state, dom: { settingsFields: [field] } });
 (async () => {

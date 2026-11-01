@@ -12,6 +12,43 @@ This is the recommended local approach for Electron:
 
 Do not run these binaries directly from the renderer process.
 
+## Experimental Cutout Nesting
+
+Settings > Algorithm > **Nest inside cutouts** is off by default. It uses a
+separate `sparrow --cutout -i request.json` constructor, not the strip optimizer.
+The native source is `src/optimizer/cutout.rs` in the sibling `nesting` repository.
+Both repositories must be included when shipping or reviewing this feature.
+
+- The fixed irregular container reuses jagua collision detection and Sparrow's
+  placement sampling. It does not resize the hole or recursively nest children.
+- Background preparation is debounced and serialized, with bounded geometry,
+  candidates, copies, samples and elapsed time. Geometry validation runs in a
+  worker, outside Electron's UI/main threads. Run uses only completed results;
+  an early Run or a skipped/failed preparation uses ordinary nesting instead.
+- Cached patterns are keyed by exact contours, rotations, spacing and bounded
+  demand. Assembly accounts for current inventory and assigns contiguous solver
+  IDs. Parent and children remain a rigid package through all sheet modes,
+  early stopping, alignment, manual editing and export.
+- Children retain their own DXF entities and layers. Export composes the child
+  and parent transforms, then applies the sheet margin once. The input JSON's
+  `cutout_exports` manifest preserves this information for recovery.
+- Preparation uses polygonal cutout contours with a 0.02 mm safety allowance in
+  addition to part spacing. Complex inputs are skipped, not simplified further.
+  Empty search results mean unknown, not proof of infeasibility.
+- The first version does not optimize across packages or count their internal
+  shared edges. Shared-edge totals are shown as unavailable for packaged runs.
+  Contained parts cannot yet be detached in the layout editor.
+
+Rebuild the platform's existing Sparrow helper with `--features live_svg` after
+updating the native source. The app probes `--help` and disables the setting on
+older helpers, including Linux builds that have not yet been rebuilt.
+
+Verification: `npm run test:cutout-nesting` exercises the worker, native search,
+all sheet modes, inventory, transforms and DXF export. It also accepts an
+executable path: `node scripts/test-cutout-nesting.js /path/to/sparrow`.
+`npm run test:placement-editor-ui` covers package selection, movement, rotation,
+deletion and undo using real SVG hit testing.
+
 ## Current layout
 
 ```text

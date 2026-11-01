@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "Nenhum",
     "favorSharedEdges": "Favorecer bordas compartilhadas",
+    "allowCutoutNesting": "Aninhar em recortes internos",
+    "cutoutNestingUnavailable": "Esta versão precisa de um mecanismo de aninhamento atualizado para posicionar peças em recortes internos.",
+    "allowCutoutNestingHelp": "Experimental: prepara em segundo plano o posicionamento em recortes, em um único nível. Ao iniciar, usa apenas resultados prontos. As peças internas são movidas, giradas e excluídas junto com a peça externa.",
     "favorSharedEdgesHelp": "Tenta aumentar as bordas retas compartilhadas sem usar mais material. Requer espaçamento zero entre peças. Não une as trajetórias de corte do DXF.",
     "favorSharedEdgesInactive": "Inativo enquanto o espaçamento entre peças for {{value}}. Bordas compartilhadas exigem espaçamento zero.",
     "setSpacingToZero": "Definir espaçamento como 0",

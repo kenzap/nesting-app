@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "Tidak ada",
     "favorSharedEdges": "Utamakan sisi bersama",
+    "allowCutoutNesting": "Tempatkan komponen di dalam lubang",
+    "cutoutNestingUnavailable": "Versi ini memerlukan mesin penempatan yang diperbarui untuk menempatkan komponen di dalam lubang.",
+    "allowCutoutNestingHelp": "Eksperimental: menyiapkan penempatan satu tingkat di dalam lubang di latar belakang. Saat dimulai, hanya hasil yang siap yang digunakan. Komponen di dalam dipindahkan, diputar, dan dihapus bersama komponen luarnya.",
     "favorSharedEdgesHelp": "Mencoba menambah panjang sisi lurus bersama tanpa menggunakan lebih banyak bahan. Memerlukan jarak antarbagian nol. Tidak menggabungkan jalur potong DXF.",
     "favorSharedEdgesInactive": "Tidak aktif selama jarak antarkomponen adalah {{value}}. Sisi bersama memerlukan jarak nol.",
     "setSpacingToZero": "Setel jarak ke 0",

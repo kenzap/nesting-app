@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const window = { NestDxfGeometry: {} };
+const window = { NestDxfGeometry: {}, addEventListener() {} };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../renderer/services/dxf-export-metadata-service.js'), 'utf8'), { window });
 const { recoverStraightContour, sharedStraightSegments } = window.NestDxfExportMetadataService;
 const exact = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 40 }, { x: 0, y: 40 }];
@@ -55,7 +55,7 @@ window.NestHelpers = {
   clonePlain: clean, effectiveFileQty: () => 2,
   partLabelFromName: () => 'part', buildJobName: () => 'source-contour',
 };
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../renderer/services/dxf-service.js'), 'utf8'), { window });
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../renderer/services/dxf-service.js'), 'utf8'), { window, clearTimeout, setTimeout });
 const service = window.NestDxfService.createDxfService({ state,
   getCurrentNestingSettings: () => ({ multiSketchDetection: true, sketchContourMethod: 'auto', engravingLayer: '2' }),
 });

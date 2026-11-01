@@ -12,6 +12,7 @@
     "debug:dxf-contour": "node scripts/debug-dxf-contour.js",
     "test:dxf-grouping": "node scripts/test-dxf-grouping.js",
     "test:placement-editor": "node scripts/test-placement-editor.js",
+    "test:cutout-nesting": "node scripts/test-cutout-nesting.js",
     "test:placement-editor-ui": "electron scripts/test-placement-editor-ui.js",
     "test:dxf-open-polylines": "node scripts/test-dxf-open-polylines.js",
     "test:nesting-previews": "node scripts/test-sparrow-previews.js",

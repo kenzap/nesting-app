@@ -240,6 +240,14 @@
       <div class="settings-section">
         <div class="settings-section-title" data-i18n="settings.algorithm">Algorithm</div>
         <div class="setting-row">
+          <label for="allowCutoutNesting" data-i18n="settings.allowCutoutNesting" data-i18n-title="settings.allowCutoutNestingHelp">Nest inside cutouts</label>
+          <label class="toggle">
+            <input id="allowCutoutNesting" type="checkbox" data-setting-key="allowCutoutNesting" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-hint" id="cutoutUnavailableHint" data-i18n="settings.cutoutNestingUnavailable" hidden>This build needs an updated nesting engine to nest inside cutouts.</div>
+        <div class="setting-row">
           <label for="favorSharedEdges" data-i18n="settings.favorSharedEdges" data-i18n-title="settings.favorSharedEdgesHelp" title="Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.">Favor shared edges</label>
           <label class="toggle">
             <input id="favorSharedEdges" type="checkbox" data-setting-key="favorSharedEdges" />
@@ -1121,6 +1129,7 @@
 <script src="views/settings-modal.js"></script>
 <script src="views/onboarding-stage.js"></script>
 <script src="views/onboarding-modal.js"></script>
+<script src="../shared/cutout-packages.js"></script>
 <script src="services/dxf-service.js"></script>
 <script src="services/dxf-layer-service.js"></script>
 <script src="services/dxf-export-metadata-service.js"></script>

@@ -545,6 +545,7 @@ function terminateAllSparrowRuns(options = {}) {
 }
 
 function registerSparrowIpc() {
+  require('./cutouts').registerCutoutIpc(ipcMain, resolveNativeExecutable, app);
   ipcMain.handle('load-placement-editor', async (_event, runId) => {
     try {
       const run = sparrowRuns.get(runId);
@@ -583,6 +584,7 @@ function registerSparrowIpc() {
         packaged: app.isPackaged,
         baseDir,
         sparrowPath,
+        supportsCutouts: await require('./cutouts').supportsCutouts(sparrowPath),
         exists: {
           sparrow: fs.existsSync(sparrowPath),
         },

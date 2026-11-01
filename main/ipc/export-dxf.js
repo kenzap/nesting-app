@@ -4,6 +4,7 @@ const fs = require('fs');
 const { normalizeSettings } = require('../../shared/settings');
 const { withSecurityScopedAccess } = require('../utils/security-scoped-bookmarks');
 const { removeSharedEdges: removeDuplicateSharedEdges } = require('../utils/dxf-shared-edges');
+const { expandPlacements } = require('../../shared/cutout-packages');
 const {
   layoutEngravingLabel,
   DEFAULT_LAYOUT: ENGRAVING_LAYOUT_DEFAULTS,
@@ -40,6 +41,7 @@ function registerExportDxfIpc() {
           const inputData = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
           Object.assign(exportSettings, normalizeSettings(inputData.settings || {}));
           (inputData.items || []).forEach(item => { globalItemsById[item.id] = item; });
+          exportItems = { ...(inputData.cutout_exports || {}), ...exportItems };
         } catch (e) {
           // Fall through — will export what it can.
         }
@@ -487,10 +489,9 @@ function registerExportDxfIpc() {
         addLayer('0', '#CCCCCC');
 
         sheetStrips.forEach(strip => {
-          strip.placedItems.forEach(placement => {
-            const exportItem = exportItems?.[placement.item_id];
+          expandPlacements(strip.placedItems, globalItemsById, exportItems).forEach(({ item }) => {
+            const exportItem = item.export;
             (exportItem?.layers || []).forEach(layer => addLayer(layer.name, layer.color));
-            const item = { ...globalItemsById[placement.item_id], export: exportItem };
             const engravingLayer = getEngravingLayer(item);
             if (engravingLayer) addLayer(engravingLayer.name, engravingLayer.color);
           });
@@ -1410,12 +1411,8 @@ function registerExportDxfIpc() {
             }
           : null;
 
-        placedItems.forEach((placement, owner) => {
-          const exportItem = exportItems?.[placement.item_id] || null;
-          const item = {
-            ...globalItemsById[placement.item_id],
-            export: exportItem,
-          };
+        expandPlacements(placedItems, globalItemsById, exportItems).forEach(({ placement, item }, owner) => {
+          const exportItem = item.export;
           if (!item?.shape?.data) return;
           const rotation = Number(placement.transformation?.rotation) || 0;
           const rawTx = Number(placement.transformation?.translation?.[0]) || 0;

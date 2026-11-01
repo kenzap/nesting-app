@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "Yok",
     "favorSharedEdges": "Ortak kenarları tercih et",
+    "allowCutoutNesting": "İç boşluklara yerleştir",
+    "cutoutNestingUnavailable": "İç boşluklara yerleştirme için bu sürümdeki yerleştirme motorunun güncellenmesi gerekiyor.",
+    "allowCutoutNestingHelp": "Deneysel: iç boşluklara tek seviyeli yerleşimleri arka planda hazırlar. Başlatırken yalnızca hazır sonuçlar kullanılır. İçteki parçalar dıştaki parçayla birlikte taşınır, döndürülür ve silinir.",
     "favorSharedEdgesHelp": "Daha fazla malzeme kullanmadan ortak düz kenarları artırmayı dener. Parçalar arası mesafe sıfır olmalıdır. DXF kesim yollarını birleştirmez.",
     "favorSharedEdgesInactive": "Parça aralığı {{value}} iken etkin değildir. Ortak kenarlar için aralık sıfır olmalıdır.",
     "setSpacingToZero": "Aralığı 0 yap",

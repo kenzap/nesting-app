@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   parseDXF:       (filePath, bookmark = null) => ipcRenderer.invoke('parse-dxf', { filePath, bookmark }),
   savePlacementJSON: (payload) => ipcRenderer.invoke('save-placement-json', payload),
+  prepareCutout: (request) => ipcRenderer.invoke('prepare-cutout', request),
+  cancelCutoutPreparation: () => ipcRenderer.send('cancel-cutout-preparation'),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   appMenuAction: (action) => ipcRenderer.invoke('app-menu-action', action),
   setLayoutResetAvailable: (available) => ipcRenderer.send('layout-reset-availability', !!available),

@@ -3,6 +3,8 @@
 (function definePlacementEditor(root) {
   const Flatten = typeof module !== 'undefined' && module.exports
     ? require('@flatten-js/core') : (root.Flatten || root['@flatten-js/core']);
+  const cutouts = typeof module !== 'undefined' && module.exports
+    ? require('./cutout-packages') : root.NestCutoutPackages;
   const EPS = 1e-6;
   const CORNER_ANGLE_TOLERANCE = 0.01;
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -83,7 +85,10 @@
       if (![frame.width, frame.height, frame.margin, spacing].every(Number.isFinite)
           || frame.margin < 0 || spacing < 0 || frame.width <= frame.margin * 2 || frame.height <= frame.margin * 2
           || !Number.isFinite(Number(placements[index]?.transformation?.rotation))) return 'geometry';
-      const points = transform(outline(items[placements[index].item_id]), placements[index]);
+      const item = items[placements[index].item_id];
+      if (item.export?.cutout_children?.length && !cutouts.allows(item.allowed_orientations,
+        Number(placements[index].transformation.rotation))) return 'geometry';
+      const points = transform(outline(item), placements[index]);
       if (points.some(([x, y]) => x < -EPS || y < -EPS
           || x > frame.width - 2 * frame.margin + EPS || y > frame.height - 2 * frame.margin + EPS)) return 'bounds';
       const moved = polygon(points);
@@ -257,7 +262,9 @@
   }
 
   function stats(placements, items, frame) {
+    const hasPackages = Object.values(items).some(item => item.export?.cutout_children?.length);
     const area = placements.reduce((sum, placement) => {
+      if (hasPackages) return sum + cutouts.materialArea(items[placement.item_id]);
       const pts = outline(items[placement.item_id]);
       return sum + Math.abs(pts.reduce((a, p, i) => {
         const q = pts[(i + 1) % pts.length];
@@ -265,7 +272,8 @@
       }, 0)) / 2;
     }, 0);
     const usableArea = (frame.width - 2 * frame.margin) * (frame.height - 2 * frame.margin);
-    return { item_count: placements.length, density: usableArea > 0 ? area / usableArea : 0 };
+    const itemCount = hasPackages ? placements.reduce((sum, p) => sum + cutouts.count(items[p.item_id].export), 0) : placements.length;
+    return { item_count: itemCount, density: usableArea > 0 ? area / usableArea : 0 };
   }
 
   const api = { readPlacements, editsFor, applyEdits, transform, outline, rotationCenter, rotateEdit, validateMove, validateEdits,

@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "Aucun",
     "favorSharedEdges": "Favoriser les bords communs",
+    "allowCutoutNesting": "Imbriquer dans les découpes intérieures",
+    "cutoutNestingUnavailable": "Cette version nécessite un moteur d’imbrication mis à jour pour placer des pièces dans les découpes intérieures.",
+    "allowCutoutNestingHelp": "Expérimental : prépare en arrière-plan les placements dans les découpes, sur un seul niveau. Seuls les résultats prêts sont utilisés au lancement. Les pièces intérieures sont déplacées, pivotées et supprimées avec la pièce extérieure.",
     "favorSharedEdgesHelp": "Cherche à augmenter les bords droits communs sans utiliser plus de matière. Nécessite un espacement nul entre les pièces. Ne fusionne pas les trajectoires de découpe DXF.",
     "favorSharedEdgesInactive": "Inactif tant que l’espacement entre les pièces est de {{value}}. Les bords communs nécessitent un espacement nul.",
     "setSpacingToZero": "Définir l’espacement à 0",

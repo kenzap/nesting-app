@@ -67,6 +67,7 @@
       });
 
       dom.dropZone.style.display = 'flex';
+      window.dispatchEvent(new CustomEvent('nest-cutout-input-changed'));
     }
 
     function setFitWarnings(warnings = []) {

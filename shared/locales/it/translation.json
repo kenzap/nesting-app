@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "Nessuno",
     "favorSharedEdges": "Favorisci i bordi condivisi",
+    "allowCutoutNesting": "Annida nei ritagli interni",
+    "cutoutNestingUnavailable": "Questa versione richiede un motore di nesting aggiornato per posizionare pezzi nei ritagli interni.",
+    "allowCutoutNestingHelp": "Sperimentale: prepara in background i posizionamenti nei ritagli, su un solo livello. All'avvio vengono usati solo i risultati pronti. I pezzi interni vengono spostati, ruotati ed eliminati insieme al pezzo esterno.",
     "favorSharedEdgesHelp": "Cerca di aumentare i bordi rettilinei condivisi senza usare più materiale. Richiede una distanza tra i pezzi pari a zero. Non unisce i percorsi di taglio DXF.",
     "favorSharedEdgesInactive": "Non attivo finché la spaziatura tra le parti è {{value}}. I bordi condivisi richiedono una spaziatura pari a zero.",
     "setSpacingToZero": "Imposta spaziatura a 0",

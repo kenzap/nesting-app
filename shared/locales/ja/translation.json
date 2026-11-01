@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "なし",
     "favorSharedEdges": "共通エッジを優先",
+    "allowCutoutNesting": "切り抜き内に配置",
+    "cutoutNestingUnavailable": "このビルドで切り抜き内に配置するには、ネスティングエンジンの更新が必要です。",
+    "allowCutoutNestingHelp": "試験的機能：切り抜き内への1階層の配置をバックグラウンドで準備します。実行時には準備済みの結果のみを使用します。内側のパーツは外側のパーツと一緒に移動、回転、削除されます。",
     "favorSharedEdgesHelp": "材料使用量を増やさずに共有する直線エッジを増やします。パーツ間隔をゼロにする必要があります。DXF の切断パスは結合しません。",
     "favorSharedEdgesInactive": "パーツ間隔が {{value}} の間は無効です。共通エッジにはパーツ間隔ゼロが必要です。",
     "setSpacingToZero": "間隔を 0 に設定",

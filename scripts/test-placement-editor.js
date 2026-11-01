@@ -181,7 +181,7 @@ console.log('Placement editing: copy identity, deletion, reset, rotation, concav
   vm.runInNewContext(fs.readFileSync(sourcePath, 'utf8') + '\nmodule.exports.testRuns = sparrowRuns;', {
     module: mod, process, console, __dirname: path.dirname(sourcePath),
     require(name) {
-      if (name === 'electron') return { app: { on() {} }, ipcMain: { handle(key, fn) { handlers[key] = fn; } } };
+      if (name === 'electron') return { app: { on() {} }, ipcMain: { on() {}, handle(key, fn) { handlers[key] = fn; } } };
       return createRequire(sourcePath)(name);
     },
   });

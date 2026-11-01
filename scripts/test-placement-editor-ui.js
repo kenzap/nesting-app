@@ -18,7 +18,7 @@ app.whenReady().then(async () => {
     <span id="layoutEdit-angleLabel"></span><input id="layoutEdit-angle" type="number" step="any">
     ${['rotateLeft', 'rotateRight', 'delete', 'undo', 'redo'].map(a => `<button id="layoutEdit-${a}"></button>`).join('')}</div>
     <div id="viewport"><button id="layoutEdit-rotationHandle" hidden>R</button><div id="svgContainer"></div></div><div id="nestStats"></div>`));
-  for (const file of ['node_modules/@flatten-js/core/dist/main.umd.js', 'shared/units.js', 'shared/placement-editor.js', 'renderer/views/placement-editor.js']) {
+  for (const file of ['node_modules/@flatten-js/core/dist/main.umd.js', 'shared/units.js', 'shared/cutout-packages.js', 'shared/placement-editor.js', 'renderer/views/placement-editor.js']) {
     await evaluate(fs.readFileSync(path.join(root, file), 'utf8'));
   }
   if (process.env.TEST_EDITOR_PLATFORM) {
@@ -406,6 +406,33 @@ app.whenReady().then(async () => {
   await evaluate('document.getElementById("layoutEdit-undo").click()');
   assert.equal(await evaluate('state.nestResult.strips[0].item_count'), 3, 'one undo restores the deleted group');
   await resetLayout();
+
+  // A cutout package remains one editable copy, with all child contours visible.
+  await evaluate(`
+    layoutEditorApi.toggle();
+    state.nestResult = structuredClone(state.nestResult);
+    state.nestResult.strips.forEach(s => {s.item_count=4;delete s.manual_edits;});
+    fixture.items[0].allowed_orientations = [0,90,180,270];
+    fixture.strips[0].placements = fixture.strips[0].placements.slice(0,2);
+    state.lastPlacementExportItems = {0:{polygon:fixture.items[0].shape.data,holes:[[[4,4],[36,4],[36,16],[4,16]]],
+      cutout_children:[{item:{shape:{data:[[0,0],[8,0],[8,5],[0,5]]}},
+        export:{polygon:[[0,0],[8,0],[8,5],[0,5]],holes:[]},transformation:{rotation:0,translation:[16,6]}}]}};
+    layoutEditorApi.toggle();
+  `);
+  await settle();
+  assert.equal(await evaluate('document.querySelector("#item_0 path").getAttribute("d").match(/M/g).length'),3,
+    'editor draws outer boundary, hole and child');
+  await clickPart(0);
+  assert.equal(await selectedCount(),1,'clicking a contained part selects its package');
+  await key('ArrowRight');
+  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits[0].translation[0]'),21,'package movement is committed');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4, 'package nudge counts real parts');
+  await evaluate('document.getElementById("layoutEdit-rotateRight").click()');
+  assert.equal(Math.abs(await evaluate('state.nestResult.strips[0].manual_edits[0].rotation'))%180,90,'package rotates with its child');
+  await evaluate('document.getElementById("layoutEdit-delete").click()');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),2, 'deleting a package deletes its child too');
+  await evaluate('document.getElementById("layoutEdit-undo").click()');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4, 'undo restores the whole package');
 
   await evaluate('state.status="running";window.dispatchEvent(new CustomEvent("nest-status-changed"))');
   assert.equal(await evaluate('layoutEditorApi.isActive()'), false);

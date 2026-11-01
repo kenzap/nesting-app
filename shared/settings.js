@@ -78,6 +78,7 @@
     earlyStopping: false,
     preferredAlignment: 'bottom-left',
     favorSharedEdges: false,
+    allowCutoutNesting: false,
     timeLimit: 60,
     rngSeed: 42,
     workers: 3,

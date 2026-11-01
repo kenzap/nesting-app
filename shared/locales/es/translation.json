@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "Ninguna",
     "favorSharedEdges": "Favorecer bordes compartidos",
+    "allowCutoutNesting": "Anidar dentro de huecos",
+    "cutoutNestingUnavailable": "Esta versión necesita un motor de anidado actualizado para colocar piezas dentro de huecos.",
+    "allowCutoutNestingHelp": "Experimental: prepara en segundo plano la colocación dentro de huecos, con un solo nivel. Al iniciar se usan solo los resultados listos. Las piezas interiores se mueven, giran y eliminan junto con la pieza exterior.",
     "favorSharedEdgesHelp": "Intenta aumentar los bordes rectos compartidos sin usar más material. Requiere separación cero entre piezas. No fusiona las trayectorias de corte del DXF.",
     "favorSharedEdgesInactive": "Inactivo mientras la separación entre piezas sea {{value}}. Los bordes compartidos requieren separación cero.",
     "setSpacingToZero": "Establecer separación en 0",

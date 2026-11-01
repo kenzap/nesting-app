@@ -325,7 +325,8 @@
       if (result.summary?.strips?.length && !isFinalizationLimbo) {
         const previousCount = state.nestResult?.strips?.length || 0;
         const previousIndex = state.activeStripIndex || 0;
-        state.nestResult = result.summary;
+        state.nestResult = globalScope.NestCutoutPackages?.decorateSummary(result.summary, state.lastPlacementExportItems)
+          || result.summary;
         if (result.inputPath) state.nestInputPath = result.inputPath;
 
         if (previousCount === 0) {

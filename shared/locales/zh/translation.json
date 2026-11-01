@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "无",
     "favorSharedEdges": "优先共边",
+    "allowCutoutNesting": "在内孔中排样",
+    "cutoutNestingUnavailable": "此版本需要更新排样引擎才能在内孔中排样。",
+    "allowCutoutNestingHelp": "实验性功能：在后台准备内孔排样，仅支持一层嵌套。开始时只使用已准备好的结果。内部零件与外部零件一起移动、旋转和删除。",
     "favorSharedEdgesHelp": "尝试增加共用直边的长度，而不增加材料用量。要求零件间距为零。不会合并 DXF 切割路径。",
     "favorSharedEdgesInactive": "零件间距为 {{value}} 时不生效。共边要求零件间距为零。",
     "setSpacingToZero": "将间距设为 0",

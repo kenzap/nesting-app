@@ -111,7 +111,7 @@ const context = vm.createContext({
   matchMedia: () => ({ matches: true }),
   requestAnimationFrame: fn => { frames.set(++frameId, fn); return frameId; },
   cancelAnimationFrame: id => frames.delete(id),
-  CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+  CustomEvent: class { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } },
   addEventListener: (type, fn) => {
     if (!events.has(type)) events.set(type, []);
     events.get(type).push(fn);

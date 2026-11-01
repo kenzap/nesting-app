@@ -112,6 +112,9 @@
   "settings": {
     "alignmentNone": "None",
     "favorSharedEdges": "Favor shared edges",
+    "allowCutoutNesting": "Nest inside cutouts",
+    "cutoutNestingUnavailable": "This build needs an updated nesting engine to nest inside cutouts.",
+    "allowCutoutNestingHelp": "Experimental: prepare one-level placements inside cutouts in the background. Run uses only ready results. Contained parts move, rotate and delete with their parent.",
     "favorSharedEdgesHelp": "Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.",
     "favorSharedEdgesInactive": "Inactive while part spacing is {{value}}. Shared edges need zero spacing.",
     "setSpacingToZero": "Set spacing to 0",
