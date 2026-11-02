@@ -295,6 +295,8 @@
     "exporting": "Exportando…",
     "exported": "Exportado",
     "exportFailed": "No se pudo exportar",
+    "writeBlocked": "No se puede guardar la exportación. Cierra el archivo de destino en otras aplicaciones o elige una carpeta con permiso de escritura.",
+    "diskFull": "No hay suficiente espacio en disco para guardar la exportación. Libera espacio o elige otra unidad.",
     "finalizing": "Finalizando hojas…",
     "filesSaved_one": "{{count}} archivo guardado en {{folder}}",
     "filesSaved_other": "{{count}} archivos guardados en {{folder}}",

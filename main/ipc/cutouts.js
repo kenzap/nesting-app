@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
+const { removeTempPath } = require('../utils/safe-file-operations');
 let capability = null;
 
 async function supportsCutouts(executable) {
@@ -17,7 +18,7 @@ async function supportsCutouts(executable) {
         return await new Promise(resolve => execFile(executable, ['--help'], {
           cwd: directory, timeout: 3000, windowsHide: true, maxBuffer: 128 * 1024,
         }, (error, stdout) => resolve(!error && /--cutout\b/.test(stdout))));
-      } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+      } finally { await removeTempPath(directory); }
     })();
     capability = { key, promise };
     return promise;
@@ -57,7 +58,7 @@ function registerCutoutIpc(ipcMain, resolveExecutable, app) {
       worker.once('exit', () => {
         finish({ success: false, error: 'Cutout preparation stopped' });
         // Also clean up if the watchdog had to terminate geometry validation.
-        fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+        void removeTempPath(directory);
       });
       timer = setTimeout(() => {
         finish({ success: false, error: 'Cutout preparation timed out' });

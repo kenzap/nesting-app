@@ -28,6 +28,12 @@
       button.innerHTML = `${iconMarkup}<span>${label}</span>`;
     }
 
+    function exportErrorMessage(error) {
+      if (['EBUSY', 'EPERM', 'EACCES', 'EROFS'].includes(error.code)) return t('export.writeBlocked');
+      if (['ENOSPC', 'EDQUOT'].includes(error.code)) return t('export.diskFull');
+      return error.message || t('export.exportFailed');
+    }
+
     // Returns true only when there's a completed (non-preview) solver result.
     // Used to gate the Print and Export actions so partial/preview runs can't be used.
     function canExportFinalSheets() {
@@ -357,7 +363,11 @@
             joinConnectedLinework: !!getCurrentNestingSettings()?.joinConnectedLinework,
             removeSharedEdges: !!getCurrentNestingSettings()?.removeSharedEdges,
           });
-          if (!result?.success) throw new Error(result?.error || t('export.exportFailed'));
+          if (!result?.success) {
+            const error = new Error(result?.error || t('export.exportFailed'));
+            error.code = result?.errorCode;
+            throw error;
+          }
 
           dom.exportSheetsBtn.classList.add('btn-success');
           setActionButtonLabel(dom.exportSheetsBtn, t('export.exported'), DOWNLOAD_ICON);
@@ -376,7 +386,7 @@
         } catch (err) {
           console.error('[Export DXF]', err);
           refreshActionButtons();
-          dom.exportFolderLabel.textContent = t('export.error', { message: err.message });
+          dom.exportFolderLabel.textContent = t('export.error', { message: exportErrorMessage(err) });
           dom.exportFolderLabel.classList.add('export-folder-error');
         }
       });

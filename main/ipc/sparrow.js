@@ -614,7 +614,7 @@ function registerSparrowIpc() {
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'nesting-job';
       const runsRootDir = path.join(app.getPath('temp'), 'nestkit-runs');
-      cleanupTempArtifacts(runsRootDir);
+      await cleanupTempArtifacts(runsRootDir);
       const runDir = path.join(runsRootDir, `${safeName}-${Date.now()}`);
       fs.mkdirSync(runDir, { recursive: true });
       const stopFilePath = path.join(runDir, '.stop-requested');

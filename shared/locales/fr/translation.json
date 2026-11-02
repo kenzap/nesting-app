@@ -295,6 +295,8 @@
     "exporting": "Exportation…",
     "exported": "Exporté",
     "exportFailed": "Échec de l'exportation",
+    "writeBlocked": "Impossible d'enregistrer l'exportation. Fermez le fichier de destination dans les autres applications ou choisissez un dossier accessible en écriture.",
+    "diskFull": "Espace disque insuffisant pour enregistrer l'exportation. Libérez de l'espace ou choisissez un autre disque.",
     "finalizing": "Finalisation des tôles…",
     "filesSaved_one": "{{count}} fichier enregistré dans {{folder}}",
     "filesSaved_other": "{{count}} fichiers enregistrés dans {{folder}}",

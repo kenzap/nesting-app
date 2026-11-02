@@ -288,6 +288,8 @@
     "exporting": "Exporting…",
     "exported": "Exported",
     "exportFailed": "Export failed",
+    "writeBlocked": "Cannot save the export. Close the destination file in other apps or choose a writable folder.",
+    "diskFull": "Not enough disk space to save the export. Free up space or choose another drive.",
     "finalizing": "Finalizing sheets…",
     "filesSaved_one": "{{count}} file saved to {{folder}}",
     "filesSaved_other": "{{count}} files saved to {{folder}}",

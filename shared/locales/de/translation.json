@@ -288,6 +288,8 @@
     "exporting": "Exportieren…",
     "exported": "Exportiert",
     "exportFailed": "Der Export ist fehlgeschlagen",
+    "writeBlocked": "Der Export kann nicht gespeichert werden. Schließen Sie die Zieldatei in anderen Anwendungen oder wählen Sie einen Ordner mit Schreibzugriff.",
+    "diskFull": "Nicht genügend Speicherplatz für den Export. Geben Sie Speicherplatz frei oder wählen Sie ein anderes Laufwerk.",
     "finalizing": "Tafeln werden finalisiert…",
     "filesSaved_one": "{{count}} Datei unter {{folder}} gespeichert",
     "filesSaved_other": "{{count}} Dateien unter {{folder}} gespeichert",

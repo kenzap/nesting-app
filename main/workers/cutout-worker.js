@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const Flatten = require('@flatten-js/core');
 const packages = require('../../shared/cutout-packages');
+const { removeTempPath } = require('../utils/safe-file-operations');
 
 function polygon(points) {
   const ring = points.map(([x, y]) => new Flatten.Point(x, y));
@@ -72,8 +73,8 @@ async function run() {
   } catch (error) {
     parentPort.postMessage({ success: false, error: String(error.message).slice(0, 500) });
   } finally {
-    if (directory) fs.rmSync(directory, { recursive: true, force: true });
     parentPort.off('message', cancel);
+    if (directory) await removeTempPath(directory);
   }
 }
 run();

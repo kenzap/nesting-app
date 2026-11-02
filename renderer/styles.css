@@ -3260,6 +3260,9 @@ body.platform-linux .linux-menubar {
 }
 .export-folder-error {
   color: var(--danger) !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

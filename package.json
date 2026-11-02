@@ -27,6 +27,7 @@
     "test:shared-edges": "node scripts/test-shared-edges.js",
     "test:dxf-shared-edges": "node scripts/test-dxf-shared-edge-export.js",
     "test:dxf-export-structure": "node scripts/test-dxf-export-structure.js",
+    "test:file-operations": "node scripts/test-file-operations.js",
     "test:shared-edges:native": "node scripts/test-shared-edges-native.js",
     "verify:i18n": "node scripts/verify-locales.js",
     "test:onboarding-localization": "node scripts/test-onboarding-localization.js",

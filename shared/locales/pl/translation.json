@@ -302,6 +302,8 @@
     "exporting": "Eksportowanie…",
     "exported": "Wyeksportowano",
     "exportFailed": "Eksport nie powiódł się",
+    "writeBlocked": "Nie można zapisać eksportu. Zamknij plik docelowy w innych aplikacjach lub wybierz folder z uprawnieniami do zapisu.",
+    "diskFull": "Za mało miejsca na dysku, aby zapisać eksport. Zwolnij miejsce lub wybierz inny dysk.",
     "finalizing": "Finalizowanie arkuszy…",
     "filesSaved_one": "Zapisano {{count}} plik w folderze {{folder}}",
     "filesSaved_few": "Zapisano {{count}} pliki w folderze {{folder}}",

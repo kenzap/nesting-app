@@ -288,6 +288,8 @@
     "exporting": "Mengekspor…",
     "exported": "Sudah diekspor",
     "exportFailed": "Ekspor gagal",
+    "writeBlocked": "Hasil ekspor tidak dapat disimpan. Tutup file tujuan di aplikasi lain atau pilih folder yang memiliki izin tulis.",
+    "diskFull": "Ruang disk tidak cukup untuk menyimpan hasil ekspor. Kosongkan ruang atau pilih drive lain.",
     "finalizing": "Menyelesaikan lembar…",
     "filesSaved_one": "{{count}} file disimpan ke {{folder}}",
     "filesSaved_other": "{{count}} file disimpan ke {{folder}}",

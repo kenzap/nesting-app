@@ -113,7 +113,7 @@ function registerFileIpc({ getMainWindow }) {
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'nesting-job';
       const tempDir = path.join(app.getPath('temp'), 'nestkit-debug');
-      cleanupTempArtifacts(tempDir);
+      await cleanupTempArtifacts(tempDir);
       fs.mkdirSync(tempDir, { recursive: true });
 
       const fileName = `${safeName}-placement.json`;

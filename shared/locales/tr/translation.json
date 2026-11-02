@@ -288,6 +288,8 @@
     "exporting": "Dışa aktarılıyor…",
     "exported": "Dışa aktarıldı",
     "exportFailed": "Dışa aktarma başarısız",
+    "writeBlocked": "Dışa aktarılan dosya kaydedilemiyor. Hedef dosyayı diğer uygulamalarda kapatın veya yazma izni olan bir klasör seçin.",
+    "diskFull": "Dışa aktarılan dosyayı kaydetmek için yeterli disk alanı yok. Yer açın veya başka bir sürücü seçin.",
     "finalizing": "Levhalar tamamlanıyor…",
     "filesSaved_one": "{{count}} dosya {{folder}} klasörüne kaydedildi",
     "filesSaved_other": "{{count}} dosya {{folder}} klasörüne kaydedildi",
