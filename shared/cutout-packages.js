@@ -35,9 +35,10 @@
       candidatesById.set(item.id, { item, area: area(ring), boxes: null });
     }
     const descriptors = [...candidatesById.values()].sort((a, b) => b.area - a.area);
-    const hosts = descriptors.filter(d => exports[d.item.id]?.holes?.length).slice(0, 32).map(d => d.item);
+    // Missing eligibility metadata is not permission to use a legacy hole.
+    const hosts = descriptors.filter(d => exports[d.item.id]?.cutout_holes?.length).slice(0, 32).map(d => d.item);
     for (const host of hosts) {
-      for (const hole of exports[host.id].holes) {
+      for (const hole of exports[host.id].cutout_holes) {
         if (++holesChecked > 64) return jobs;
         if (!usable(hole)) continue;
         const hb = box(hole), ha = area(hole);
@@ -50,7 +51,10 @@
           if (candidates.length >= 32) break;
         }
         if (!candidates.length) continue;
-        const otherHoles = exports[host.id].holes.filter(other => other !== hole);
+        const holeKey = JSON.stringify(hole);
+        // Raw contour faces can include bend frames enclosing a real opening.
+        // Only approved regions are holes for native cutout validation.
+        const otherHoles = exports[host.id].cutout_holes.filter(other => JSON.stringify(other) !== holeKey);
         if (otherHoles.reduce((sum, h) => sum + h.length, 0) > 4096) continue;
         const request = { hole, parent: host.shape.data, other_holes: otherHoles, items: candidates.map(item => ({
           id: item.id, demand: Math.min(item.demand, 64), shape: item.shape,
@@ -67,6 +71,7 @@
   function packageItems(items, exports, jobs, ready) {
     if (items.some(item => !Number.isSafeInteger(item.demand) || item.demand <= 0)) return { items, exports };
     const remaining = new Map(items.map(item => [item.id, item.demand]));
+    const packagedHosts = new Map();
     const byId = new Map(items.map(item => [item.id, item]));
     const output = [], outputExports = {};
     const add = (item, metadata, demand) => {
@@ -95,11 +100,29 @@
         // Reuse a pattern for as many copies as inventory allows, without a per-copy loop.
         const copies = Math.min(...[...counts].map(([id, count]) => Math.floor(remaining.get(id) / count)));
         counts.forEach((count, id) => remaining.set(id, remaining.get(id) - count * copies));
+        packagedHosts.set(host.id, (packagedHosts.get(host.id) || 0) + copies);
         add({ ...host, allowed_orientations: rotations }, { ...exports[host.id], cutout_children: children }, copies);
       }
     }
     items.forEach(item => add(item, exports[item.id], remaining.get(item.id)));
-    return { items: output, exports: outputExports };
+    return { items: output, exports: outputExports, remaining, packagedHosts };
+  }
+
+  // Resolve each request after earlier openings have reserved their actual
+  // copies. Run uses this same sequence, so cache keys include remaining demand.
+  function* preparationJobs(items, exports, spacing, ready) {
+    const previous = [];
+    for (const job of candidateJobs(items, exports, spacing)) {
+      const packed = packageItems(items, exports, previous, ready);
+      if (!packed.remaining || !(packed.remaining.get(job.hostId) || packed.packagedHosts.get(job.hostId))) continue;
+      const request = { ...job.request, items: job.request.items.map(item => ({
+        ...item, demand: Math.min(item.demand, packed.remaining.get(item.id) || 0),
+      })).filter(item => item.demand > 0) };
+      if (!request.items.length) continue;
+      const resolved = { ...job, request, key: JSON.stringify(request) };
+      previous.push(resolved);
+      yield resolved;
+    }
   }
 
   function components(item, metadata = item?.export) {
@@ -115,13 +138,14 @@
   }
   function rings(item, metadata = item?.export) {
     return components(item, metadata).flatMap(component => [component.export?.polygon || component.item.shape.data,
-      ...(component.export?.holes || [])].map(ring => transform(ring, component.transformation)));
+      ...materialHoles(component.export)].map(ring => transform(ring, component.transformation)));
   }
+  const materialHoles = metadata => metadata?.material_holes || metadata?.holes || [];
   const path = rings => rings.map(ring => `M${ring.map(p => p.join(',')).join(' L')} Z`).join(' ');
   const count = metadata => 1 + (metadata?.cutout_children?.length || 0);
   function materialArea(item, metadata = item?.export) {
     return components(item, metadata).reduce((sum, c) => sum + area(c.export?.polygon || c.item.shape.data)
-      - (c.export?.holes || []).reduce((s, h) => s + area(h), 0), 0);
+      - materialHoles(c.export).reduce((s, h) => s + area(h), 0), 0);
   }
   function decorateSummary(summary, exports) {
     if (!summary || !Object.values(exports || {}).some(item => item.cutout_children?.length)) return summary;
@@ -145,7 +169,7 @@
         shared_edge_length_mm: null };
     }) };
   }
-  const api = { candidateJobs, packageItems, compose, transform, components, expandPlacements, rings, path, count, materialArea, area, allows, decorateSummary };
+  const api = { candidateJobs, preparationJobs, packageItems, compose, transform, components, expandPlacements, rings, path, count, materialHoles, materialArea, area, allows, decorateSummary };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NestCutoutPackages = api;
 })(typeof window !== 'undefined' ? window : globalThis);

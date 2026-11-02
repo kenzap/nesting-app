@@ -94,18 +94,28 @@ sheets, and early stopping.
 ## Experimental Cutout Nesting
 
 Settings > Algorithm > **Nest inside cutouts** is off by default. It uses a
-separate `packing --cutout -i request.json` constructor, not the strip optimizer.
+separate `packing --cutout -i request.json` subset optimizer, not the strip's
+all-parts-must-fit workflow.
 The native source is `src/optimizer/cutout.rs` in the sibling `nesting` repository.
 Both repositories must be included when shipping or reviewing this feature.
 
 - The fixed irregular container reuses jagua collision detection and Sparrow's
-  placement sampling. It does not resize the hole or recursively nest children.
+  sampling, coordinate descent and guided collision repair. The polygon exterior
+  is a fixed hazard, so no artificial filler parts or rectangular approximation
+  are needed. It does not resize the hole or recursively nest children.
+- Two greedy starting layouts establish a valid fallback. Contact-position
+  sampling fills narrow gaps; add-and-rearrange attempts move the existing
+  children too. Bounded one-for-many substitutions can replace a blocking part.
+  Only feasible improvements in packed area (then count) are retained. The
+  search remains a heuristic, not a guarantee of the best possible subset.
 - Background preparation is debounced and serialized, with bounded geometry,
   candidates, copies, samples and elapsed time. Geometry validation runs in a
   worker, outside Electron's UI/main threads. Run uses only completed results;
   an early Run or a skipped/failed preparation uses ordinary nesting instead.
 - Cached patterns are keyed by exact contours, rotations, spacing and bounded
-  demand. Assembly accounts for current inventory and assigns contiguous solver
+  remaining demand. Openings are prepared in order using the quantities left
+  after earlier packages, including repeated parent copies; Run resolves the
+  same keys. Assembly accounts for current inventory and assigns contiguous solver
   IDs. Parent and children remain a rigid package through all sheet modes,
   early stopping, alignment, manual editing and export.
 - Children retain their own DXF entities and layers. Export composes the child

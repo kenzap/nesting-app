@@ -38,7 +38,8 @@ sandbox.Flatten = guardedFlatten;
   'renderer/services/dxf-shape-detection-service.js', 'renderer/utils/contour-helpers.js',
   'renderer/services/dxf-raster-envelope-service.js',
   'renderer/services/contour-detection-jsts-service.js', 'renderer/services/contour-detection-service.js',
-  'renderer/services/dxf-shape-structure-service.js', 'renderer/services/dxf-preview-service.js',
+  'renderer/services/dxf-shape-structure-service.js', 'renderer/services/dxf-cutout-eligibility-service.js',
+  'renderer/services/dxf-preview-service.js',
 ].forEach(file => vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), sandbox, { filename: file }));
 
 const geometry = sandbox.NestDxfGeometry;
@@ -93,6 +94,7 @@ for (const type of ['POLYLINE', 'LWPOLYLINE']) {
     assert.equal(result.shapes.length, 1, `${type}/${mode}: cutout stays with its parent`);
     const [shape] = result.shapes;
     assert.equal(shape.holes.length, 1, `${type}/${mode}: real cutout is retained`);
+    assert.equal(shape.holes[0].nestingEligible, true, `${type}/${mode}: curved cutout remains usable`);
     assert.equal(shape.engravingHoles.length, 1);
     assert.equal(shape.exportEntities.length, 4, 'source entities survive export metadata');
     assert.ok(shape.exportEntities.filter(e => e.type === type).every(e => !e.closed),

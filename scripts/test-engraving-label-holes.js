@@ -26,6 +26,7 @@ vm.createContext(sandbox);
   'renderer/services/dxf-shape-detection-service.js', 'renderer/utils/contour-helpers.js',
   'renderer/services/contour-detection-jsts-service.js', 'renderer/services/contour-detection-service.js',
   'renderer/services/dxf-shape-structure-service.js', 'renderer/services/dxf-engraving-preview-service.js',
+  'renderer/services/dxf-cutout-eligibility-service.js',
   'renderer/services/dxf-preview-service.js',
 ].forEach(rel => vm.runInContext(fs.readFileSync(path.join(root, rel), 'utf8'), sandbox, { filename: rel }));
 

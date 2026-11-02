@@ -19,7 +19,7 @@ const items = [outer, small].map((data, id) => ({ id, demand: id ? 9 : 2,
   allowed_orientations: orientations, shape: { type:'simple_polygon', data } }));
 const entity = (points, layer) => ({ type:'LWPOLYLINE', closed:true, layer, vertices:points.map(([x,y]) => ({x,y})) });
 const exportsById = {
-  0:{ polygon:outer, holes:[hole], source_name:'parent.dxf', layers:[{name:'Parent',color:'#FF0000'}], entities:[entity(outer,'Parent'),entity(hole,'Parent')] },
+  0:{ polygon:outer, holes:[hole], cutout_holes:[hole], source_name:'parent.dxf', layers:[{name:'Parent',color:'#FF0000'}], entities:[entity(outer,'Parent'),entity(hole,'Parent')] },
   1:{ polygon:small, holes:[], source_name:'child.dxf', layers:[{name:'Child',color:'#00FF00'}], entities:[entity(small,'Child')] },
 };
 const pattern = [ [11,11], [40,11], [11,40], [40,40] ].map(translation => ({ item_id:1, transformation:{rotation:0,translation} }));
@@ -28,6 +28,18 @@ const ready = new Map([[jobs[0].key, {placements:pattern}]]);
 const packaged = cutouts.packageItems(items, exportsById, jobs, ready);
 assert.equal(settings.SETTINGS_DEFAULTS.allowCutoutNesting, false);
 assert.equal(jobs.length, 1);
+assert.equal(cutouts.candidateJobs(items, {...exportsById, 0:{...exportsById[0],cutout_holes:[]}},1).length,0,
+  'ineligible holes remain drawing data, not nesting regions');
+assert.equal(cutouts.candidateJobs(items, {...exportsById, 0:{...exportsById[0],cutout_holes:undefined}},1).length,0,
+  'legacy metadata cannot bypass eligibility checks');
+assert.equal(jobs[0].request.other_holes.length,0,'selected hole is excluded from obstacles');
+const frameRing=rect(5,5,90,90);
+const framedExports={...exportsById,0:{...exportsById[0],holes:[hole,frameRing],material_holes:[hole],
+  entities:[...exportsById[0].entities,entity(frameRing,'BEND')]}};
+const framedJobs=cutouts.candidateJobs(items,framedExports,1);
+assert.equal(framedJobs[0].request.other_holes.length,0,'non-cut frame must not be sent as an overlapping hole');
+assert.equal(cutouts.materialArea(items[0],framedExports[0]),3600,'frame area is not subtracted from material');
+assert.equal(cutouts.rings(items[0],framedExports[0]).length,2,'frame does not cancel the opening in even-odd preview');
 assert.deepEqual(packaged.items.map(i => [i.id,i.demand]), [[0,2],[1,1]], 'contiguous IDs and residual quantities');
 assert.equal(packaged.exports[0].cutout_children.length, 4);
 assert.equal(items[0].demand, 2, 'source inventory is immutable');
@@ -55,14 +67,32 @@ const summary = cutouts.decorateSummary({total_shared_edge_length_mm:100,strips:
 assert.equal(summary.strips[0].item_count,11);
 assert.equal(summary.total_shared_edge_length_mm,null,'do not report incomplete shared-edge totals');
 const splitExports={...exportsById,0:{...exportsById[0],holes:[rect(10,10,35,80),rect(55,10,35,80)]}};
+splitExports[0].cutout_holes=JSON.parse(JSON.stringify(splitExports[0].holes));
 const splitJobs=cutouts.candidateJobs(items,splitExports,1);
 const splitReady=new Map(splitJobs.map((job,i)=>[job.key,{placements:[11,40,69].map(y=>({item_id:1,
   transformation:{rotation:0,translation:[i?56:11,y]}}))}]));
 const split=cutouts.packageItems(items,splitExports,splitJobs,splitReady);
 assert.deepEqual(split.items.map(i=>i.demand),[1,1],'second host uses a partial pattern rather than losing leftover children');
 assert.deepEqual(Object.values(split.exports).map(e=>e.cutout_children.length),[6,3],'multiple holes share one quantity ledger');
+const inventoryReady=new Map();
+const sequence=cutouts.preparationJobs(items,splitExports,1,inventoryReady);
+const firstOpening=sequence.next().value;
+inventoryReady.set(firstOpening.key,splitReady.get(splitJobs[0].key));
+const secondOpening=sequence.next().value;
+assert.equal(secondOpening.request.items[0].demand,3,'second opening sees stock remaining after both host copies');
+inventoryReady.set(secondOpening.key,splitReady.get(splitJobs[1].key));
+assert.equal(sequence.next().done,true);
+const resolvedJobs=[...cutouts.preparationJobs(items,splitExports,1,inventoryReady)];
+assert.deepEqual(resolvedJobs.map(j=>j.key),[firstOpening.key,secondOpening.key],'Run resolves the same quantity-aware cache keys');
+const inventoryPacked=cutouts.packageItems(items,splitExports,resolvedJobs,inventoryReady);
+assert.deepEqual(Object.values(inventoryPacked.exports).map(e=>e.cutout_children.length),[6,3]);
+inventoryReady.set(firstOpening.key,{placements:splitReady.get(splitJobs[0].key).placements.slice(0,1)});
+const changedInventory=[...cutouts.preparationJobs(items,splitExports,1,inventoryReady)];
+assert.equal(changedInventory[1].request.items[0].demand,7);
+assert.notEqual(changedInventory[1].key,secondOpening.key,'changed reservations cannot reuse a stale subset');
 const nestedItems=[100,60,20].map((size,id)=>({id,demand:1,allowed_orientations:orientations,shape:{type:'simple_polygon',data:rect(0,0,size,size)}}));
 const nestedExports=Object.fromEntries(nestedItems.map(item=>[item.id,{polygon:item.shape.data,holes:item.id<2?[rect(5,5,90-40*item.id,90-40*item.id)]:[]} ]));
+Object.values(nestedExports).forEach(metadata=>{metadata.cutout_holes=metadata.holes;});
 const nestedJobs=cutouts.candidateJobs(nestedItems,nestedExports,0);
 const nestedReady=new Map(nestedJobs.map(job=>[job.key,{placements:[{item_id:job.hostId+1,transformation:{rotation:0,translation:[6,6]}}]}]));
 const nested=cutouts.packageItems(nestedItems,nestedExports,nestedJobs,nestedReady);
@@ -85,6 +115,17 @@ async function testNative() {
   assert.ok(reversed.placements.length > 0,'clockwise boundaries are supported');
   const invalid = await prepare({...jobs[0].request,other_holes:[hole]});
   assert.equal(invalid.success,false,'overlapping hole metadata cannot yield a package');
+  const framed=await prepare(framedJobs[0].request);
+  assert.equal(framed.success,true,framed.error);
+  assert.ok(framed.placements.length>0,'native validation accepts a hole surrounded by non-cut frame geometry');
+  const narrowRequest={hole:rect(115,-1917,524,923.5),parent:rect(105,-1927,544,943.5),other_holes:[],
+    spacing:0,budget_ms:500,items:[[3,821,360,2],[9,782,280,2],[7,612,280,2],[4,443.24,170,4],[10,434.95,170,4]]
+      .map(([id,w,h,demand])=>({id,demand,allowed_orientations:orientations,shape:{type:'simple_polygon',data:rect(0,0,w,h)}}))};
+  const narrow=await prepare(narrowRequest);
+  assert.equal(narrow.success,true,narrow.error);
+  assert.ok(narrow.placements.length>=6,'six narrow parts fit without requiring the larger candidates');
+  assert.ok(narrow.placements.filter(p=>p.item_id===4).length<=4);
+  assert.ok(narrow.placements.filter(p=>p.item_id===10).length<=4);
   console.log(`Native cutout: ${result.placements.length} validated placements with spacing.`);
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'nest-cutout-modes-'));
   try {
@@ -156,7 +197,8 @@ async function testBackground() {
   const state={settings:{allowCutoutNesting:true,partSpacing:1,rotationStep:'90',multiSketchDetection:false,sketchContourMethod:'auto',engravingLayer:'off'},
     files:items.map(i=>({id:`file${i.id}`,path:`file${i.id}.dxf`,name:`file${i.id}.dxf`,layers:[{name:'0'}],_shapeCacheVersion:1,
       _multiSketchDetection:false,_sketchContourMethod:'auto',shapes:[{id:`shape${i.id}`,qty:i.demand,polygonPoints:i.shape.data.map(([x,y])=>({x,y})),
-        exportEntities:exportsById[i.id].entities,holes:exportsById[i.id].holes.map(h=>({points:h.map(([x,y])=>({x,y}))}))}]})),sheets:[]};
+        exportEntities:exportsById[i.id].entities,holes:exportsById[i.id].holes.map(h=>({points:h.map(([x,y])=>({x,y})),
+          nestingEligible:true,sourceLayers:['Parent']}))}]})),sheets:[]};
   const win={NestCutoutPackages:cutouts,NestConstants:{DXF_SHAPE_CACHE_VERSION:1},NestHelpers:{buildAllowedOrientations:()=>orientations,
     sanitizePolygonPoints:p=>p,clonePlain:v=>JSON.parse(JSON.stringify(v)),effectiveFileQty:()=>1,partLabelFromName:n=>n,buildJobName:()=> 'test'},
     NestDxfExportMetadataService:{recoverStraightContour:p=>p,sharedStraightSegments:()=>[]},
@@ -179,12 +221,48 @@ async function testBackground() {
   pending.shift()({success:true,placements:pattern}); await next;
   await service.buildPlacementPayload();
   assert.equal(state.lastPlacementExportItems[0].cutout_children.length,4,'completed exact-key preparation is used');
+  state.files[0].shapes[0].holes.push({points:frameRing.map(([x,y])=>({x,y})),sourceLayers:['BEND'],nestingEligible:false});
+  const framedPayload=await service.buildPlacementPayload({prepareOnly:true});
+  assert.equal(framedPayload.exportItems[0].holes.length,2,'raw frame contours remain available');
+  assert.equal(framedPayload.exportItems[0].material_holes.length,1,'material mask only uses the proven cut layer');
+  assert.equal(framedPayload.exportItems[0].cutout_holes.length,1);
+  state.files[0].shapes[0].holes.pop();
+  state.files[0].shapes[0].holes[0].nestingEligible=false;
+  const rejected=await service.buildPlacementPayload();
+  assert.equal(rejected.items[1].demand,9,'newly rejected holes cannot reuse an old successful preparation');
+  assert.equal(state.lastPlacementExportItems[0].cutout_children,undefined);
+  state.files[0].shapes[0].holes[0].nestingEligible=true;
   state.settings.allowCutoutNesting=false;
   handlers['nest-cutout-input-changed']();
   const off=await service.buildPlacementPayload();
   assert.equal(off.items[1].demand,9,'Off restores uncoupled demand');
   assert.equal(off.cutout_exports,undefined);
   assert.equal(state.lastPlacementExportItems[0].cutout_children,undefined);
+  state.files[0].shapes[0].holes[0].nestingEligible=false;
+  const excluded=await service.buildPlacementPayload({prepareOnly:true});
+  assert.equal(excluded.exportItems[0].cutout_holes.length,0);
+  assert.equal(excluded.exportItems[0].holes.length,1,'eligibility must not remove drawing holes');
+  state.files[0].shapes[0].holes[0].nestingEligible=true;
+  state.settings.engravingLayer='1';
+  state.files[0].layers=[{name:'Parent'}];
+  const engraved=await service.buildPlacementPayload({prepareOnly:true});
+  assert.equal(engraved.exportItems[0].cutout_holes.length,0,'explicit engraving layer overrides eligibility');
+  state.settings.engravingLayer='off';
+  state.settings.allowCutoutNesting=true;
+  state.files[0]._shapeCacheVersion=0;
+  state.files[0].shapes[0].holes[0].nestingEligible=false;
+  win.electronAPI.parseDXF=async()=>({success:true,data:{}});
+  win.parseDXFToShapes=()=>({layers:[{name:'Parent'}],shapes:[{
+    ...state.files[0].shapes[0],holes:[{...state.files[0].shapes[0].holes[0],nestingEligible:true}],
+  }]});
+  handlers['nest-cutout-input-changed']();
+  const refreshed=[...timers.values()].at(-1)();
+  for(let i=0;i<20 && !pending.length;i++) await Promise.resolve();
+  assert.equal(state.files[0]._shapeCacheVersion,1,'background preparation refreshes stale eligibility before Run');
+  assert.equal(pending.length,1,'refreshed opening is prepared rather than waiting for a second run');
+  pending.shift()({success:true,placements:pattern}); await refreshed;
+  await service.buildPlacementPayload();
+  assert.equal(state.lastPlacementExportItems[0].cutout_children.length,4);
 }
 
 (async()=>{

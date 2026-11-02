@@ -482,6 +482,7 @@
     resolveEntityColor,
     nestingPolygon,
     forcedContourMethod = 'auto',
+    classifyCutouts = () => new Set(),
   }) {
     const entities = Array.isArray(shapeRecord?.entities) ? shapeRecord.entities : [];
     if (!entities.length) return null;
@@ -588,6 +589,7 @@
     const holePolygons = (shapeRecord.childClosedContours || [])
       .map(contour => contour.polygonPoints || contour.points || [])
       .filter(points => Array.isArray(points) && points.length >= 3);
+    const eligibleHoles = classifyCutouts(shapeRecord, displayPolygonPoints);
 
     return {
       id: shapeRecord.id || `s_${index}`,
@@ -628,6 +630,8 @@
       holes: (shapeRecord.childClosedContours || []).map(contour => ({
         id: contour.id,
         points: contour.polygonPoints || contour.points || [],
+        sourceLayers: contour.sourceLayers || [],
+        nestingEligible: eligibleHoles.has(contour),
       })),
       qty: 1,
       visible: true,
@@ -800,6 +804,7 @@
         tolerance: 0.001
       }));
 
+    const classifyCutouts = global.NestDxfCutoutEligibility?.createClassifier(entities);
     const shapes = structuredShapes.length
       ? structuredShapes
           .map((shapeRecord, index) => buildStructuredPreviewShape({
@@ -810,6 +815,7 @@
             resolveEntityColor,
             nestingPolygon: nestingPolygons[index] || null,
             forcedContourMethod: sketchContourMethod,
+            classifyCutouts,
           }))
           .filter(Boolean)
       : rawPreviewShapes;

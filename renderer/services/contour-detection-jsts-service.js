@@ -772,5 +772,6 @@
 
   global.NestDxfContourDetectionJstsService = {
     buildArrangementContour,
+    entityToSegments,
   };
 })(window);

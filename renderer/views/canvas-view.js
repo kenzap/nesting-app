@@ -104,7 +104,7 @@
       };
       return svg.replace(/<g id="item_(\d+)">(\s*)<path([^>]*?)\bd="([^"]*)"([^>]*)\/>/g, (match, id, gap, before, d, after) => {
         const item = items[id];
-        const holes = (item?.holes || []).filter(hole => Array.isArray(hole) && hole.length >= 3);
+        const holes = (item?.material_holes || item?.holes || []).filter(hole => Array.isArray(hole) && hole.length >= 3);
         if (!holes.length || !Array.isArray(item.polygon)) return match;
         const pathBox = bounds((d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number));
         const outlineBox = bounds(item.polygon.flat().map(Number));

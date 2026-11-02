@@ -139,6 +139,8 @@
         return {
           id: entity.handle || `cc_${index}`,
           entity,
+          sourceEntities: [entity],
+          sourceLayers: [entity.layer || '0'],
           layer: entity.layer || '0',
           bbox,
           points,
@@ -581,6 +583,8 @@
           polygonPoints: points,
           area: polygonArea(points),
           componentId: loop.componentId,
+          sourceEntities: loop.sourceEntities || [],
+          sourceLayers: loop.sourceLayers || [],
         };
       });
     // Faces in the outer outline's connected component can be construction
@@ -595,7 +599,8 @@
       outerBox && candidate.points.every(point =>
         bboxContainsPoint(outerBox, point) && pointInPoly(point.x, point.y, outerRing))
     );
-    const childClosedContours = [...collectContourCandidates(ownedEntities), ...inferredHoles]
+    const closedContours = collectContourCandidates(ownedEntities);
+    const childClosedContours = [...closedContours, ...inferredHoles]
       .filter(candidate => !peerOuters.some(peer => peer.id === candidate.id))
       .filter(candidate => !coincidesWithOuterBoundary(candidate, outerPolygon));
 
@@ -604,6 +609,7 @@
       parentContour: usePeerOuters ? null : parentContour,
       peerOuters,
       childClosedContours,
+      boundaryContours: [...closedContours, ...inferredContours],
       openEntities,
       entities: ownedEntities,
       bbox,

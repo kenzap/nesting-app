@@ -44,8 +44,17 @@
       const generation = cutoutGeneration;
       preparingCutouts = true;
       try {
+        const currentSettings = getCurrentNestingSettings();
+        for (const file of state.files) {
+          if (file._shapeCacheVersion !== DXF_SHAPE_CACHE_VERSION
+              || file._multiSketchDetection !== !!currentSettings.multiSketchDetection
+              || String(file._sketchContourMethod || 'auto') !== String(currentSettings.sketchContourMethod || 'auto')) {
+            await ensureFileShapes(file);
+          }
+          if (generation !== cutoutGeneration || state.status === 'running') return;
+        }
         const { items, exportItems, settings } = await buildPlacementPayload({ prepareOnly: true });
-        for (const job of cutouts.candidateJobs(items, exportItems, settings.partSpacing)) {
+        for (const job of cutouts.preparationJobs(items, exportItems, settings.partSpacing, preparedCutouts)) {
           if (generation !== cutoutGeneration || state.status === 'running') break;
           if (preparedCutouts.has(job.key)) continue;
           const result = await window.electronAPI.prepareCutout(job.request);
@@ -181,6 +190,11 @@
             extractedPoints, shape.exportEntities || [], engravingLayer);
           if (points.length < 3) return;
           const itemId = nextId++;
+          const eligibleHoles = (shape.holes || []).filter(hole => hole.nestingEligible === true
+            && hole.sourceLayers?.length === 1 && hole.sourceLayers[0] !== engravingLayer);
+          const cutLayer = eligibleHoles[0]?.sourceLayers[0];
+          const holeRings = holes => holes.map(hole => sanitizePolygonPoints(hole.points || []))
+            .filter(ring => ring.length >= 3).map(ring => ring.map(point => [point.x, point.y]));
 
           items.push({
             id: itemId,
@@ -210,6 +224,11 @@
                 .filter(holePoints => holePoints.length >= (settings.allowCutoutNesting ? 3 : 4))
                 .map(holePoints => holePoints.map(point => [point.x, point.y]))
             ),
+            cutout_holes: holeRings(eligibleHoles),
+            // Once the cut layer is proven, do not fill/subtract the surrounding
+            // bend faces as holes. Keep every source entity for DXF export.
+            ...(cutLayer !== undefined ? { material_holes: holeRings((shape.holes || [])
+              .filter(hole => hole.sourceLayers?.length === 1 && hole.sourceLayers[0] === cutLayer)) } : {}),
           };
         });
       }
@@ -224,7 +243,7 @@
       window.electronAPI?.cancelCutoutPreparation?.();
       if (settings.allowCutoutNesting && preparedCutouts.size) {
         const packaged = cutouts.packageItems(items, exportItems,
-          cutouts.candidateJobs(items, exportItems, settings.partSpacing), preparedCutouts);
+          [...cutouts.preparationJobs(items, exportItems, settings.partSpacing, preparedCutouts)], preparedCutouts);
         items = packaged.items;
         exportItems = packaged.exports;
       }
