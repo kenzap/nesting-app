@@ -16,6 +16,7 @@
     "test:placement-editor-ui": "electron scripts/test-placement-editor-ui.js",
     "test:dxf-open-polylines": "node scripts/test-dxf-open-polylines.js",
     "test:nesting-previews": "node scripts/test-sparrow-previews.js",
+    "test:canvas-empty-state": "node scripts/test-canvas-empty-state.js",
     "test:native-engine-name": "node scripts/test-native-engine-name.js",
     "test:exact-fit-assist": "node scripts/test-exact-fit-assist.js",
     "test:exact-fit-assist:native": "node scripts/test-exact-fit-assist-native.js",

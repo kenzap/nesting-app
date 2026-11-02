@@ -248,6 +248,7 @@
     "fitToView": "दृश्य में फ़िट करें",
     "emptyTitle": "अभी तक कोई नेस्टिंग परिणाम नहीं आया है",
     "emptyBeforeRun": "DXF पार्ट्स और शीट जोड़ें, फिर चलाएँ दबाएँ",
+    "runToView": "नेस्टिंग लेआउट बनाने के लिए चलाएँ दबाएँ",
     "sheetNumber": "शीट {{number}}",
     "sheetOf": "शीट {{number}} / {{total}}",
     "preview": "पूर्वावलोकन",

@@ -480,10 +480,8 @@ window.addEventListener('nest-language-changed', () => {
   measureToolApi.onLanguageChanged();
   partsHistoryApi.onLanguageChanged();
   exportServiceApi.refreshUnits();
-  if (state.nestResult?.strips?.length) {
-    canvasViewApi.renderTabs();
-    canvasViewApi.showNestResult(state.activeStripIndex || 0);
-  }
+  canvasViewApi.renderTabs();
+  canvasViewApi.showNestResult(state.activeStripIndex || 0);
   dxfPreviewModalApi.refreshLabels();
 });
 
@@ -795,6 +793,7 @@ function bindOverlayClose() {
   filesPaneApi.renderFiles();
   sheetsPaneApi.renderSheets();
   exportServiceApi.syncExportButton();
+  canvasViewApi.showNestResult(state.activeStripIndex || 0);
 
   // First-launch onboarding — opens the modal only if the user hasn't
   // completed (or skipped) it before. The modal applies a material preset

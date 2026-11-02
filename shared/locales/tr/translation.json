@@ -248,6 +248,7 @@
     "fitToView": "Görünüme sığdır",
     "emptyTitle": "Henüz yerleşim sonucu yok",
     "emptyBeforeRun": "DXF parçaları ve levhaları ekleyip Çalıştır düğmesine basın",
+    "runToView": "Yerleşim oluşturmak için Çalıştır düğmesine basın",
     "sheetNumber": "Levha {{number}}",
     "sheetOf": "Levha {{number}} / {{total}}",
     "preview": "Önizleme",

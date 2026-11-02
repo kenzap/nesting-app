@@ -272,6 +272,7 @@
     "fitToView": "ملاءمة للعرض",
     "emptyTitle": "لا توجد نتيجة تعشيق بعد",
     "emptyBeforeRun": "أضف قطع DXF وصفائح، ثم اضغط على تشغيل",
+    "runToView": "اضغط على تشغيل لإنشاء تخطيط التعشيق",
     "sheetNumber": "الصفيحة {{number}}",
     "sheetOf": "الصفيحة {{number}} من {{total}}",
     "preview": "معاينة",

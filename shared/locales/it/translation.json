@@ -254,6 +254,7 @@
     "fitToView": "Adatta alla vista",
     "emptyTitle": "Nessun risultato di nesting",
     "emptyBeforeRun": "Aggiungi parti DXF e fogli, quindi premi Avvia",
+    "runToView": "Premi Avvia per creare un layout di nesting",
     "sheetNumber": "Foglio {{number}}",
     "sheetOf": "Foglio {{number}} di {{total}}",
     "preview": "Anteprima",

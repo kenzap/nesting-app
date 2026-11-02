@@ -254,6 +254,7 @@
     "fitToView": "Ajustar a la vista",
     "emptyTitle": "Aún no hay resultados de anidado",
     "emptyBeforeRun": "Añada piezas DXF y hojas, y pulse Ejecutar",
+    "runToView": "Pulse Ejecutar para crear una distribución de piezas",
     "sheetNumber": "Hoja {{number}}",
     "sheetOf": "Hoja {{number}} de {{total}}",
     "preview": "Vista previa",

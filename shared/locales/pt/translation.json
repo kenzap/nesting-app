@@ -254,6 +254,7 @@
     "fitToView": "Ajustar à visualização",
     "emptyTitle": "Ainda não há resultado de nesting",
     "emptyBeforeRun": "Adicione peças DXF e folhas, depois pressione Executar",
+    "runToView": "Pressione Executar para criar um layout de nesting",
     "sheetNumber": "Folha {{number}}",
     "sheetOf": "Folha {{number}} de {{total}}",
     "preview": "Pré-visualização",

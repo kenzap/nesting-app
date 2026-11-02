@@ -248,6 +248,7 @@
     "fitToView": "表示に合わせる",
     "emptyTitle": "ネスティング結果はまだありません",
     "emptyBeforeRun": "DXF パーツとシートを追加して、［実行］を押してください",
+    "runToView": "［実行］を押してネスティングレイアウトを作成してください",
     "sheetNumber": "シート {{number}}",
     "sheetOf": "シート {{number}} / {{total}}",
     "preview": "プレビュー",

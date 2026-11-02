@@ -254,6 +254,7 @@
     "fitToView": "Ajuster à la vue",
     "emptyTitle": "Aucun résultat d'imbrication pour l'instant",
     "emptyBeforeRun": "Ajoutez des pièces DXF et des tôles, puis cliquez sur Lancer",
+    "runToView": "Cliquez sur Lancer pour créer une imbrication",
     "sheetNumber": "Tôle {{number}}",
     "sheetOf": "Tôle {{number}} sur {{total}}",
     "preview": "Aperçu",

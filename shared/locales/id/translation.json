@@ -248,6 +248,7 @@
     "fitToView": "Sesuaikan dengan tampilan",
     "emptyTitle": "Belum ada hasil nesting",
     "emptyBeforeRun": "Tambahkan komponen DXF dan lembar, lalu tekan Jalankan",
+    "runToView": "Tekan Jalankan untuk membuat tata letak nesting",
     "sheetNumber": "Lembar {{number}}",
     "sheetOf": "Lembar {{number}} dari {{total}}",
     "preview": "Pratinjau",

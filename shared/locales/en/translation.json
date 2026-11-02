@@ -248,6 +248,7 @@
     "fitToView": "Fit to view",
     "emptyTitle": "No nesting result yet",
     "emptyBeforeRun": "Add DXF parts and sheets, then press Run",
+    "runToView": "Press Run to create a nesting layout",
     "sheetNumber": "Sheet {{number}}",
     "sheetOf": "Sheet {{number}} of {{total}}",
     "preview": "Preview",

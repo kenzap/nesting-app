@@ -248,6 +248,7 @@
     "fitToView": "适应视图",
     "emptyTitle": "暂无排料结果",
     "emptyBeforeRun": "添加 DXF 零件和板材，然后按“运行”",
+    "runToView": "按“运行”生成排料布局",
     "sheetNumber": "板材 {{number}}",
     "sheetOf": "板材 {{number}} / {{total}}",
     "preview": "预览",

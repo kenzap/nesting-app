@@ -260,6 +260,7 @@
     "fitToView": "Dopasuj do widoku",
     "emptyTitle": "Brak wyniku rozkładu",
     "emptyBeforeRun": "Dodaj części DXF i arkusze, a następnie naciśnij Uruchom",
+    "runToView": "Naciśnij Uruchom, aby utworzyć rozkład części",
     "sheetNumber": "Arkusz {{number}}",
     "sheetOf": "Arkusz {{number}} z {{total}}",
     "preview": "Podgląd",

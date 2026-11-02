@@ -8,10 +8,7 @@
     setNestStatsTone,
     syncViewportEmptyState,
   }) {
-    const { partLabelFromName } = globalScope.NestHelpers;
     const { resolveMeasurementSystem, formatDimensions, formatLongLength, formatLength } = globalScope.NestUnits;
-    const { DEFAULT_ENGRAVING_COLOR } = globalScope.NestConstants;
-    const { FALLBACK_PALETTE = [] } = globalScope.NestDxfLayerService || {};
     const FIT_INSET_X = 40;
     const FIT_INSET_Y = 28;
     const SVG_PREVIEW_MARGIN_X = 80;
@@ -156,35 +153,6 @@
         dashOpacity: '0.35',
         metaText: '#3a4566',
       };
-    }
-
-    // Same logic as renderer.js — returns the 1-based engraving layer number,
-    // or null if engraving is turned off. Kept here so the canvas view is self-contained.
-    function engravingLayerIndex(settings = getCurrentNestingSettings()) {
-      const raw = settings?.engravingLayer;
-      if (raw === 'off' || raw === false || raw == null || raw === '') return null;
-      const parsed = Number.parseInt(String(raw), 10);
-      return Number.isFinite(parsed) && parsed >= 1 ? parsed : 2;
-    }
-
-    function batchLayerAtIndex(index) {
-      if (!Number.isFinite(index) || index < 1) return null;
-      for (const file of state.files || []) {
-        const layer = Array.isArray(file?.layers) ? file.layers[index - 1] : null;
-        if (layer?.name || layer?.color) return layer;
-      }
-      return null;
-    }
-
-    // Picks the best available hex colour for engraving labels.
-    // Falls back through the configured engraving layer → layer 2 → layer 1 → the app default.
-    function resolveEngravingColor(layers = []) {
-      const idx = engravingLayerIndex();
-      if (idx !== null && layers[idx - 1]?.color) return layers[idx - 1].color;
-      if (idx !== null && batchLayerAtIndex(idx)?.color) return batchLayerAtIndex(idx).color;
-      if (idx !== null && FALLBACK_PALETTE.length) return FALLBACK_PALETTE[(idx - 1) % FALLBACK_PALETTE.length];
-      if (layers[0]?.color) return layers[0].color;
-      return DEFAULT_ENGRAVING_COLOR;
     }
 
     // Convenience accessor — only one sheet config is supported at a time,
@@ -791,107 +759,6 @@
       }
     }
 
-    // Generates a fake placement SVG from the currently loaded files and sheet config.
-    // Used only before a real nesting result exists; once Sparrow has started
-    // returning strips we must never swap this in for a sheet whose SVG is still
-    // being written, otherwise the user sees a brief fake "placeholder placement"
-    // before the real preview arrives.
-    function generateMockNestSVG(sheetIndex) {
-      const sheet = state.sheets[sheetIndex];
-      if (!sheet) return null;
-      const colors = previewThemeColors();
-
-      const previewWidth = sheet.widthMode === 'unlimited' ? 3000 : (sheet.width || 3000);
-      const W = 800;
-      const H = Math.round(800 * sheet.height / previewWidth);
-      const shapes = [];
-      const placed = [];
-
-      const tryPlace = (shape, attempts = 60) => {
-        for (let i = 0; i < attempts; i++) {
-          const x = 20 + Math.random() * (W - shape.w - 40);
-          const y = 20 + Math.random() * (H - shape.h - 40);
-          const overlaps = placed.some(p =>
-            x < p.x + p.w + 4 && x + shape.w + 4 > p.x &&
-            y < p.y + p.h + 4 && y + shape.h + 4 > p.y
-          );
-          if (!overlaps) { shape.x = x; shape.y = y; return true; }
-        }
-        return false;
-      };
-
-      state.files.forEach((f, fi) => {
-        for (let q = 0; q < Math.min(f.qty, 8); q++) {
-          const type = (fi + q) % 4;
-          const scale = 0.7 + Math.random() * 0.6;
-          let shape;
-          if (type === 0) shape = { w: 80 * scale, h: 50 * scale, type: 'rect', name: f.name };
-          else if (type === 1) shape = { w: 90 * scale, h: 70 * scale, type: 'L', name: f.name };
-          else if (type === 2) shape = { w: 100 * scale, h: 60 * scale, type: 'notch', name: f.name };
-          else shape = { w: 70 * scale, h: 80 * scale, type: 'T', name: f.name };
-
-          shape.id = fi;
-          if (tryPlace(shape, 80)) { placed.push(shape); shapes.push(shape); }
-        }
-      });
-
-      const defs = `
-        <defs>
-          <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
-            <path d="M 16 0 L 0 0 0 16" fill="none" stroke="${colors.gridStroke}" stroke-width="0.5"/>
-          </pattern>
-          <filter id="partGlow" x="-6%" y="-6%" width="112%" height="112%">
-            <feGaussianBlur stdDeviation="1.5" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>`;
-
-      const shapesSVG = shapes.map(s => {
-        const { x, y, w, h, type } = s;
-        const fill = colors.partFill;
-        const stroke = colors.partStroke;
-        const strokeOpacity = '0.75';
-        let path = '';
-
-        if (type === 'rect') {
-          path = `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2"${colors.partFilter}/>`;
-        } else if (type === 'L') {
-          const hw = (w * 0.45).toFixed(1), hh = (h * 0.45).toFixed(1);
-          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${hh} h${-hw} v${(h - parseFloat(hh)).toFixed(1)} h${-(w - parseFloat(hw)).toFixed(1)} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2"${colors.partFilter}/>`;
-        } else if (type === 'notch') {
-          const nw = (w * 0.25).toFixed(1), nh = (h * 0.35).toFixed(1);
-          const nx = (x + w / 2 - parseFloat(nw) / 2).toFixed(1);
-          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${h.toFixed(1)} h${-w.toFixed(1)} Z M${nx},${y.toFixed(1)} h${nw} v${nh} h${-nw} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2" fill-rule="evenodd"${colors.partFilter}/>`;
-        } else {
-          const tw = (w * 0.4).toFixed(1);
-          const stemH = (h * 0.55).toFixed(1);
-          path = `<path d="M${x.toFixed(1)},${y.toFixed(1)} h${w.toFixed(1)} v${(h - parseFloat(stemH)).toFixed(1)} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} v${stemH} h${-parseFloat(tw).toFixed(1)} v${-stemH} h${-(w / 2 - parseFloat(tw) / 2).toFixed(1)} Z" fill="${fill}" stroke="${stroke}" stroke-opacity="${strokeOpacity}" stroke-width="1.2"${colors.partFilter}/>`;
-        }
-
-        const labelText = engravingLayerIndex() !== null ? partLabelFromName(s.name) : '';
-        const labelFontSize = Math.max(7, Math.min(w, h) * 0.12);
-        const labelStrokeWidth = 0.8;
-        const label = labelText
-          ? `<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="${labelFontSize.toFixed(1)}" fill="none" stroke="${resolveEngravingColor()}" stroke-width="${labelStrokeWidth.toFixed(2)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.96" font-family="monospace">${labelText}</text>`
-          : '';
-        return path + label;
-      }).join('\n');
-
-      const utilization = Math.round(60 + Math.random() * 25);
-      return {
-        svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
-          ${defs}
-          <rect width="${W}" height="${H}" fill="${colors.background}"/>
-          <rect x="8" y="8" width="${W - 16}" height="${H - 16}" rx="3" fill="none" stroke="${colors.sheetStroke}" stroke-width="1" stroke-dasharray="6 4"/>
-          ${shapesSVG}
-          <text x="${W / 2}" y="${H - 8}" text-anchor="middle" font-size="9" fill="${colors.metaText}" font-family="monospace">
-            ${formatDimensions(sheet.width, sheet.height, { system: measurementSystem() })} · Preview · ${utilization}% utilization
-          </text>
-        </svg>`,
-        utilization,
-      };
-    }
-
     function stripPlacementLabel(strip, sheetIndex) {
       const t = globalScope.NestI18n.t;
       const sheetLabel = t('canvas.sheetOf', { number: sheetIndex + 1, total: state.nestResult.strips.length });
@@ -904,9 +771,8 @@
     }
 
     // Central display function for a given sheet index.
-    // Prefers a real solver result (styled via styleStripSVG) and falls back to the mock
-    // preview when none is available yet. Updates the status bar with parts count,
-    // utilisation percentage, and strip width.
+    // Displays real solver geometry only. Missing results show a run/wait prompt,
+    // never fabricated placements or statistics.
     //
     // Skips the heavy DOM swap when (a) the same sheet is already displayed
     // and (b) its SVG content hasn't changed. Without this guard, polling
@@ -915,6 +781,7 @@
     // makes pan/zoom feel jittery.
     function showNestResult(sheetIndex, { preserveView = false } = {}) {
       const t = globalScope.NestI18n.t;
+      if (state.nestResult?.strips?.length && !state.nestResult.strips[sheetIndex]) sheetIndex = 0;
       const strip = state.nestResult?.strips?.[sheetIndex] || null;
       if (strip?.svg) {
         const sheet = currentSheetConfig();
@@ -987,41 +854,48 @@
         return;
       }
 
+      // Clear the last sheet and its overlays when there is no geometry to display.
+      if (strip) state.activeStripIndex = sheetIndex;
+      hideSheetDimensionBadge();
+      dom.svgContainer.innerHTML = '';
+      displayedExactSvg = null;
+      dom.svgContainer.style.display = 'none';
+      for (const key of ['activeIndex', 'svgLen', 'svgHash', 'svgSource', 'svgPreview']) {
+        delete dom.svgContainer.dataset[key];
+      }
+      syncViewportEmptyState(true);
+      globalScope.measureToolApi?.resetMeasurement?.();
+      window.dispatchEvent(new CustomEvent('nest-canvas-rendered'));
+
       if (strip) {
-        hideSheetDimensionBadge();
-        state.activeStripIndex = sheetIndex;
-        // Never leave the previous sheet's geometry under a queued sheet tab.
-        dom.svgContainer.innerHTML = '';
-        displayedExactSvg = null;
-        dom.svgContainer.style.display = 'none';
         dom.emptyState.style.display = 'none';
-        delete dom.svgContainer.dataset.activeIndex;
-        delete dom.svgContainer.dataset.svgHash;
-        syncViewportEmptyState(true);
         const totalSheets = state.nestResult?.strips?.length || state.nestResult?.strip_count || 0;
         const waitingPrefix = strip.is_preview || state.nestResult?.is_preview ? `${t('canvas.preview')} · ` : '';
         setNestStatsTone('');
         dom.nestStats.textContent = `${waitingPrefix}${t('canvas.sheetOf', { number: sheetIndex + 1, total: totalSheets })} · ${t('canvas.waitingGeometry')}`;
+        dom.nestStats.title = '';
         return;
       }
 
-      const result = generateMockNestSVG(sheetIndex);
-      if (!result) return;
-      dom.svgContainer.innerHTML = result.svg;
-      displayedExactSvg = null;
-      dom.svgContainer.dataset.activeIndex = String(sheetIndex);
-      dom.svgContainer.dataset.svgLen = String(result.svg.length);
-      dom.svgContainer.dataset.svgHash = quickSvgHash(result.svg);
-      dom.svgContainer.dataset.svgSource = 'mock-preview';
-      dom.svgContainer.dataset.svgPreview = 'false';
-      dom.svgContainer.style.display = 'grid';
-      dom.emptyState.style.display = 'none';
-      syncViewportEmptyState(false);
-      const placed = state.files.reduce((a, f) => a + f.qty, 0);
-      const mockWidth = formatLongLength(state.sheets[sheetIndex]?.width, measurementSystem());
-      setNestStatsTone('');
-      dom.nestStats.textContent = `${t('canvas.sheetOf', { number: sheetIndex + 1, total: state.sheets.length })} · ${t('canvas.partsPlaced', { count: placed })} · ${t('canvas.utilization', { value: `${result.utilization}%` })} · ${t('canvas.widthValue', { value: mockWidth })}`;
-      applyZoom(true);
+      renderTabs();
+      const running = state.status === 'running';
+      const titleKey = running ? 'canvas.waitingGeometry' : 'canvas.emptyTitle';
+      const hintKey = running ? 'nesting.waitingPreview'
+        : state.files?.length && state.sheets.length ? 'canvas.runToView' : 'canvas.emptyBeforeRun';
+      for (const [selector, key] of [['.empty-title', titleKey], ['.empty-sub', hintKey]]) {
+        const node = dom.emptyState.querySelector?.(selector);
+        if (node) {
+          node.dataset.i18n = key;
+          node.textContent = t(key);
+        }
+      }
+      dom.emptyState.style.display = '';
+      // A theme refresh must not erase an actual solver error.
+      if (state.status !== 'error') {
+        setNestStatsTone('');
+        dom.nestStats.textContent = t(hintKey);
+        dom.nestStats.title = '';
+      }
     }
 
     // After a zoom change the SVG may be larger or smaller than the viewport.

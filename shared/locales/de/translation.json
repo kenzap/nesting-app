@@ -248,6 +248,7 @@
     "fitToView": "Zur Ansicht anpassen",
     "emptyTitle": "Noch kein Verschachtelungsergebnis",
     "emptyBeforeRun": "DXF-Teile und Tafeln hinzufügen und anschließend auf Starten klicken",
+    "runToView": "Klicken Sie auf Starten, um eine Verschachtelung zu erstellen",
     "sheetNumber": "Tafel {{number}}",
     "sheetOf": "Tafel {{number}} von {{total}}",
     "preview": "Vorschau",
