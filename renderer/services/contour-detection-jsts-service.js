@@ -128,6 +128,54 @@
     }
   }
 
+  // Weld segment endpoints that lie within `tolerance` of each other onto a
+  // single shared vertex. DXF files often store consecutive ARC/LINE endpoints
+  // that differ by ~1e-4 mm (e.g. the stencil letters in Text.dxf). Snap
+  // rounding alone does not close those joints: two points 0.00015 apart can
+  // round onto *different* grid cells, so the polygonizer sees open chains,
+  // finds no faces, and we fall back to a concave hull that cuts across the
+  // real outline (the "triangle" artefacts during nesting). Welding first
+  // guarantees every near-coincident joint becomes one exact coordinate.
+  function weldSegmentEndpoints(segments, tolerance) {
+    if (!Array.isArray(segments) || !segments.length) return segments;
+    const cell = Math.max(tolerance, 1e-9);
+    const buckets = new Map();
+    const keyOf = (ix, iy) => `${ix},${iy}`;
+    const weld = (point) => {
+      const ix = Math.floor(point.x / cell);
+      const iy = Math.floor(point.y / cell);
+      let best = null;
+      let bestDist = tolerance;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const bucket = buckets.get(keyOf(ix + dx, iy + dy));
+          if (!bucket) continue;
+          for (const rep of bucket) {
+            const d = Math.hypot(rep.x - point.x, rep.y - point.y);
+            if (d <= bestDist) {
+              best = rep;
+              bestDist = d;
+            }
+          }
+        }
+      }
+      if (best) return best;
+      const rep = { x: point.x, y: point.y };
+      const key = keyOf(ix, iy);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(rep);
+      return rep;
+    };
+    const out = [];
+    for (const [a, b] of segments) {
+      const wa = weld(a);
+      const wb = weld(b);
+      if (wa === wb) continue;
+      out.push([wa, wb]);
+    }
+    return out;
+  }
+
   // ---- JSTS pipeline -------------------------------------------------------
 
   // Pick a precision scale for snap-rounding. We want enough resolution to
@@ -345,6 +393,12 @@
     (shapeRecord?.entities || []).forEach(entity => {
       segments.push(...entityToSegments(entity, tolerance));
     });
+    if (segments.length < 3) return reportEmpty('insufficient-segments', { segmentCount: segments.length });
+
+    // 1b. Close float-drift gaps between consecutive entities before snapping.
+    const weldedSegments = weldSegmentEndpoints(segments, tolerance);
+    segments.length = 0;
+    segments.push(...weldedSegments);
     if (segments.length < 3) return reportEmpty('insufficient-segments', { segmentCount: segments.length });
 
     // 2. Build snap-rounded LineStrings.

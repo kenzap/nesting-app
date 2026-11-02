@@ -10,6 +10,7 @@ const source = file => fs.readFileSync(path.join(root, file), 'utf8');
 const jstsBundle = source('node_modules/jsts/dist/jsts.min.js');
 const flattenBundle = source('node_modules/@flatten-js/core/dist/main.umd.js');
 const rbushBundle = source('node_modules/rbush/rbush.min.js');
+const concavemanSource = source('renderer/vendor/concaveman.js');
 
 const constantsSource = source('shared/constants.js');
 const settingsSource = source('shared/settings.js');
@@ -32,9 +33,14 @@ function createAppContext() {
   context.window = context;
   context.global = context;
 
-  new Function('exports', 'module', 'globalThis', jstsBundle).call(context, undefined, undefined, context);
-  new Function('exports', 'module', 'globalThis', rbushBundle).call(context, undefined, undefined, context);
+  // Load vendor bundles *inside* the VM realm, in the same order as
+  // renderer/index.html. Loading JSTS through `new Function` puts it in the
+  // outer realm, where its instanceof checks fail and every JSTS arrangement
+  // silently errors out, hiding the code path the real app uses.
   vm.runInContext(flattenBundle, context);
+  vm.runInContext(jstsBundle, context);
+  vm.runInContext(rbushBundle, context);
+  vm.runInContext(concavemanSource, context);
 
   vm.runInContext(constantsSource, context);
   vm.runInContext(settingsSource, context);
@@ -129,20 +135,9 @@ function testSampleFilesIfPresent() {
     }
   }
 
-  // Check recent directory for door pattern and text files
+  // Check recent directory for door pattern files
   const recentDir = 'C:/Users/HP/Downloads/recent';
   if (fs.existsSync(recentDir)) {
-    const textFile = path.join(recentDir, 'Text.dxf');
-    if (fs.existsSync(textFile)) {
-      const raw = fs.readFileSync(textFile, 'utf-8');
-      const dxf = parser.parseSync(raw);
-      const shapes = app.NestDxfShapeStructureService.detectShapes(dxf.entities);
-      assert.equal(shapes.length, 5, `Text.dxf must detect 5 letter shapes, got ${shapes.length}`);
-      for (const s of shapes) {
-        assert.ok(s.polygonPoints && s.polygonPoints.length >= 3, `Shape ${s.id} in Text.dxf must have closed polygon points`);
-      }
-    }
-
     const doorFile = path.join(recentDir, '6pRDp-door-pattern-wall-screen.dxf');
     if (fs.existsSync(doorFile)) {
       const raw = fs.readFileSync(doorFile, 'utf-8');
@@ -158,8 +153,43 @@ function testSampleFilesIfPresent() {
   }
 }
 
+// Test 4: Stencil text (Text.dxf). Every closed outline is a separate physical
+// part, and the polygon sent to the nester must match its real outline.
+// Regression: the top-right piece of the stencil "e" (24.3 x 23.1 mm) used to
+// fall back to a concave hull (area ~194 instead of ~291) and nested as
+// broken triangle-like fragments.
+function testStencilTextFixture() {
+  const textFile = path.join(__dirname, 'fixtures', 'Text.dxf');
+  const raw = fs.readFileSync(textFile, 'utf-8');
+  const dxf = new DxfParser().parseSync(raw);
+  const parsed = app.NestDxfPreviewService.parseDXFToShapes(dxf, raw, {});
+  assert.equal(parsed.shapes.length, 8, `Text.dxf must detect 8 stencil pieces, got ${parsed.shapes.length}`);
+
+  const area = pts => {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]; const q = pts[(i + 1) % pts.length];
+      a += p.x * q.y - q.x * p.y;
+    }
+    return Math.abs(a / 2);
+  };
+  // True areas (mm^2) of the 8 closed outlines, measured from the source
+  // geometry: H stem, H crossbar+stem, e body, e top piece, l, l, o halves.
+  const expected = [444.5, 549.9, 433.8, 290.9, 502.7, 502.7, 365.4, 368.9].sort((a, b) => a - b);
+  const actual = parsed.shapes.map(s => area(s.polygonPoints)).sort((a, b) => a - b);
+  actual.forEach((value, i) => {
+    assert.ok(Math.abs(value - expected[i]) / expected[i] < 0.01,
+      `Text.dxf piece area ${value.toFixed(1)} must match source outline ${expected[i]} (within 1%)`);
+  });
+  for (const shape of parsed.shapes) {
+    assert.notEqual(shape.selectionPolygonSource, 'jsts-arrangement-concaveman',
+      `${shape.name} must use its exact outline, not a concave-hull fallback`);
+  }
+}
+
 testCompositeBoundaryWithCutouts();
 testArcCrossingZeroSweep();
+testStencilTextFixture();
 testSampleFilesIfPresent();
 
-console.log('Contour detection tests passed: multi-entity boundaries, internal cutouts, 0°-crossing arcs, text letter cycles, and dense spline envelopes verified.');
+console.log('Contour detection tests passed: multi-entity boundaries, internal cutouts, 0°-crossing arcs, stencil text pieces, and dense spline envelopes verified.');
