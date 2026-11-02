@@ -7,20 +7,24 @@ const { logDiagnostic, stderrTail } = require('../utils/diagnostics');
 
 const activeSparrowProcesses = new Map();
 const sparrowRuns = new Map();
-const sharedEdgeSupport = new Map();
+const engineHelpCache = new Map();
 
-async function supportsSharedEdges(executable, cwd) {
+async function supportsEngineFlag(executable, cwd, flag) {
   const key = `${executable}:${fs.statSync(executable).mtimeMs}`;
-  if (!sharedEdgeSupport.has(key)) {
+  if (!engineHelpCache.has(key)) {
     const help = await new Promise((resolve, reject) => {
       execFile(executable, ['--help'], { cwd, timeout: 5000, windowsHide: true }, (error, stdout) => {
         if (error) reject(error);
         else resolve(stdout);
       });
     });
-    sharedEdgeSupport.set(key, help.includes('--favor-shared-edges'));
+    engineHelpCache.set(key, help);
   }
-  return sharedEdgeSupport.get(key);
+  return engineHelpCache.get(key).includes(flag);
+}
+
+async function supportsSharedEdges(executable, cwd) {
+  return supportsEngineFlag(executable, cwd, '--favor-shared-edges');
 }
 
 function isDevMode() {
@@ -63,9 +67,10 @@ function shellQuote(value) {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
-function resolveSparrowCargoManifestPath() {
+function resolvePackingCargoManifestPath() {
   const repoRoot = path.join(__dirname, '..', '..');
   const candidates = [
+    process.env.PACKING_CARGO_MANIFEST_PATH,
     process.env.SPARROW_CARGO_MANIFEST_PATH,
     process.env.NESTING_CARGO_MANIFEST_PATH,
     path.join(repoRoot, '..', 'nesting', 'Cargo.toml'),
@@ -81,7 +86,7 @@ function resolveSparrowCargoManifestPath() {
 }
 
 function buildCargoRunCommand(args) {
-  const manifestPath = resolveSparrowCargoManifestPath();
+  const manifestPath = resolvePackingCargoManifestPath();
   if (!manifestPath) return null;
 
   return [
@@ -91,7 +96,7 @@ function buildCargoRunCommand(args) {
     manifestPath,
     '--release',
     '--bin',
-    'sparrow',
+    'packing',
     '--',
     ...args,
   ].map(shellQuote).join(' ');
@@ -545,6 +550,7 @@ function terminateAllSparrowRuns(options = {}) {
 }
 
 function registerSparrowIpc() {
+  require('./cutouts').registerCutoutIpc(ipcMain, resolveNativeExecutable, app);
   ipcMain.handle('load-placement-editor', async (_event, runId) => {
     try {
       const run = sparrowRuns.get(runId);
@@ -575,16 +581,21 @@ function registerSparrowIpc() {
   ipcMain.handle('get-native-engine-info', async () => {
     try {
       const baseDir = nativeBaseDir();
-      const sparrowPath = resolveNativeExecutable('sparrow');
+      const packingPath = resolveNativeExecutable('packing');
 
       return {
         success: true,
         platform: process.platform,
         packaged: app.isPackaged,
         baseDir,
-        sparrowPath,
+        packingPath,
+        sparrowPath: packingPath, // Compatibility for existing renderer integrations.
+        supportsCutouts: await require('./cutouts').supportsCutouts(packingPath),
+        supportsExactFitAssist: fs.existsSync(packingPath)
+          && await supportsEngineFlag(packingPath, baseDir, '--exact-fit-assist').catch(() => false),
         exists: {
-          sparrow: fs.existsSync(sparrowPath),
+          packing: fs.existsSync(packingPath),
+          sparrow: fs.existsSync(packingPath),
         },
       };
     } catch (err) {
@@ -594,16 +605,16 @@ function registerSparrowIpc() {
 
   ipcMain.handle('run-sparrow', async (event, payload, options = {}) => {
     try {
-      const sparrowPath = resolveNativeExecutable('sparrow');
-      if (!fs.existsSync(sparrowPath)) {
-        return { success: false, error: `Sparrow executable not found at ${sparrowPath}` };
+      const packingPath = resolveNativeExecutable('packing');
+      if (!fs.existsSync(packingPath)) {
+        return { success: false, error: `Packing executable not found at ${packingPath}` };
       }
 
       const safeName = String(payload?.name || 'nesting-job')
         .replace(/[^a-z0-9-_]+/gi, '-')
         .replace(/^-+|-+$/g, '') || 'nesting-job';
       const runsRootDir = path.join(app.getPath('temp'), 'nestkit-runs');
-      cleanupTempArtifacts(runsRootDir);
+      await cleanupTempArtifacts(runsRootDir);
       const runDir = path.join(runsRootDir, `${safeName}-${Date.now()}`);
       fs.mkdirSync(runDir, { recursive: true });
       const stopFilePath = path.join(runDir, '.stop-requested');
@@ -628,11 +639,20 @@ function registerSparrowIpc() {
         args.push('--early-termination');
       }
       if (options.favorSharedEdges && options.minItemSeparation === 0) {
-        if (!await supportsSharedEdges(sparrowPath, runDir)) {
+        if (!await supportsSharedEdges(packingPath, runDir)) {
           throw new Error('Favor shared edges requires an updated nesting engine. Update the app or turn this setting off.');
         }
         args.push('--favor-shared-edges');
       }
+      const exactFitRequested = !!options.exactFitAssist && options.minItemSeparation === 0
+        && Number.isFinite(options.maxStripLength) && options.maxStripLength > 0
+        && (!options.multiStripMode || options.multiStripMode === 'barriers');
+      const exactFitAssist = exactFitRequested
+        && await supportsEngineFlag(packingPath, runDir, '--exact-fit-assist');
+      if (exactFitRequested && !exactFitAssist) {
+        console.warn('[Packing] Allow exact fits is unavailable with this nesting engine; continuing normal nesting.');
+      }
+      if (exactFitAssist) args.push('--exact-fit-assist');
       if (Number.isFinite(options.maxStripLength) && options.maxStripLength > 0) {
         args.push('--max-strip-length', String(options.maxStripLength));
       }
@@ -669,18 +689,18 @@ function registerSparrowIpc() {
 
       if (isDevMode()) {
         const cargoCommand = buildCargoRunCommand(args);
-        console.info('[Sparrow][dev] Working directory:', runDir);
+        console.info('[Packing][dev] Working directory:', runDir);
         if (cargoCommand) {
-          console.info('[Sparrow][dev] Cargo command:\n' + cargoCommand);
+          console.info('[Packing][dev] Cargo command:\n' + cargoCommand);
         } else {
-          console.info('[Sparrow][dev] Cargo manifest not found. Set SPARROW_CARGO_MANIFEST_PATH to enable cargo command logging.');
+          console.info('[Packing][dev] Cargo manifest not found. Set PACKING_CARGO_MANIFEST_PATH to enable cargo command logging.');
         }
-        console.info('[Sparrow][dev] Spawn command:\n' + buildSpawnCommand(sparrowPath, args));
+        console.info('[Packing][dev] Spawn command:\n' + buildSpawnCommand(packingPath, args));
       }
 
       const runId = `${safeName}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const diagnosticId = Math.random().toString(36).slice(2, 10);
-      const child = spawn(sparrowPath, args, { cwd: runDir });
+      const child = spawn(packingPath, args, { cwd: runDir });
       sparrowRuns.set(runId, {
         id: runId,
         safeName,
@@ -705,6 +725,7 @@ function registerSparrowIpc() {
           workers: options.workers,
           earlyTermination: Boolean(options.earlyTermination),
           favorSharedEdges: !!options.favorSharedEdges && options.minItemSeparation === 0,
+          exactFitAssist,
           maxStripLength: options.maxStripLength,
           stripMargin: options.stripMargin,
           minItemSeparation: options.minItemSeparation,
@@ -744,7 +765,7 @@ function registerSparrowIpc() {
             ? 'stopped'
             : (code === 0 ? 'completed' : 'error');
           if (code !== 0 && !run.error && run.status !== 'stopped') {
-            run.error = `Sparrow exited with code ${code}`;
+            run.error = `Packing exited with code ${code}`;
           }
           logDiagnostic('nesting-helper-finished', {
             diagnosticId: run.diagnosticId,
@@ -818,7 +839,7 @@ function registerSparrowIpc() {
       : collectSparrowArtifacts(run.runDir, run.safeName);
     const artifacts = attachRunSheetMetadata(rawArtifacts, run.runDir, run.safeName);
     const error = status === 'error'
-      ? (run.stderr.trim() || run.stdout.trim() || run.error || 'Sparrow failed')
+      ? (run.stderr.trim() || run.stdout.trim() || run.error || 'Packing failed')
       : null;
 
     return {

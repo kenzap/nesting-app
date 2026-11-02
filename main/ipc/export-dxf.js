@@ -1,9 +1,11 @@
 const { ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { overwriteTextFile, removeFileIfExists } = require('../utils/safe-file-operations');
 const { normalizeSettings } = require('../../shared/settings');
 const { withSecurityScopedAccess } = require('../utils/security-scoped-bookmarks');
 const { removeSharedEdges: removeDuplicateSharedEdges } = require('../utils/dxf-shared-edges');
+const { expandPlacements } = require('../../shared/cutout-packages');
 const {
   layoutEngravingLabel,
   DEFAULT_LAYOUT: ENGRAVING_LAYOUT_DEFAULTS,
@@ -40,6 +42,7 @@ function registerExportDxfIpc() {
           const inputData = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
           Object.assign(exportSettings, normalizeSettings(inputData.settings || {}));
           (inputData.items || []).forEach(item => { globalItemsById[item.id] = item; });
+          exportItems = { ...(inputData.cutout_exports || {}), ...exportItems };
         } catch (e) {
           // Fall through — will export what it can.
         }
@@ -52,30 +55,6 @@ function registerExportDxfIpc() {
 
       const RAD = Math.PI / 180;
       const DEG = 180 / Math.PI;
-
-      function overwriteTextFile(targetPath, contents) {
-        const dir = path.dirname(targetPath);
-        const base = path.basename(targetPath);
-        const tempPath = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
-
-        try {
-          fs.writeFileSync(tempPath, contents, 'utf-8');
-          if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
-          fs.renameSync(tempPath, targetPath);
-
-          // Touch the replacement so downstream apps that key off modified time
-          // notice the update even when the filename stays the same.
-          const now = new Date();
-          fs.utimesSync(targetPath, now, now);
-        } catch (error) {
-          try {
-            if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true });
-          } catch {
-            // Ignore temp cleanup failures and surface the original write error.
-          }
-          throw error;
-        }
-      }
 
       function applyTransform(pts, rotation, tx, ty) {
         const cos = Math.cos(rotation * RAD);
@@ -487,10 +466,9 @@ function registerExportDxfIpc() {
         addLayer('0', '#CCCCCC');
 
         sheetStrips.forEach(strip => {
-          strip.placedItems.forEach(placement => {
-            const exportItem = exportItems?.[placement.item_id];
+          expandPlacements(strip.placedItems, globalItemsById, exportItems).forEach(({ item }) => {
+            const exportItem = item.export;
             (exportItem?.layers || []).forEach(layer => addLayer(layer.name, layer.color));
-            const item = { ...globalItemsById[placement.item_id], export: exportItem };
             const engravingLayer = getEngravingLayer(item);
             if (engravingLayer) addLayer(engravingLayer.name, engravingLayer.color);
           });
@@ -1410,12 +1388,8 @@ function registerExportDxfIpc() {
             }
           : null;
 
-        placedItems.forEach((placement, owner) => {
-          const exportItem = exportItems?.[placement.item_id] || null;
-          const item = {
-            ...globalItemsById[placement.item_id],
-            export: exportItem,
-          };
+        expandPlacements(placedItems, globalItemsById, exportItems).forEach(({ placement, item }, owner) => {
+          const exportItem = item.export;
           if (!item?.shape?.data) return;
           const rotation = Number(placement.transformation?.rotation) || 0;
           const rawTx = Number(placement.transformation?.translation?.[0]) || 0;
@@ -1548,8 +1522,8 @@ function registerExportDxfIpc() {
             layer_defs: layerDefs,
             rows: debugRows,
           }, null, 2));
-        } else if (fs.existsSync(debugPath)) {
-          fs.rmSync(debugPath, { force: true });
+        } else {
+          removeFileIfExists(debugPath);
         }
         fileCount++;
       }
@@ -1557,7 +1531,7 @@ function registerExportDxfIpc() {
       return { success: true, fileCount, outputDir };
       });
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, errorCode: err.code };
     }
   });
 }

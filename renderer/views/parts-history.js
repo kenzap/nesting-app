@@ -1,14 +1,13 @@
 'use strict';
 
-// Session-scoped history of the Parts list. Snapshots are captured when a
+// Locally persisted history of the Parts list. Snapshots are captured when a
 // nesting run is initiated. If restored parts were edited before the first
 // run, the restored list is retained as a separate baseline entry first.
-// Not persisted; history clears on reload.
 
 (function definePartsHistory(globalScope) {
-  const MAX_ENTRIES = 10;
+  const MAX_ENTRIES = globalScope.NestStore.PARTS_HISTORY_LIMIT;
 
-  function createPartsHistory({ state, dom, renderFiles, schedulePersistJobState }) {
+  function createPartsHistory({ state, dom, renderFiles, schedulePersistJobState, persistJobStateNow }) {
     const t = globalScope.NestI18n.t;
     state.partsHistory = Array.isArray(state.partsHistory) ? state.partsHistory : [];
     let initialSnapshot = deepClone(state.files || []);
@@ -97,6 +96,8 @@
       if (last && last.signature === currentSig) return;
       pushEntry(state.files, 'run');
       if (currentSig === initialSig) initialSnapshotRecorded = true;
+      // Save before the run, rather than waiting for another list edit or app exit.
+      persistJobStateNow();
     }
 
     function restore(entryId) {
@@ -120,6 +121,7 @@
       initialSnapshotRecorded = false;
       syncIcon();
       if (popoverOpen) closePopover();
+      persistJobStateNow();
     }
 
     // ── icon button in the Parts header ────────────────────────────────────
@@ -244,7 +246,7 @@
               : `<span class="parts-history-badge current">${t('history.current')}</span>`)
           : '';
         return `
-          <li class="parts-history-item${isNewest ? ' newest' : ''}" data-entry-id="${entry.id}" role="button" tabindex="0">
+          <li class="parts-history-item${isNewest ? ' newest' : ''}" data-entry-id="${escapeHtml(entry.id)}" role="button" tabindex="0">
             <span class="parts-history-dot-marker"></span>
             <span class="parts-history-action">
               <strong>${escapeHtml(summaryOfFiles(entry.snapshot))}</strong>
@@ -295,6 +297,8 @@
       captureBaseline() {
         initialSnapshot = deepClone(state.files);
         initialSnapshotRecorded = false;
+        state.partsHistory.forEach(entry => { entry.signature = signatureOfFiles(entry.snapshot); });
+        syncIcon();
       },
       onLanguageChanged() {
         syncIcon();

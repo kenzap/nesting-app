@@ -12,6 +12,58 @@
       partLabelFromName,
       buildJobName,
     } = globalScope.NestHelpers;
+    const cutouts = globalScope.NestCutoutPackages;
+    const preparedCutouts = new Map();
+    let cutoutGeneration = 0;
+    let cutoutTimer;
+    let preparingCutouts = false;
+
+    function scheduleCutouts() {
+      clearTimeout(cutoutTimer);
+      cutoutGeneration++;
+      window.electronAPI?.cancelCutoutPreparation?.();
+      if (!getCurrentNestingSettings().allowCutoutNesting) {
+        preparedCutouts.clear();
+        return;
+      }
+      cutoutTimer = setTimeout(prepareCutouts, 400);
+    }
+
+    async function prepareCutouts() {
+      if (preparingCutouts) {
+        cutoutTimer = setTimeout(prepareCutouts, 400);
+        return;
+      }
+      if (!getCurrentNestingSettings().allowCutoutNesting || state.supportsCutoutNesting === false || state.status === 'running'
+          || !state.files.length || !state.files.every(file => file.shapes?.length)
+          || !window.electronAPI?.prepareCutout) return;
+      const shapes = state.files.flatMap(file => file.shapes);
+      if (shapes.length > 512 || shapes.reduce((sum, shape) => sum + (shape.polygonPoints?.length || 0)
+          + (shape.holes || []).reduce((n, hole) => n + (hole.points?.length || 0), 0), 0) > 20000
+          || shapes.reduce((sum, shape) => sum + (shape.exportEntities?.length || 0), 0) > 10000) return;
+      const generation = cutoutGeneration;
+      preparingCutouts = true;
+      try {
+        const { items, exportItems, settings } = await buildPlacementPayload({ prepareOnly: true });
+        for (const job of cutouts.candidateJobs(items, exportItems, settings.partSpacing)) {
+          if (generation !== cutoutGeneration || state.status === 'running') break;
+          if (preparedCutouts.has(job.key)) continue;
+          const result = await window.electronAPI.prepareCutout(job.request);
+          if (generation !== cutoutGeneration) break;
+          // Sampling failure is only an exhausted attempt, not a geometric impossibility.
+          preparedCutouts.set(job.key, result.success ? result : { placements: [] });
+          if (preparedCutouts.size > 64) preparedCutouts.delete(preparedCutouts.keys().next().value);
+          if (!result.success) console.warn('[Cutouts] Preparation skipped:', result.error);
+          if (result.unsupported) break;
+        }
+      } catch (error) {
+        console.warn('[Cutouts] Preparation skipped:', error.message);
+      } finally {
+        preparingCutouts = false;
+      }
+    }
+    window.addEventListener('nest-cutout-input-changed', scheduleCutouts);
+    window.addEventListener('nest-status-changed', scheduleCutouts);
 
     function engravingLayerIndex(settings = getCurrentNestingSettings()) {
       const raw = settings?.engravingLayer;
@@ -107,20 +159,20 @@
     // Assembles the full JSON payload the Sparrow solver expects.
     // Iterates all files, sanitises polygon points, assigns integer IDs, and builds
     // the exportItems side-table so the export pipeline can look up layer/entity data by ID.
-    async function buildPlacementPayload() {
-      const items = [];
-      const exportItems = {};
+    async function buildPlacementPayload({ prepareOnly = false } = {}) {
+      let items = [];
+      let exportItems = {};
       let nextId = 0;
       const settings = getCurrentNestingSettings();
       const allowedOrientations = buildAllowedOrientations(settings.rotationStep);
 
-      for (const file of state.files) {
+      for (const file of prepareOnly ? [] : state.files) {
         await ensureFileShapes(file);
         file.layers = synthesizeEngravingLayer(file.layers || [], settings, file.id);
       }
 
       for (const file of state.files) {
-        const shapes = (await ensureFileShapes(file)).filter(shape => shape.visible !== false);
+        const shapes = (prepareOnly ? file.shapes : await ensureFileShapes(file)).filter(shape => shape.visible !== false);
         shapes.forEach(shape => {
           const extractedPoints = sanitizePolygonPoints(shape.polygonPoints);
           const engravingIndex = engravingLayerIndex(settings);
@@ -135,7 +187,7 @@
             demand: Math.max(1, parseInt(shape.qty || 1, 10)),
             dxf: file.path || file.name,
             allowed_orientations: [...allowedOrientations],
-            shared_edge_segments: globalScope.NestDxfExportMetadataService
+            shared_edge_segments: prepareOnly ? [] : globalScope.NestDxfExportMetadataService
               .sharedStraightSegments(shape.exportEntities || []),
             shape: {
               type: 'simple_polygon',
@@ -149,13 +201,13 @@
             source_name: file.name,
             source_shape_id: shape.id,
             part_label: partLabelFromName(file.name),
-            layers: clonePlain(synthesizeEngravingLayer(file.layers || [], settings, file.id)),
-            entities: clonePlain(shape.exportEntities || []),
+            layers: prepareOnly ? [] : clonePlain(synthesizeEngravingLayer(file.layers || [], settings, file.id)),
+            entities: prepareOnly ? [] : clonePlain(shape.exportEntities || []),
             polygon: points.map(point => [point.x, point.y]),
             holes: clonePlain(
               (shape.holes || [])
                 .map(hole => sanitizePolygonPoints(hole?.points || []))
-                .filter(holePoints => holePoints.length >= 4)
+                .filter(holePoints => holePoints.length >= (settings.allowCutoutNesting ? 3 : 4))
                 .map(holePoints => holePoints.map(point => [point.x, point.y]))
             ),
           };
@@ -166,6 +218,16 @@
         throw new Error(globalScope.NestI18n.t('nesting.noExportableShapes'));
       }
 
+      if (prepareOnly) return { items, exportItems, settings };
+      clearTimeout(cutoutTimer);
+      cutoutGeneration++;
+      window.electronAPI?.cancelCutoutPreparation?.();
+      if (settings.allowCutoutNesting && preparedCutouts.size) {
+        const packaged = cutouts.packageItems(items, exportItems,
+          cutouts.candidateJobs(items, exportItems, settings.partSpacing), preparedCutouts);
+        items = packaged.items;
+        exportItems = packaged.exports;
+      }
       state.lastPlacementExportItems = exportItems;
 
       return {
@@ -181,6 +243,8 @@
           material: sheet.material || '',
         })),
         strip_height: state.sheets[0]?.height || 0,
+        // Persist the package manifest with the solver input for diagnostics/recovery.
+        ...(Object.values(exportItems).some(item => item.cutout_children?.length) ? { cutout_exports: exportItems } : {}),
       };
     }
 

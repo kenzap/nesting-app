@@ -325,7 +325,8 @@
       if (result.summary?.strips?.length && !isFinalizationLimbo) {
         const previousCount = state.nestResult?.strips?.length || 0;
         const previousIndex = state.activeStripIndex || 0;
-        state.nestResult = result.summary;
+        state.nestResult = globalScope.NestCutoutPackages?.decorateSummary(result.summary, state.lastPlacementExportItems)
+          || result.summary;
         if (result.inputPath) state.nestInputPath = result.inputPath;
 
         if (previousCount === 0) {
@@ -505,6 +506,8 @@
             exactCoedge: partSpacing === 0,
             align: String(settings.preferredAlignment || 'bottom-left'),
             favorSharedEdges: !!settings.favorSharedEdges && partSpacing === 0,
+            exactFitAssist: !!settings.exactFitAssist && state.supportsExactFitAssist !== false && partSpacing === 0
+              && primarySheet.widthMode !== 'unlimited' && multiStripMode === 'barriers',
             multiStripMode,
             ...(Number.isFinite(bucketFillWeight) ? { bucketFillWeight } : {}),
           };

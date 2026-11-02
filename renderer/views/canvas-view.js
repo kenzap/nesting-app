@@ -112,7 +112,9 @@
         const pathBox = bounds((d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number));
         const outlineBox = bounds(item.polygon.flat().map(Number));
         if (!pathBox || !outlineBox || pathBox.some((value, i) => !(Math.abs(value - outlineBox[i]) < 1e-3))) return match;
-        const holePath = holes.map(hole => `M${hole.map(([x, y]) => `${x},${y}`).join(' L')} z`).join(' ');
+        const interiorRings = item.cutout_children?.length
+          ? globalScope.NestCutoutPackages.rings(null, item).slice(1) : holes;
+        const holePath = interiorRings.map(hole => `M${hole.map(([x, y]) => `${x},${y}`).join(' L')} z`).join(' ');
         const withoutRule = attrs => attrs.replace(/\s*fill-rule="[^"]*"/, '');
         return `<g id="item_${id}">${gap}<path${withoutRule(before)} d="${d} ${holePath}" fill-rule="evenodd"${withoutRule(after)}/>`;
       });

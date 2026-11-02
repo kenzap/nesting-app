@@ -13,6 +13,9 @@
     const lengthSettingKeys = new Set(['partSpacing', 'sheetMargin']);
     const measurementSystemField = settingsFields.find(field => field.dataset.settingKey === 'measurementSystem');
     const sharedEdgesField = settingsFields.find(field => field.dataset.settingKey === 'favorSharedEdges');
+    const exactFitField = settingsFields.find(field => field.dataset.settingKey === 'exactFitAssist');
+    const strategyField = settingsFields.find(field => field.dataset.settingKey === 'multiSheetStrategy');
+    const cutoutField = settingsFields.find(field => field.dataset.settingKey === 'allowCutoutNesting');
     const partSpacingField = settingsFields.find(field => field.dataset.settingKey === 'partSpacing');
     const t = globalScope.NestI18n.t;
     const devOnlyRows = Array.from(document.querySelectorAll('[data-dev-only-setting]'));
@@ -105,6 +108,10 @@
         applySettingFieldValue(field, settings[field.dataset.settingKey], dialogUnitSystem);
       });
       updateSharedEdgesAvailability();
+      updateExactFitAvailability();
+      if (cutoutField) cutoutField.disabled = state.supportsCutoutNesting === false;
+      const cutoutHint = document.getElementById('cutoutUnavailableHint');
+      if (cutoutHint) cutoutHint.hidden = state.supportsCutoutNesting !== false;
     }
 
     // Shared edges only exist where parts can touch, so any positive spacing
@@ -132,6 +139,19 @@
       if (!partSpacingField) return;
       partSpacingField.value = '0';
       updateSharedEdgesAvailability();
+      updateExactFitAvailability();
+    }
+
+    function updateExactFitAvailability() {
+      if (!exactFitField) return;
+      const unsupported = state.supportsExactFitAssist === false;
+      const inactive = Number(partSpacingField && settingFieldValue(partSpacingField)) > 0
+        || (strategyField && strategyField.value !== 'auto');
+      exactFitField.disabled = unsupported || !!inactive;
+      const hint = document.getElementById('exactFitAssistHint');
+      if (hint) hint.hidden = unsupported || !inactive;
+      const unavailableHint = document.getElementById('exactFitAssistUnavailableHint');
+      if (unavailableHint) unavailableHint.hidden = !unsupported;
     }
 
     function openSettingsDialog() {
@@ -168,6 +188,7 @@
     async function persistCurrentSettings() {
       state.settings = normalizeDialogSettings({ ...state.settings, ...collectSettingsFromDialog() });
       applySettingsToDialog(state.settings);
+      window.dispatchEvent(new CustomEvent('nest-cutout-input-changed'));
       if (!window.electronAPI?.saveAppSettings) return;
       const result = await window.electronAPI.saveAppSettings(state.settings);
       if (!result?.success) {
@@ -197,6 +218,8 @@
         try {
           const engineInfo = await window.electronAPI.getNativeEngineInfo();
           isDevBuild = !!(engineInfo?.success && !engineInfo?.packaged);
+          state.supportsCutoutNesting = !!engineInfo?.supportsCutouts;
+          state.supportsExactFitAssist = engineInfo?.supportsExactFitAssist;
         } catch {
           isDevBuild = false;
         }
@@ -224,7 +247,11 @@
     // Wires open, close, apply, and reset buttons for the settings modal.
     // Apply persists the form values and fires onSettingsApplied so previews refresh immediately.
     function bind() {
-      partSpacingField?.addEventListener('input', updateSharedEdgesAvailability);
+      partSpacingField?.addEventListener('input', () => {
+        updateSharedEdgesAvailability();
+        updateExactFitAvailability();
+      });
+      strategyField?.addEventListener('change', updateExactFitAvailability);
       document.getElementById('sharedEdgesHintAction')?.addEventListener('click', setSpacingToZeroForSharedEdges);
       // The hint text is built from t() at runtime, so it needs refreshing
       // when the language changes (static data-i18n nodes refresh themselves).

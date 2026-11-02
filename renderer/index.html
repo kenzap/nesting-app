@@ -240,6 +240,14 @@
       <div class="settings-section">
         <div class="settings-section-title" data-i18n="settings.algorithm">Algorithm</div>
         <div class="setting-row">
+          <label for="allowCutoutNesting" data-i18n="settings.allowCutoutNesting" data-i18n-title="settings.allowCutoutNestingHelp">Nest inside cutouts</label>
+          <label class="toggle">
+            <input id="allowCutoutNesting" type="checkbox" data-setting-key="allowCutoutNesting" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-hint" id="cutoutUnavailableHint" data-i18n="settings.cutoutNestingUnavailable" hidden>This build needs an updated nesting engine to nest inside cutouts.</div>
+        <div class="setting-row">
           <label for="favorSharedEdges" data-i18n="settings.favorSharedEdges" data-i18n-title="settings.favorSharedEdgesHelp" title="Try to increase shared straight edges without using more material. Requires zero part spacing. Does not merge DXF cutting paths.">Favor shared edges</label>
           <label class="toggle">
             <input id="favorSharedEdges" type="checkbox" data-setting-key="favorSharedEdges" />
@@ -250,6 +258,15 @@
           <span id="sharedEdgesHintText"></span>
           <button type="button" class="setting-hint-action" id="sharedEdgesHintAction" data-i18n="settings.setSpacingToZero">Set spacing to 0</button>
         </div>
+        <div class="setting-row">
+          <label for="exactFitAssist" data-i18n="settings.exactFitAssist" data-i18n-title="settings.exactFitAssistHelp" title="Try to fit parts edge-to-edge without changing their size or exceeding the usable sheet area. Requires zero part spacing, fixed or maximum-length sheets, and Auto multi-sheet strategy.">Allow exact fits</label>
+          <label class="toggle">
+            <input id="exactFitAssist" type="checkbox" data-setting-key="exactFitAssist" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="setting-hint" id="exactFitAssistHint" data-i18n="settings.exactFitAssistInactive" hidden>Requires zero part spacing and Auto multi-sheet strategy. Applies to fixed or maximum-length sheets.</div>
+        <div class="setting-hint" id="exactFitAssistUnavailableHint" data-i18n="settings.exactFitAssistUnavailable" hidden>Requires an updated nesting engine. Normal nesting remains available.</div>
         <div class="setting-row">
           <label data-i18n="settings.preferredAlignment">Preferred alignment</label>
           <select data-setting-key="preferredAlignment">
@@ -1121,6 +1138,7 @@
 <script src="views/settings-modal.js"></script>
 <script src="views/onboarding-stage.js"></script>
 <script src="views/onboarding-modal.js"></script>
+<script src="../shared/cutout-packages.js"></script>
 <script src="services/dxf-service.js"></script>
 <script src="services/dxf-layer-service.js"></script>
 <script src="services/dxf-export-metadata-service.js"></script>

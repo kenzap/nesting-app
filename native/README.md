@@ -2,7 +2,7 @@
 
 This app now includes macOS-native Rust binaries copied from the `nesting` workspace:
 
-- `native/macos/bin/sparrow`
+- `native/macos/bin/packing`
 
 This is the recommended local approach for Electron:
 
@@ -12,13 +12,129 @@ This is the recommended local approach for Electron:
 
 Do not run these binaries directly from the renderer process.
 
+## Executable Name
+
+The fork's Cargo package and executable target are named `packing`; builds emit
+`target/release/packing` on macOS/Linux and `packing.exe` on Windows. This is a
+packaging rename, not a change to the nesting algorithm or output format.
+Upstream Sparrow attribution and the internal Rust library name are retained.
+Existing `run-sparrow`/`poll-sparrow`/`stop-sparrow` IPC channels and the live
+preview manifest key remain compatible. Engine info exposes `packingPath` and
+`exists.packing`, with the old field names retained as aliases.
+
+The checked-in Linux helper was renamed without rebuilding it; its capabilities
+are unchanged. Rebuild it on Linux to pick up recent engine changes.
+`npm run test:native-engine-name` checks launch paths for all platforms in
+development and packaged layouts, compatibility fields and packaging names.
+
+## Geometry Engine Backports
+
+The macOS arm64 and Windows x64 helpers include selected upstream jagua-rs
+improvements while retaining our existing input format and custom optimizer:
+
+- Native per-hazard early rejection, a faster collision collector, and cached
+  surrogate screening reduce repeated collision work.
+- Polygon simplification cannot enlarge the original bounding box. Requested
+  spacing offsets are still applied separately.
+- `geo 0.33` buffering replaces `geo-buffer` for clearance offsets, with
+  validation at solver precision.
+- Placed items, collision hazards and snapshots share immutable polygon
+  geometry instead of repeatedly copying it.
+
+These are backports to the vendored 0.7-compatible fork, not a complete 1.1
+migration. Sources, upstream references, regression tests and fixed-work
+benchmarks are documented in the sibling engine's `vendor/jagua-rs/BACKPORTS.md`.
+Local macOS benchmarks showed 20-28% less collision-evaluation time across
+three inputs; this is not a prediction of total nesting time or layout quality.
+
+Verification included 66 native tests, the app's shared-edge suite (17 native
+scenarios), cutout nesting in all three sheet modes, previews, layout editing,
+and DXF export. The Windows helper was cross-compiled, not runtime-tested on
+Windows. Linux still needs rebuilding. The older Rust integration suite has
+pre-existing API drift, documented in `BACKPORTS.md`; it is not counted as a pass.
+
+## Allow Exact Fits
+
+Settings > Algorithm > **Allow exact fits** is on by default. Saved explicit
+choices to disable it are preserved. It requires zero
+part spacing, Auto multi-sheet strategy, and Fixed or Optimize up to max length
+sheet mode. Sheet margins and allowed rotations remain in effect.
+
+The native `--exact-fit-assist` pass tries exact contact positions separately
+from the strict-touch optimizer. It can use 0.1 mm of temporary search slack,
+but accepts only complete layouts recovered onto the original usable sheets.
+It never scales parts. Both collision contours and export-precision source
+contours are checked for bounds and intersection, including after finishing
+and the unified-to-local sheet coordinate round trip. Normal completion and
+Stop select between validated plans; failed recovery keeps the normal result.
+
+Assisted layouts use the DXF writer's 0.0001 mm precision for placement
+translations in both validation and final JSON. Original contour coordinates
+are not rounded or scaled. This avoids false overlap failures caused by f32
+centering/serialization of offset decimal-coordinate DXFs. Candidate generation
+also checks nearby representable translations, without relaxing final bounds.
+
+The search uses at most 15% of the run budget, capped at 2 seconds, with limits
+of 512 copies, 1,024 vertices per contour and 32,768 vertices across copies.
+Complex jobs fall back to normal nesting. This is a bounded heuristic, not a
+guarantee of a globally optimal layout. Exact-contact plans are not fed back
+into the strict-touch optimizer, which would separate them again.
+
+Rebuild the helper on each platform when shipping this feature. The app checks
+for the CLI capability before launching; older helpers use normal nesting,
+with the control disabled and an explanatory hint in Settings, rather than
+receiving an unknown flag or preventing a run. The Linux helper still
+needs rebuilding. Sources are in the sibling `nesting` repository.
+
+Checks: `npm run test:exact-fit-assist` and
+`npm run test:exact-fit-assist:native`. The native test also accepts a helper
+path and verifies final DXF dimensions, margins, counts, contacts, multiple
+sheets, and early stopping.
+
+## Experimental Cutout Nesting
+
+Settings > Algorithm > **Nest inside cutouts** is off by default. It uses a
+separate `packing --cutout -i request.json` constructor, not the strip optimizer.
+The native source is `src/optimizer/cutout.rs` in the sibling `nesting` repository.
+Both repositories must be included when shipping or reviewing this feature.
+
+- The fixed irregular container reuses jagua collision detection and Sparrow's
+  placement sampling. It does not resize the hole or recursively nest children.
+- Background preparation is debounced and serialized, with bounded geometry,
+  candidates, copies, samples and elapsed time. Geometry validation runs in a
+  worker, outside Electron's UI/main threads. Run uses only completed results;
+  an early Run or a skipped/failed preparation uses ordinary nesting instead.
+- Cached patterns are keyed by exact contours, rotations, spacing and bounded
+  demand. Assembly accounts for current inventory and assigns contiguous solver
+  IDs. Parent and children remain a rigid package through all sheet modes,
+  early stopping, alignment, manual editing and export.
+- Children retain their own DXF entities and layers. Export composes the child
+  and parent transforms, then applies the sheet margin once. The input JSON's
+  `cutout_exports` manifest preserves this information for recovery.
+- Preparation uses polygonal cutout contours with a 0.02 mm safety allowance in
+  addition to part spacing. Complex inputs are skipped, not simplified further.
+  Empty search results mean unknown, not proof of infeasibility.
+- The first version does not optimize across packages or count their internal
+  shared edges. Shared-edge totals are shown as unavailable for packaged runs.
+  Contained parts cannot yet be detached in the layout editor.
+
+Rebuild the platform's existing packing helper with `--features live_svg` after
+updating the native source. The app probes `--help` and disables the setting on
+older helpers, including Linux builds that have not yet been rebuilt.
+
+Verification: `npm run test:cutout-nesting` exercises the worker, native search,
+all sheet modes, inventory, transforms and DXF export. It also accepts an
+executable path: `node scripts/test-cutout-nesting.js /path/to/packing`.
+`npm run test:placement-editor-ui` covers package selection, movement, rotation,
+deletion and undo using real SVG hit testing.
+
 ## Current layout
 
 ```text
 native/
   macos/
     bin/
-      sparrow
+      packing
 ```
 
 ## Why this is recommended
@@ -44,9 +160,9 @@ Example result:
 {
   "success": true,
   "baseDir": ".../native/macos/bin",
-  "sparrowPath": ".../native/macos/bin/sparrow",
+  "packingPath": ".../native/macos/bin/packing",
   "exists": {
-    "sparrow": true
+    "packing": true
   }
 }
 ```
@@ -60,7 +176,7 @@ Example:
 ```js
 const { spawn } = require('node:child_process');
 
-function runSparrow(binaryPath, inputPath, outputDir) {
+function runPacking(binaryPath, inputPath, outputDir) {
   return spawn(binaryPath, [
     '-i', inputPath,
     '--max-strip-length', '3000',
@@ -202,25 +318,25 @@ From the Rust workspace:
 
 ```bash
 cd /Users/pavel/Extensions/nesting
-cargo build --release --bin sparrow --features live_svg
+cargo build --release --bin packing --features live_svg
 ```
 
 Then copied into this app:
 
 ```bash
-cp /Users/pavel/Extensions/nesting/target/release/sparrow /Users/pavel/Extensions/nesting-app/native/macos/bin/
-chmod +x /Users/pavel/Extensions/nesting-app/native/macos/bin/sparrow
+cp /Users/pavel/Extensions/nesting/target/release/packing /Users/pavel/Extensions/nesting-app/native/macos/bin/
+chmod +x /Users/pavel/Extensions/nesting-app/native/macos/bin/packing
 ```
 
 Windows helpers can be cross-compiled from macOS with `cargo-xwin`:
 
 ```bash
-cargo xwin build --release --target x86_64-pc-windows-msvc --bin sparrow --features live_svg
-cp target/x86_64-pc-windows-msvc/release/sparrow.exe ../nesting-app/native/windows/bin/
+cargo xwin build --release --target x86_64-pc-windows-msvc --bin packing --features live_svg
+cp target/x86_64-pc-windows-msvc/release/packing.exe ../nesting-app/native/windows/bin/
 ```
 
 Rebuild the Linux helper on Linux with the same `cargo build` command, then
-copy `target/release/sparrow` into `native/linux/bin/`. Helpers for other
+copy `target/release/packing` into `native/linux/bin/`. Helpers for other
 platforms do not receive an engine fix until they are rebuilt too.
 
 ## Running locally

@@ -35,7 +35,7 @@ async function main() {
     await fs.mkdir(appOutDir, { recursive: true });
     await fs.mkdir(path.join(appOutDir, 'resources/native/linux/bin'), { recursive: true });
     await fs.writeFile(path.join(appOutDir, name), 'test app');
-    await fs.writeFile(path.join(appOutDir, 'resources/native/linux/bin/sparrow'), 'test helper');
+    await fs.writeFile(path.join(appOutDir, 'resources/native/linux/bin/packing'), 'test helper');
 
     const packager = {
       config: metadata.build,
@@ -65,7 +65,7 @@ async function main() {
           assert.ok(desktop.includes(`Icon=\${SNAP}/meta/gui/${name}.png`));
           const icon = await fs.readFile(path.join(stageDir, written.icon));
           assert.deepEqual(icon, await fs.readFile(path.join(__dirname, '../assets/icon-square.png')));
-          assert.equal(await fs.readFile(path.join(stageDir, 'app/resources/native/linux/bin/sparrow'), 'utf8'), 'test helper');
+          assert.equal(await fs.readFile(path.join(stageDir, 'app/resources/native/linux/bin/packing'), 'utf8'), 'test helper');
           return true; // Inspect real staging output without invoking Snapcraft.
         },
       },

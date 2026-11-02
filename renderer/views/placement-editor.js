@@ -277,7 +277,9 @@
         const item = model.items[p.item_id];
         const id = model.edits[index].sourceIndex;
         const color = itemColors?.get(Number(p.item_id));
-        const d = [path(core.outline(item)), ...(item.export?.holes || []).map(path)].join(' ');
+        const d = item.export?.cutout_children?.length
+          ? root.NestCutoutPackages.path(root.NestCutoutPackages.rings(item))
+          : [path(core.outline(item)), ...(item.export?.holes || []).map(path)].join(' ');
         definitions.set(p.item_id, `<g id="item_${Number(p.item_id)}"><path d="${d}" fill-rule="evenodd" vector-effect="non-scaling-stroke"/></g>`);
         const [x, y] = p.transformation.translation;
         return `<g data-placement-source-index="${id}" class="manual-placement${active && selection.has(id) ? ' selected' : ''}"><use href="#item_${Number(p.item_id)}" transform="translate(${x + margin} ${y + margin}) rotate(${p.transformation.rotation})" fill="${color?.fill || colors.partFill}" stroke="${color?.stroke || colors.partStroke}" color="${color?.stroke || colors.partStroke}" stroke-width="1"/></g>`;
