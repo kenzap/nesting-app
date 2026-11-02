@@ -448,7 +448,7 @@ function registerExportDxfIpc() {
         }
       }
 
-      function collectLayerDefs(sheetStrips) {
+      function collectLayerDefs(parts) {
         const layerMap = new Map();
         const addLayer = (name, color) => {
           const layerName = String(name || '0');
@@ -465,13 +465,11 @@ function registerExportDxfIpc() {
 
         addLayer('0', '#CCCCCC');
 
-        sheetStrips.forEach(strip => {
-          expandPlacements(strip.placedItems, globalItemsById, exportItems).forEach(({ item }) => {
-            const exportItem = item.export;
-            (exportItem?.layers || []).forEach(layer => addLayer(layer.name, layer.color));
-            const engravingLayer = getEngravingLayer(item);
-            if (engravingLayer) addLayer(engravingLayer.name, engravingLayer.color);
-          });
+        parts.forEach(({ item }) => {
+          const exportItem = item.export;
+          (exportItem?.layers || []).forEach(layer => addLayer(layer.name, layer.color));
+          const engravingLayer = getEngravingLayer(item);
+          if (engravingLayer) addLayer(engravingLayer.name, engravingLayer.color);
         });
 
         return [...layerMap.values()];
@@ -1365,12 +1363,24 @@ function registerExportDxfIpc() {
 
         const placementEditor = require('../../shared/placement-editor');
         const originalPlacements = placementEditor.readPlacements(stripData);
-        const placedItems = strip.manual_edits === undefined ? originalPlacements
-          : placementEditor.validateEdits(originalPlacements, strip.manual_edits,
-            Object.fromEntries(Object.entries(globalItemsById).map(([id, item]) => [id, { ...item, export: exportItems[id] }])),
-            { width: Number(strip.sheet_width), height: Number(strip.strip_height),
-              margin: Math.max(0, Number(strip.sheet_margin ?? exportSettings.sheetMargin) || 0) },
-            Math.max(0, Number(exportSettings.partSpacing) || 0));
+        const editorItems = Object.fromEntries(Object.entries(globalItemsById).map(([id, item]) =>
+          [id, { ...item, export: exportItems[id] }]));
+        const editFrame = { width: Number(strip.sheet_width), height: Number(strip.strip_height),
+          margin: Math.max(0, Number(strip.sheet_margin ?? exportSettings.sheetMargin) || 0) };
+        const editSpacing = Math.max(0, Number(exportSettings.partSpacing) || 0);
+        let placedItems, parts;
+        if (strip.manual_edits !== undefined && strip.manual_edits_version === placementEditor.EDIT_VERSION) {
+          const model = placementEditor.editableLayout(originalPlacements, editorItems, strip.manual_edits, strip.manual_edits_version);
+          placedItems = placementEditor.validateEdits(model.original, model.edits, model.items, editFrame, editSpacing);
+          parts = placedItems.map(placement => ({ placement, item: model.items[placement.item_id] }));
+        } else {
+          if (strip.manual_edits !== undefined && strip.manual_edits_version !== undefined && strip.manual_edits_version !== 1) {
+            throw new Error('Unsupported placement edit version.');
+          }
+          placedItems = strip.manual_edits === undefined ? originalPlacements
+            : placementEditor.validateEdits(originalPlacements, strip.manual_edits, editorItems, editFrame, editSpacing);
+          parts = expandPlacements(placedItems, globalItemsById, exportItems);
+        }
         let sheetEntities = [];
         const engravings = [];
         const debugRows = [];
@@ -1388,7 +1398,7 @@ function registerExportDxfIpc() {
             }
           : null;
 
-        expandPlacements(placedItems, globalItemsById, exportItems).forEach(({ placement, item }, owner) => {
+        parts.forEach(({ placement, item }, owner) => {
           const exportItem = item.export;
           if (!item?.shape?.data) return;
           const rotation = Number(placement.transformation?.rotation) || 0;
@@ -1486,8 +1496,8 @@ function registerExportDxfIpc() {
         }
         const includeSheetOutline = !!exportSettings.includeSheetOutline && !!sheetFrame;
         const layerDefs = includeSheetOutline
-          ? ensureLayerDef(collectLayerDefs([{ placedItems }]), SHEET_BOUNDARY_LAYER)
-          : collectLayerDefs([{ placedItems }]);
+          ? ensureLayerDef(collectLayerDefs(parts), SHEET_BOUNDARY_LAYER)
+          : collectLayerDefs(parts);
         const dxf = buildDXF(
           sheetEntities,
           engravings,

@@ -565,6 +565,7 @@ function registerSparrowIpc() {
       return {
         success: true,
         items: Object.fromEntries((input?.items || []).map(item => [item.id, item])),
+        exportItems: input?.cutout_exports || {},
         strips: strips.map(strip => ({
           json_path: strip.json_path,
           placements: editor.readPlacements(readJsonIfExists(strip.json_path)),

@@ -195,7 +195,8 @@ console.log('Placement editing: copy identity, deletion, reset, rotation, concav
     assert.equal((await load('test')).success, false, 'running jobs cannot be edited');
     run.status = 'completed';
     assert.equal((await load('test')).success, false, 'missing final artifacts cannot be edited');
-    fs.writeFileSync(run.inputPath, JSON.stringify({ items: [{ id: 1, ...items[1] }], sheets: [{ width: 100, height: 60 }] }));
+    fs.writeFileSync(run.inputPath, JSON.stringify({ items: [{ id: 1, ...items[1] }], sheets: [{ width: 100, height: 60 }],
+      cutout_exports:{1:{source_name:'saved-part.dxf'}} }));
     fs.mkdirSync(path.join(dir, 'output/final_job'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'output/final_job/strip_01.svg'), '<svg/>');
     fs.writeFileSync(path.join(dir, 'output/final_job/strip_01.json'), JSON.stringify({ solution: { layout: { placed_items: original } } }));
@@ -207,6 +208,7 @@ console.log('Placement editing: copy identity, deletion, reset, rotation, concav
       assert.equal(result.success, true, result.error);
       assert.equal(result.strips[0].placements.length, 3);
       assert.equal(result.items[1].shape.data.length, 4);
+      assert.equal(result.exportItems[1].source_name,'saved-part.dxf','editor can recover persisted part metadata');
     }
     console.log('Placement IPC: completed and early-stopped jobs load; running, missing, and unknown jobs are rejected.');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

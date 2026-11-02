@@ -333,12 +333,12 @@ app.whenReady().then(async () => {
     win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:p.x,y:p.y,modifiers});
     await settle();
   }
-  async function dragPart(n, dx, dy) {
+  async function dragPart(n, dx, dy, modifiers = []) {
     const p = await partCenter(n);
     const x = Math.round(p.x + dx * p.scale), y = Math.round(p.y - dy * p.scale);
-    win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:p.x,y:p.y});
-    win.webContents.sendInputEvent({type:'mouseMove',button:'left',x,y});
-    win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x,y});
+    win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:p.x,y:p.y,modifiers});
+    win.webContents.sendInputEvent({type:'mouseMove',button:'left',x,y,modifiers});
+    win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x,y,modifiers});
     await settle();
   }
   const selectedCount = () => evaluate('document.querySelectorAll(".manual-placement.selected").length');
@@ -407,32 +407,111 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate('state.nestResult.strips[0].item_count'), 3, 'one undo restores the deleted group');
   await resetLayout();
 
-  // A cutout package remains one editable copy, with all child contours visible.
+  // Packages become independent physical copies in editing, not in the solver.
   await evaluate(`
     layoutEditorApi.toggle();
     state.nestResult = structuredClone(state.nestResult);
     state.nestResult.strips.forEach(s => {s.item_count=4;delete s.manual_edits;});
     fixture.items[0].allowed_orientations = [0,90,180,270];
+    state.nestRunPartSpacing = 0;
     fixture.strips[0].placements = fixture.strips[0].placements.slice(0,2);
-    state.lastPlacementExportItems = {0:{polygon:fixture.items[0].shape.data,holes:[[[4,4],[36,4],[36,16],[4,16]]],
+    // Mixed DXF winding must not bypass collisions at zero part spacing.
+    state.lastPlacementExportItems = {0:{polygon:fixture.items[0].shape.data.slice().reverse(),holes:[[[4,4],[36,4],[36,16],[4,16]]],
+      cutout_holes:[[[4,4],[36,4],[36,16],[4,16]]],
       cutout_children:[{item:{shape:{data:[[0,0],[8,0],[8,5],[0,5]]}},
-        export:{polygon:[[0,0],[8,0],[8,5],[0,5]],holes:[]},transformation:{rotation:0,translation:[16,6]}}]}};
+        export:{source_name:'child.dxf',polygon:[[0,0],[8,0],[8,5],[0,5]].reverse(),holes:[]},transformation:{rotation:0,translation:[16,8]}}]}};
     layoutEditorApi.toggle();
   `);
   await settle();
-  assert.equal(await evaluate('document.querySelector("#item_0 path").getAttribute("d").match(/M/g).length'),3,
-    'editor draws outer boundary, hole and child');
-  await clickPart(0);
-  assert.equal(await selectedCount(),1,'clicking a contained part selects its package');
+  assert.equal(await evaluate('document.querySelectorAll("#items use").length'),4,'each child has its own hit target');
+  assert.equal(await evaluate('document.querySelector("#item_0 path").getAttribute("d").match(/M/g).length'),2,
+    'parent definition no longer contains child geometry');
+  await clickPart(1);
+  assert.equal(await selectedCount(),1,'clicking a child selects only that copy');
+  assert.equal(await evaluate('document.querySelector(".manual-placement.selected").dataset.placementSourceIndex'),'1');
   await key('ArrowRight');
-  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits[0].translation[0]'),21,'package movement is committed');
-  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4, 'package nudge counts real parts');
+  assert.deepEqual(await translations(),[[20,20],[37,28],[100,20],[116,28]],'only the selected child is nudged');
+  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits_version'),2);
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4);
   await evaluate('document.getElementById("layoutEdit-rotateRight").click()');
-  assert.equal(Math.abs(await evaluate('state.nestResult.strips[0].manual_edits[0].rotation'))%180,90,'package rotates with its child');
+  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits[1].rotation'),270,'child rotates independently');
+  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits[0].rotation'),0,'parent does not rotate');
+  await resetLayout();
+  await dragPart(1,70,0,['alt']);
+  near(await translations(),[[20,20],[106,28],[100,20],[116,28]],'child moves into another parent cutout');
+  const beforeBlockedChild=await translations();
+  const childTransform=await evaluate('document.querySelectorAll("#items use")[1].getAttribute("transform")');
+  await dragPart(1,-5,0,['alt']);
+  assert.deepEqual(await translations(),beforeBlockedChild,'parent material blocks an invalid drop');
+  assert.equal(await evaluate('document.getElementById("layoutEditMessage").textContent'),'layoutEditor.collision');
+  assert.equal(await evaluate('document.querySelectorAll("#items use")[1].getAttribute("transform")'),childTransform,
+    'rejected child drag also restores the visible geometry');
+  await dragPart(1,-30,50,['alt']);
+  near(await translations(),[[20,20],[76,78],[100,20],[116,28]],'child can leave the parent for free sheet space');
   await evaluate('document.getElementById("layoutEdit-delete").click()');
-  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),2, 'deleting a package deletes its child too');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),3,'delete removes only the selected child');
+  assert.deepEqual(await evaluate('state.nestResult.strips[0].manual_edits.map(e=>e.sourceIndex)'),[0,2,3]);
   await evaluate('document.getElementById("layoutEdit-undo").click()');
-  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4, 'undo restores the whole package');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4,'undo restores the child');
+  await resetLayout();
+  async function clickSheet(x,y,modifiers=[]) {
+    const p=await evaluate(`(() => {const p=new DOMPoint(${x}+10,${y}+10).matrixTransform(document.getElementById('items').getScreenCTM());
+      return {x:Math.round(p.x),y:Math.round(p.y)};})()`);
+    win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...p,modifiers});
+    win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...p,modifiers});
+    await settle();
+  }
+  await clickSheet(22,22);
+  assert.equal(await evaluate('document.querySelector(".manual-placement.selected").dataset.placementSourceIndex'),'0');
+  await evaluate('document.getElementById("layoutEdit-delete").click()');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),3,'deleting the parent leaves its child');
+  assert.deepEqual(await evaluate('state.nestResult.strips[0].manual_edits.map(e=>e.sourceIndex)'),[1,2,3]);
+  await evaluate('document.getElementById("layoutEdit-undo").click()');
+  await clickSheet(22,22);
+  await key('ArrowRight');
+  assert.deepEqual(await translations(),[[21,20],[36,28],[100,20],[116,28]],'parent movement does not carry its child');
+  const beforeBlockedParent=await translations();
+  const parentTransform=await evaluate('document.querySelector("#items use").getAttribute("transform")');
+  const parentPointer=await evaluate(`(() => {
+    const matrix=document.getElementById('items').getScreenCTM();
+    const start=new DOMPoint(32,32).matrixTransform(matrix);
+    const end=new DOMPoint(47,32).matrixTransform(matrix);
+    return {start:{x:Math.round(start.x),y:Math.round(start.y)},end:{x:Math.round(end.x),y:Math.round(end.y)}};
+  })()`);
+  win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...parentPointer.start,modifiers:['alt']});
+  win.webContents.sendInputEvent({type:'mouseMove',button:'left',...parentPointer.end,modifiers:['alt']});
+  win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...parentPointer.end,modifiers:['alt']});
+  await settle();
+  assert.deepEqual(await translations(),beforeBlockedParent,'parent cannot be dropped across a stationary child');
+  assert.equal(await evaluate('document.getElementById("layoutEditMessage").textContent'),'layoutEditor.collision');
+  assert.equal(await evaluate('document.querySelector("#items use").getAttribute("transform")'),parentTransform,
+    'rejected parent drag also restores the visible geometry');
+  await resetLayout();
+  await clickSheet(22,22); await clickPart(1,['shift']);
+  assert.equal(await selectedCount(),2,'parent and child can still be selected together');
+  await key('ArrowUp',{shiftKey:true});
+  assert.deepEqual(await translations(),[[20,30],[36,38],[100,20],[116,28]],'explicit multi-selection moves both');
+  await evaluate('document.getElementById("layoutEdit-undo").click()');
+  await clickPart(1); await key('ArrowRight');
+  await evaluate('layoutEditorApi.toggle()');
+  assert.equal(await evaluate('document.querySelectorAll("#items use").length'),4,'edited preview stays expanded outside editing');
+  assert.equal(await evaluate('layoutEditorApi.exportItemsForStrip(state.nestResult.strips[0])[1].source_name'),'child.dxf');
+  await evaluate('layoutEditorApi.toggle()'); await settle();
+  assert.deepEqual(await translations(),[[20,20],[37,28],[100,20],[116,28]],'re-entering preserves independent edits');
+  await evaluate(`
+    layoutEditorApi.toggle();
+    fixture.exportItems=structuredClone(state.lastPlacementExportItems);
+    state.lastPlacementExportItems=null;
+    state.nestResult=structuredClone(state.nestResult);
+    layoutEditorApi.toggle();
+  `);
+  await settle();
+  assert.equal(await evaluate('document.querySelectorAll("#items use").length'),4,'persisted metadata recovers expanded geometry');
+  assert.deepEqual(await translations(),[[20,20],[37,28],[100,20],[116,28]],'versioned edits survive model reconstruction');
+  await resetLayout();
+  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits'),undefined);
+  assert.equal(await evaluate('state.nestResult.strips[0].manual_edits_version'),undefined,'reset removes the edit schema marker');
+  assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4);
 
   await evaluate('state.status="running";window.dispatchEvent(new CustomEvent("nest-status-changed"))');
   assert.equal(await evaluate('layoutEditorApi.isActive()'), false);

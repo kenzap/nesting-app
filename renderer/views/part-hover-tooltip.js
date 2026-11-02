@@ -26,8 +26,7 @@
 
   // Resolves a solver item id to what the tooltip shows. Returns null when the
   // id has no export metadata (e.g. a stale result from before the last edit).
-  function describePart(state, itemId) {
-    const items = state?.lastPlacementExportItems;
+  function describePart(state, itemId, items = state?.lastPlacementExportItems) {
     const meta = items?.[itemId] ?? items?.[String(itemId)];
     if (!meta) return null;
 
@@ -108,9 +107,10 @@
         return;
       }
 
-      const items = state.lastPlacementExportItems;
+      const items = globalScope.layoutEditorApi?.exportItemsForStrip?.(state.nestResult?.strips?.[state.activeStripIndex || 0])
+        || state.lastPlacementExportItems;
       if (itemId !== activeItemId || items !== activeItems) {
-        const part = describePart(state, itemId);
+        const part = describePart(state, itemId, items);
         if (!part) {
           hide();
           return;

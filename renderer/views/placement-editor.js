@@ -146,9 +146,11 @@
       const changed = JSON.stringify(model.edits) !== JSON.stringify(core.editsFor(model.original));
       if (changed) {
         model.strip.manual_edits = clone(model.edits);
+        model.strip.manual_edits_version = core.EDIT_VERSION;
         Object.assign(model.strip, core.stats(model.placements, model.items, model.frame));
       } else {
         delete model.strip.manual_edits;
+        delete model.strip.manual_edits_version;
         model.strip.item_count = model.originalStats.item_count;
         model.strip.density = model.originalStats.density;
       }
@@ -185,16 +187,19 @@
               : Number(strip.strip_width) + margin * 2;
             const frame = { width, height: Number(strip.strip_height), margin };
             if (!(width > margin * 2 && frame.height > margin * 2)) throw new Error(label('unavailable'));
-            const items = Object.fromEntries(Object.entries(data.items).map(([id, item]) =>
-              [id, { ...item, export: state.lastPlacementExportItems?.[id] }]));
-            source.placements.forEach(p => core.outline(items[p.item_id]));
-            pending.push([strip, { strip, frame, items, original: clone(source.placements),
-              placements: clone(source.placements), edits: core.editsFor(source.placements),
-              originalStats: { density: strip.density, item_count: strip.item_count } }]);
+            const sourceItems = Object.fromEntries(Object.entries(data.items).map(([id, item]) =>
+              [id, { ...item, export: state.lastPlacementExportItems?.[id] || data.exportItems?.[id] }]));
+            const editable = core.editableLayout(source.placements, sourceItems, strip.manual_edits, strip.manual_edits_version);
+            editable.original.forEach(p => core.outline(editable.items[p.item_id]));
+            pending.push([strip, { strip, frame, ...editable,
+              placements: core.applyEdits(editable.original, editable.edits),
+              originalStats: strip.manual_edits === undefined ? { density: strip.density, item_count: strip.item_count }
+                : core.stats(editable.original, editable.items, frame) }]);
           }
           pending.forEach(([strip, model]) => models.set(strip, model));
           result = snapshot;
-          result.originalSharedLength = result.total_shared_edge_length_mm;
+          if (!Object.hasOwn(result, 'originalSharedLength')) result.originalSharedLength = result.total_shared_edge_length_mm;
+          models.forEach(update);
         }
         if (root.measureToolApi?.isActive()) root.measureToolApi.toggle();
         active = true; clearSelection(); say('hint'); draw();
@@ -277,9 +282,7 @@
         const item = model.items[p.item_id];
         const id = model.edits[index].sourceIndex;
         const color = itemColors?.get(Number(p.item_id));
-        const d = item.export?.cutout_children?.length
-          ? root.NestCutoutPackages.path(root.NestCutoutPackages.rings(item))
-          : [path(core.outline(item)), ...(item.export?.holes || []).map(path)].join(' ');
+        const d = [path(core.outline(item)), ...root.NestCutoutPackages.materialHoles(item.export).map(path)].join(' ');
         definitions.set(p.item_id, `<g id="item_${Number(p.item_id)}"><path d="${d}" fill-rule="evenodd" vector-effect="non-scaling-stroke"/></g>`);
         const [x, y] = p.transformation.translation;
         return `<g data-placement-source-index="${id}" class="manual-placement${active && selection.has(id) ? ' selected' : ''}"><use href="#item_${Number(p.item_id)}" transform="translate(${x + margin} ${y + margin}) rotate(${p.transformation.rotation})" fill="${color?.fill || colors.partFill}" stroke="${color?.stroke || colors.partStroke}" color="${color?.stroke || colors.partStroke}" stroke-width="1"/></g>`;
@@ -639,7 +642,11 @@
     }
 
     const toggleEditing = () => (active ? exit() : enter());
-    return { bind, sync, svgForStrip, exit, toggle: toggleEditing, resetLayout, canReset, isActive: () => active };
+    const exportItemsForStrip = strip => {
+      const model = models.get(strip);
+      return model && (active || strip.manual_edits !== undefined) ? model.exportItems : null;
+    };
+    return { bind, sync, svgForStrip, exportItemsForStrip, exit, toggle: toggleEditing, resetLayout, canReset, isActive: () => active };
   }
   root.NestPlacementEditorView = { createPlacementEditorView };
 })(window);

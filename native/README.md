@@ -117,7 +117,7 @@ Both repositories must be included when shipping or reviewing this feature.
   after earlier packages, including repeated parent copies; Run resolves the
   same keys. Assembly accounts for current inventory and assigns contiguous solver
   IDs. Parent and children remain a rigid package through all sheet modes,
-  early stopping, alignment, manual editing and export.
+  early stopping and automatic alignment.
 - Children retain their own DXF entities and layers. Export composes the child
   and parent transforms, then applies the sheet margin once. The input JSON's
   `cutout_exports` manifest preserves this information for recovery.
@@ -126,7 +126,20 @@ Both repositories must be included when shipping or reviewing this feature.
   Empty search results mean unknown, not proof of infeasibility.
 - The first version does not optimize across packages or count their internal
   shared edges. Shared-edge totals are shown as unavailable for packaged runs.
-  Contained parts cannot yet be detached in the layout editor.
+
+After nesting, Edit Layout expands each package into independently selectable
+physical parts. Children can move/rotate within or between approved cutouts or
+onto free sheet space. Moving/deleting a parent does not move/delete its children;
+multi-select them explicitly to move the group. Collision and clearance checks
+use material boundaries with approved empty cutouts, not arbitrary drawing loops.
+Straight cutout boundaries are also snapping targets when source geometry confirms
+they are lines. Undo/redo/reset retain stable per-copy identities.
+
+Version 2 manual edits address this expanded placement list. The shared model is
+rebuilt identically for the preview and DXF export; original solver JSON and
+package metadata are not rewritten. Unversioned legacy edits still address whole
+packages. Export validates edits before emitting each physical part once, with
+its own source entities and layers. `npm run test:cutout-editing` covers this path.
 
 Rebuild the platform's existing packing helper with `--features live_svg` after
 updating the native source. The app probes `--help` and disables the setting on
@@ -135,8 +148,8 @@ older helpers, including Linux builds that have not yet been rebuilt.
 Verification: `npm run test:cutout-nesting` exercises the worker, native search,
 all sheet modes, inventory, transforms and DXF export. It also accepts an
 executable path: `node scripts/test-cutout-nesting.js /path/to/packing`.
-`npm run test:placement-editor-ui` covers package selection, movement, rotation,
-deletion and undo using real SVG hit testing.
+`npm run test:placement-editor-ui` covers independent child selection, moving
+between cutouts, group movement, rotation, deletion and undo using real SVG hit testing.
 
 ## Current layout
 

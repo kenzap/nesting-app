@@ -64,7 +64,8 @@
     function buildItemColorMap() {
       const settings = getCurrentNestingSettings();
       if (settings?.colorPartsBySource === false) return null;
-      const items = state.lastPlacementExportItems;
+      const items = globalScope.layoutEditorApi?.exportItemsForStrip?.(state.nestResult?.strips?.[state.activeStripIndex || 0])
+        || state.lastPlacementExportItems;
       if (!items || typeof items !== 'object') return null;
       const ids = Object.keys(items).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
       if (!ids.length) return null;

@@ -201,6 +201,7 @@
         index: strip.index,
         json_path: strip.json_path,
         manual_edits: strip.manual_edits,
+        manual_edits_version: strip.manual_edits_version,
         strip_width: strip.strip_width,
         strip_height: strip.strip_height || sheet.height || 0,
         sheet_width: exportSheetWidthForStrip(strip, sheet),

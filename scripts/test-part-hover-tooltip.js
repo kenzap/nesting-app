@@ -172,4 +172,13 @@ assert.equal(subText().textContent, 'Sketch 1');
 move(partTarget('#item_77'));
 assert.equal(isShown(), false, 'an id with no metadata shows nothing rather than a blank tooltip');
 
+const expandedMetadata={77:{source_file_id:'f2',source_name:'Bracket.dxf',source_shape_id:'shape_1'}};
+window.layoutEditorApi={exportItemsForStrip:()=>expandedMetadata};
+move(partTarget('#item_77'));
+assert.equal(nameText(),'Bracket.dxf','an independently edited child uses its own source metadata');
+assert.equal(subText().textContent,'Sketch 2');
+window.layoutEditorApi.exportItemsForStrip=()=>null;
+move(partTarget('#item_77'));
+assert.equal(isShown(),false,'stale editor IDs are not used for a normal solver preview');
+
 console.log('Part tooltip names the hovered part\'s source file, follows the cursor, flips at edges, and hides when it should.');
