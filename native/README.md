@@ -91,6 +91,12 @@ Checks: `npm run test:exact-fit-assist` and
 path and verifies final DXF dimensions, margins, counts, contacts, multiple
 sheets, and early stopping.
 
+The geometry integration cases use a 15-second global budget to give exact-fit
+construction its full 2-second allowance on slower CI runners. They are not
+3-second performance benchmarks; the expected sheet counts and geometry checks
+are unchanged. Failed Windows Store runs retain inputs, native logs and outputs
+in an `exact-fit-diagnostics` workflow artifact.
+
 ## Experimental Cutout Nesting
 
 Settings > Algorithm > **Nest inside cutouts** is off by default. It uses a

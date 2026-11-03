@@ -11,7 +11,9 @@ const DxfParser = require('dxf-parser');
 const root = path.resolve(__dirname, '..');
 const platform = { darwin: 'macos', win32: 'windows' }[process.platform] || process.platform;
 const binary = process.argv[2] || path.join(root, 'native', platform, 'bin', process.platform === 'win32' ? 'packing.exe' : 'packing');
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'exact-fit-native-'));
+const artifactRoot = process.env.EXACT_FIT_TEST_ARTIFACTS || os.tmpdir();
+fs.mkdirSync(artifactRoot, { recursive: true });
+const temp = fs.mkdtempSync(path.join(artifactRoot, 'exact-fit-native-'));
 
 function loadIpc(file, electron, expose = '') {
   const filename = path.join(root, 'main/ipc', file);
@@ -55,13 +57,18 @@ async function run(name, { count = 50, expected = 1, mode = 'fixed', margin = 0,
   };
   const inputPath = path.join(cwd, 'exact-fit.json'); fs.writeFileSync(inputPath, JSON.stringify(input));
   const stopFile = path.join(cwd, 'stop');
-  const args = ['--input', inputPath, '--global-time', stop ? '30' : count > 150 || ox !== 0 || oy !== 0 ? '15' : '3', '--workers', '1', '--rng-seed', '42',
+  // Exact-fit construction gets min(15% of global time, 2s), split between
+  // exact and slack attempts. Test geometry, not a CI runner's ability to finish
+  // the first attempt in 225ms (the old 3s budget), even for multi-sheet jobs.
+  const globalTime = stop ? 30 : enabled && spacing === 0 ? 15 : 3;
+  const timeoutMs = (globalTime + 30) * 1000;
+  const args = ['--input', inputPath, '--global-time', String(globalTime), '--workers', '1', '--rng-seed', '42',
     '--max-strip-length', '400', '--strip-margin', String(margin), '--min-item-separation', String(spacing), '--stop-file', stopFile];
   if (enabled) args.push('--exact-fit-assist');
   if (shared) args.push('--favor-shared-edges');
   if (align !== 'none') args.push(`--align-${align}`);
   const child = spawn(binary, args, { cwd });
-  let log = ''; let requestedStop = false;
+  let log = ''; let requestedStop = false; let timedOut = false;
   const capture = chunk => {
     log += chunk;
     if (stop && !requestedStop && log.includes('[EXACT-FIT-ASSIST] retained')) {
@@ -69,15 +76,28 @@ async function run(name, { count = 50, expected = 1, mode = 'fixed', margin = 0,
     }
   };
   child.stdout.on('data', capture); child.stderr.on('data', capture);
-  const timeout = setTimeout(() => child.kill(), 20000);
-  const code = await new Promise((resolve, reject) => { child.on('close', resolve); child.on('error', reject); });
-  clearTimeout(timeout); fs.writeFileSync(path.join(cwd, 'run.log'), log);
-  assert.equal(code, 0, log.slice(-4000));
-  if (stop) assert.ok(requestedStop);
+  const timeout = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
+  let exit;
+  try {
+    exit = await new Promise((resolve, reject) => {
+      child.once('close', (code, signal) => resolve({ code, signal }));
+      child.once('error', reject);
+    });
+  } finally {
+    clearTimeout(timeout);
+    fs.writeFileSync(path.join(cwd, 'run.log'),
+      `${JSON.stringify({ name, binary, args, timeoutMs, requestedStop, timedOut, exit }, null, 2)}\n\n${log}`);
+  }
+  const assistLog = log.split(/\r?\n/).filter(line => line.includes('[EXACT-FIT-ASSIST]')).join('\n');
+  const diagnostics = `${name}: global budget ${globalTime}s; watchdog ${timeoutMs / 1000}s\n`
+    + `Full log: ${path.join(cwd, 'run.log')}\n${assistLog || 'No exact-fit assist status was reported.'}\n${log.slice(-4000)}`;
+  assert.ok(!timedOut, `Native helper timed out.\n${diagnostics}`);
+  assert.equal(exit.code, 0, `Native helper exited with signal ${exit.signal}.\n${diagnostics}`);
+  if (stop) assert.ok(requestedStop, `Stop was never requested.\n${diagnostics}`);
   const artifacts = collect.attachRunSheetMetadata(collect.collectSparrowArtifacts(cwd, 'exact-fit'), cwd, 'exact-fit');
   const strips = artifacts.summary.strips;
-  if (expected) assert.equal(strips.length, expected, log.slice(-2000));
-  if (enabled && spacing === 0) assert.match(log, /selected validated exact-contact plan/);
+  if (expected) assert.equal(strips.length, expected, diagnostics);
+  if (enabled && spacing === 0) assert.match(log, /selected validated exact-contact plan/, diagnostics);
   else assert.ok(!log.includes('[EXACT-FIT-ASSIST]'));
   assert.equal(strips.reduce((sum, s) => sum + s.item_count, 0), count);
   assert.ok(strips.every(s => s.svg && s.json_path && !s.is_preview));
@@ -132,4 +152,8 @@ async function run(name, { count = 50, expected = 1, mode = 'fixed', margin = 0,
   await run('disabled', { enabled: false, expected: 2 });
   await run('positive-spacing', { spacing: 0.1, expected: 2 });
   fs.rmSync(temp, { recursive: true, force: true });
-})().catch(error => { console.error(`Artifacts retained at ${temp}`, error); process.exitCode = 1; });
+})().catch(error => {
+  fs.writeFileSync(path.join(temp, 'failure.txt'), error.stack || String(error));
+  console.error(`Artifacts retained at ${temp}`, error);
+  process.exitCode = 1;
+});

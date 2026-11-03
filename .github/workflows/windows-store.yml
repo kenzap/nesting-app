@@ -61,7 +61,19 @@ jobs:
         run: npm run test:exact-fit-assist
 
       - name: Check exact-fit assist exports
+        id: exact-fit-native
+        env:
+          EXACT_FIT_TEST_ARTIFACTS: ${{ runner.temp }}/exact-fit-native-tests
         run: npm run test:exact-fit-assist:native
+
+      - name: Preserve failed exact-fit diagnostics
+        if: ${{ failure() && steps.exact-fit-native.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exact-fit-diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exact-fit-native-tests
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Check DXF grouping
         run: npm run test:dxf-grouping
