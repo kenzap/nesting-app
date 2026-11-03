@@ -51,6 +51,24 @@ jobs:
       - name: Check nesting previews
         run: npm run test:nesting-previews
 
+      - name: Check startup cancellation UI
+        run: npm run test:nesting-stop
+
+      - name: Check startup cancellation in native helper
+        id: nesting-stop-native
+        env:
+          NESTING_STOP_TEST_ARTIFACTS: ${{ runner.temp }}/nesting-stop-tests
+        run: npm run test:nesting-stop:native
+
+      - name: Preserve failed startup cancellation diagnostics
+        if: ${{ failure() && steps.nesting-stop-native.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nesting-stop-diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nesting-stop-tests
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Check native helper naming
         run: npm run test:native-engine-name
 

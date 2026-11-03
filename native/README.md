@@ -80,6 +80,13 @@ Complex jobs fall back to normal nesting. This is a bounded heuristic, not a
 guarantee of a globally optimal layout. Exact-contact plans are not fed back
 into the strict-touch optimizer, which would separate them again.
 
+Repeated copies reuse failed contact searches on unchanged sheets. The cache
+is per item type, resets when a part is added (new edges create new candidate
+positions), and never records interrupted searches. This prevents full sheets
+from consuming the budget repeatedly on multi-sheet jobs. Trial diagnostics
+report search counts, skipped repeats and deadline expiry. The macOS arm64 and
+Windows x64 helpers include this fix; Linux still needs rebuilding.
+
 Rebuild the helper on each platform when shipping this feature. The app checks
 for the CLI capability before launching; older helpers use normal nesting,
 with the control disabled and an explanatory hint in Settings, rather than
@@ -96,6 +103,26 @@ construction its full 2-second allowance on slower CI runners. They are not
 3-second performance benchmarks; the expected sheet counts and geometry checks
 are unchanged. Failed Windows Store runs retain inputs, native logs and outputs
 in an `exact-fit-diagnostics` workflow artifact.
+Multi-sheet cases also assert bounded search counts, independently of CPU speed.
+
+## Stopping During Startup
+
+Stop is latched while placement preparation or native launch is still pending.
+Helpers advertising `--stop-file` receive a persistent per-run marker on every
+platform, including macOS, so requests cannot be lost before signal handling
+is installed. Older helpers retain the signal-based fallback.
+
+Initial placement construction, barrier sheet discovery and legacy bucket
+planning now check cancellation, including inside sampling and refinement.
+Stopping before a complete baseline cancels without exporting partial parts.
+Once a complete baseline exists, normal best-result finalization still applies.
+Legacy bucket mode prepares all baselines before optimization so a later Stop
+does not have to start constructing more sheets. Failed stop requests remain
+retryable in the UI, with polling restored.
+
+Checks: `npm run test:nesting-stop`, `npm run test:native-engine-name` and
+`npm run test:nesting-stop:native`. The macOS arm64 and Windows x64 helpers
+include the native changes; Linux needs a rebuild to interrupt initial planning.
 
 ## Experimental Cutout Nesting
 

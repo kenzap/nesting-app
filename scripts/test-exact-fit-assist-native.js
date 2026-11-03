@@ -99,6 +99,14 @@ async function run(name, { count = 50, expected = 1, mode = 'fixed', margin = 0,
   if (expected) assert.equal(strips.length, expected, diagnostics);
   if (enabled && spacing === 0) assert.match(log, /selected validated exact-contact plan/, diagnostics);
   else assert.ok(!log.includes('[EXACT-FIT-ASSIST]'));
+  if (enabled && spacing === 0 && count > 50) {
+    // Repeated copies must not re-search unchanged full sheets. Check work,
+    // rather than elapsed time, so this regression is portable across runners.
+    const trial = log.match(new RegExp(`contact trial slack=0\\.0: placed=${count}/${count}, searches=(\\d+), cached_misses=(\\d+)`));
+    assert.ok(trial, `Missing complete exact-contact trial.\n${diagnostics}`);
+    assert.ok(Number(trial[1]) <= count + expected - 1, `Repeated full-sheet searches.\n${diagnostics}`);
+    assert.ok(Number(trial[2]) > 0, `No full-sheet search reuse.\n${diagnostics}`);
+  }
   assert.equal(strips.reduce((sum, s) => sum + s.item_count, 0), count);
   assert.ok(strips.every(s => s.svg && s.json_path && !s.is_preview));
   // Check the saved transforms before the DXF writer rounds its vertices.

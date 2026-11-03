@@ -502,10 +502,10 @@ function terminateSparrowRun(runId, {
   }
 
   let stopRequested = false;
-  if (graceful && process.platform === 'win32' && run?.stopFilePath) {
+  if (graceful && run?.stopFilePath) {
     try {
-      // Windows cannot deliver SIGINT to this child process through Node.
-      // A per-run marker lets the engine finish and export its best solution.
+      // Persist Stop across native startup on every supported platform. A
+      // one-shot signal can arrive before the helper installs its handler.
       fs.writeFileSync(run.stopFilePath, 'stop\n', 'utf-8');
       stopRequested = true;
     } catch {
@@ -618,13 +618,14 @@ function registerSparrowIpc() {
       await cleanupTempArtifacts(runsRootDir);
       const runDir = path.join(runsRootDir, `${safeName}-${Date.now()}`);
       fs.mkdirSync(runDir, { recursive: true });
-      const stopFilePath = path.join(runDir, '.stop-requested');
+      const stopFilePath = await supportsEngineFlag(packingPath, runDir, '--stop-file')
+        ? path.join(runDir, '.stop-requested') : null;
 
       const inputPath = path.join(runDir, `${safeName}.json`);
       fs.writeFileSync(inputPath, JSON.stringify(payload, null, 2), 'utf-8');
 
       const args = ['--input', inputPath];
-      if (process.platform === 'win32') {
+      if (stopFilePath) {
         args.push('--stop-file', stopFilePath);
       }
       if (Number.isFinite(options.globalTime) && options.globalTime > 0) {

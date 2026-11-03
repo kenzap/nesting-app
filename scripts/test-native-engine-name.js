@@ -12,7 +12,7 @@ const sourcePath = path.join(root, 'main/ipc/sparrow.js');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'packing-name-test-'));
 const metadata = require('../package.json');
 
-async function checkLaunch(platform, packaged, available = true) {
+async function checkLaunch(platform, packaged, available = true, stopSupported = true) {
   const directory = { darwin: 'macos', win32: 'windows', linux: 'linux' }[platform];
   const filename = platform === 'win32' ? 'packing.exe' : 'packing';
   const resourcesPath = path.join(temp, directory, 'Resources');
@@ -29,10 +29,12 @@ async function checkLaunch(platform, packaged, available = true) {
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
   child.pid = 123;
+  const signals = [];
+  child.kill = signal => { signals.push(signal); return true; };
   const module = { exports: {} };
   const realRequire = createRequire(sourcePath);
   vm.runInNewContext(fs.readFileSync(sourcePath, 'utf8'), {
-    module, __dirname: path.dirname(sourcePath),
+    module, __dirname: path.dirname(sourcePath), setTimeout,
     console: { info: (...args) => messages.push(args.join(' ')) },
     process: { platform, resourcesPath, argv: [], env: {
       PACKING_CARGO_MANIFEST_PATH: path.join(root, 'package.json'),
@@ -52,7 +54,7 @@ async function checkLaunch(platform, packaged, available = true) {
       if (name === 'child_process') return { execFile(file, args, options, callback) {
         assert.equal(file, expected);
         assert.equal(args[0], '--help');
-        callback(null, '--exact-fit-assist');
+        callback(null, `--exact-fit-assist ${stopSupported ? '--stop-file' : ''}`);
       }, spawn(file, args, options) {
         spawned = { file, args, options };
         return child;
@@ -84,15 +86,25 @@ async function checkLaunch(platform, packaged, available = true) {
   }
   assert.equal(result.success, true);
   assert.equal(spawned.file, expected);
-  assert.equal(spawned.args.includes('--stop-file'), platform === 'win32');
+  assert.equal(spawned.args.includes('--stop-file'), stopSupported);
   if (!packaged) {
     const log = messages.find(line => line.includes('Cargo command:'));
     assert.match(log, /["']--bin["'] ["']packing["']/);
     assert.ok(!log.includes("'sparrow'"));
   }
+  const stopped = await handlers.get('stop-sparrow')(null, result.runId);
+  assert.equal(stopped.success, true);
+  assert.equal(stopped.stopped, true);
+  if (stopSupported) {
+    const marker = spawned.args[spawned.args.indexOf('--stop-file') + 1];
+    assert.equal(fs.readFileSync(marker, 'utf8'), 'stop\n');
+    assert.equal(signals.length, 0, 'startup cancellation must survive handler installation');
+  } else {
+    assert.deepEqual(signals, [platform === 'win32' ? 'SIGTERM' : 'SIGINT']);
+  }
   child.emit('close', 0, null);
   const final = await handlers.get('poll-sparrow')(null, result.runId);
-  assert.equal(final.status, 'completed');
+  assert.equal(final.status, 'stopped');
 }
 
 (async () => {
@@ -100,6 +112,7 @@ async function checkLaunch(platform, packaged, available = true) {
     for (const platform of ['darwin', 'win32', 'linux']) {
       for (const packaged of [false, true]) await checkLaunch(platform, packaged);
       await checkLaunch(platform, false, false);
+      await checkLaunch(platform, false, true, false);
       const folder = { darwin: 'macos', win32: 'windows', linux: 'linux' }[platform];
       assert.ok(fs.existsSync(path.join(root, 'native', folder, 'bin', platform === 'win32' ? 'packing.exe' : 'packing')));
       assert.ok(!fs.existsSync(path.join(root, 'native', folder, 'bin', platform === 'win32' ? 'sparrow.exe' : 'sparrow')));

@@ -300,12 +300,14 @@
       if (!window.electronAPI?.pollSparrow) return;
 
       const result = await window.electronAPI.pollSparrow(runId);
+      if (activeSparrowRunId !== runId) return result;
       if (!result?.success) {
         const failure = normalizeRunError(result?.error || t('nesting.checkingFailed'));
         const err = new Error(failure.message);
         err.sparrowDetails = failure.details;
         throw err;
       }
+      if (sparrowRunAborted && ['running', 'stopping'].includes(result.status)) return result;
 
       if (result.status !== 'completed') {
         completedFinalizationPolls = 0;
@@ -407,6 +409,68 @@
       return result;
     }
 
+    function finishStartupCancellation() {
+      activeSparrowRunId = null;
+      setStatus('idle');
+      setNestStatsTone('warning');
+      dom.nestStats.textContent = t('nesting.stoppedEarly');
+      dom.nestStats.title = '';
+      dom.startBtn.classList.remove('running');
+      dom.startBtn.disabled = false;
+      dom.stopBtn.disabled = true;
+      dom.stopBtn.classList.remove('active');
+      syncExportButton();
+    }
+
+    function beginPolling(runId) {
+      if (nestInterval) clearInterval(nestInterval);
+      nestInterval = window.setInterval(async () => {
+        if (activeSparrowRunId !== runId || sparrowRunAborted) return;
+        try {
+          await pollSparrowRun(runId);
+        } catch (pollError) {
+          if (sparrowRunAborted) return;
+          clearInterval(nestInterval);
+          nestInterval = null;
+          activeSparrowRunId = null;
+          presentRunError('Live preview', pollError);
+          dom.startBtn.classList.remove('running');
+          dom.startBtn.disabled = false;
+          dom.stopBtn.disabled = true;
+          dom.stopBtn.classList.remove('active');
+        }
+      }, 500);
+    }
+
+    async function stopActiveRun(runId) {
+      try {
+        if (!window.electronAPI?.stopSparrow) throw new Error(t('nesting.stopUnavailable'));
+        const stopResult = await window.electronAPI.stopSparrow(runId);
+        if (!stopResult?.success) throw new Error(stopResult?.error || t('nesting.stopFailed'));
+        for (let attempt = 0; attempt < MAX_STOP_FINALIZATION_POLLS; attempt += 1) {
+          await new Promise(resolve => window.setTimeout(resolve, STOP_FINALIZATION_POLL_MS));
+          const result = await pollSparrowRun(runId);
+          if (result?.status === 'stopped' || result?.status === 'completed') return;
+        }
+        throw new Error(t('nesting.stopFinalizationFailed'));
+      } catch (err) {
+        // Keep ownership of the still-running helper and allow Stop to retry.
+        presentRunError('Stop', err);
+        sparrowRunAborted = false;
+        if (activeSparrowRunId === runId) {
+          setStatus('running');
+          dom.startBtn.disabled = true;
+          dom.stopBtn.disabled = false;
+          beginPolling(runId);
+        } else {
+          dom.startBtn.classList.remove('running');
+          dom.startBtn.disabled = false;
+          dom.stopBtn.disabled = true;
+          dom.stopBtn.classList.remove('active');
+        }
+      }
+    }
+
     // Wires the Start and Stop buttons.
     // Start: exports the placement JSON, launches Sparrow via IPC, and begins a 500ms
     // polling interval. Stop: sets the abort flag, calls stopSparrow, and resets the UI.
@@ -439,24 +503,9 @@
         // runs on the same configuration don't add duplicate entries.
         partsHistory?.recordRunStart();
 
-        let exported;
-        try {
-          exported = await exportPlacementJSON();
-          setNestStatsTone('');
-          dom.nestStats.textContent = t('nesting.placementPrepared');
-          dom.nestStats.title = exported.path || '';
-        } catch (err) {
-          console.error('[Placement JSON] Export failed:', err);
-          setStatus('error');
-          setNestStatsTone('error');
-          dom.nestStats.textContent = t('nesting.placementExportFailed', { message: err.message });
-          return;
-        }
-
         setStatus('running');
-        setNestStatsTone('');
-        dom.nestStats.title = '';
         sparrowRunAborted = false;
+        activeSparrowRunId = null;
         dom.startBtn.classList.add('running');
         dom.startBtn.disabled = true;
         dom.stopBtn.disabled = false;
@@ -464,6 +513,31 @@
         state.nestResult = null;
         state.activeStripIndex = 0;
         completedFinalizationPolls = 0;
+        syncExportButton();
+
+        let exported;
+        try {
+          exported = await exportPlacementJSON();
+          if (sparrowRunAborted) { finishStartupCancellation(); return; }
+          setNestStatsTone('');
+          dom.nestStats.textContent = t('nesting.placementPrepared');
+          dom.nestStats.title = exported.path || '';
+        } catch (err) {
+          if (sparrowRunAborted) { finishStartupCancellation(); return; }
+          console.error('[Placement JSON] Export failed:', err);
+          setStatus('error');
+          setNestStatsTone('error');
+          dom.nestStats.textContent = t('nesting.placementExportFailed', { message: err.message });
+          dom.startBtn.classList.remove('running');
+          dom.startBtn.disabled = false;
+          dom.stopBtn.disabled = true;
+          dom.stopBtn.classList.remove('active');
+          return;
+        }
+
+        setStatus('running');
+        setNestStatsTone('');
+        dom.nestStats.title = '';
         if (dom.svgContainer) {
           delete dom.svgContainer.dataset.activeIndex;
           delete dom.svgContainer.dataset.svgLen;
@@ -545,30 +619,17 @@
           }
           activeSparrowRunId = result.runId;
           state.nestRunId = result.runId;
+          if (sparrowRunAborted) { await stopActiveRun(result.runId); return; }
           setNestStatsTone('');
           dom.nestStats.textContent = t('nesting.placementRunning');
           dom.nestStats.title = result.inputPath || '';
 
           if (nestInterval) clearInterval(nestInterval);
           await pollSparrowRun(result.runId);
-          nestInterval = window.setInterval(async () => {
-            if (!activeSparrowRunId || sparrowRunAborted) return;
-            try {
-              await pollSparrowRun(activeSparrowRunId);
-            } catch (pollError) {
-              if (sparrowRunAborted) return;
-              clearInterval(nestInterval);
-              nestInterval = null;
-              activeSparrowRunId = null;
-              presentRunError('Live preview', pollError);
-              dom.startBtn.classList.remove('running');
-              dom.startBtn.disabled = false;
-              dom.stopBtn.disabled = true;
-              dom.stopBtn.classList.remove('active');
-            }
-          }, 500);
+          if (activeSparrowRunId !== result.runId || sparrowRunAborted) return;
+          beginPolling(result.runId);
         } catch (err) {
-          if (sparrowRunAborted) return;
+          if (sparrowRunAborted) { finishStartupCancellation(); return; }
           activeSparrowRunId = null;
           if (nestInterval) {
             clearInterval(nestInterval);
@@ -585,9 +646,8 @@
       // Stop button — requests graceful native finalization, then keeps polling
       // until the best complete placement has exportable per-sheet JSON files.
       dom.stopBtn.addEventListener('click', async () => {
-        if (state.status !== 'running') return;
+        if (state.status !== 'running' || sparrowRunAborted) return;
         const runId = activeSparrowRunId;
-        if (!runId) return;
 
         sparrowRunAborted = true;
         clearInterval(nestInterval);
@@ -597,30 +657,9 @@
         dom.nestStats.title = '';
         dom.stopBtn.disabled = true;
 
-        try {
-          if (!window.electronAPI?.stopSparrow) {
-            throw new Error(t('nesting.stopUnavailable'));
-          }
-          const stopResult = await window.electronAPI.stopSparrow(runId);
-          if (!stopResult?.success) {
-            throw new Error(stopResult?.error || t('nesting.stopFailed'));
-          }
-
-          for (let attempt = 0; attempt < MAX_STOP_FINALIZATION_POLLS; attempt += 1) {
-            await new Promise(resolve => window.setTimeout(resolve, STOP_FINALIZATION_POLL_MS));
-            const result = await pollSparrowRun(runId);
-            if (result?.status === 'stopped' || result?.status === 'completed') return;
-          }
-
-          throw new Error(t('nesting.stopFinalizationFailed'));
-        } catch (err) {
-          activeSparrowRunId = null;
-          presentRunError('Stop', err);
-          dom.startBtn.classList.remove('running');
-          dom.startBtn.disabled = false;
-          dom.stopBtn.disabled = true;
-          dom.stopBtn.classList.remove('active');
-        }
+        // Startup may still be exporting geometry or waiting for the IPC run ID.
+        // The Start continuation consumes this latched request before proceeding.
+        if (runId) await stopActiveRun(runId);
       });
     }
 
