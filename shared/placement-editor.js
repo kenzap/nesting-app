@@ -145,10 +145,59 @@
       cached = { points, holes, material };
       materialCache.set(item, cached);
     }
-    const angle = Number(placement.transformation.rotation) * Math.PI / 180;
+    const rotation = Number(placement.transformation.rotation);
     const [tx, ty] = placement.transformation.translation;
-    return cached.material.transform(new Flatten.Matrix(Math.cos(angle), Math.sin(angle),
+    if (cached.world && cached.rotation === rotation && cached.tx === tx && cached.ty === ty) return cached.world;
+    const angle = rotation * Math.PI / 180;
+    const world = cached.material.transform(new Flatten.Matrix(Math.cos(angle), Math.sin(angle),
       -Math.sin(angle), Math.cos(angle), tx, ty));
+    // Keep only the last transform per type: stationary neighbours are reused
+    // throughout a contact search without accumulating every trial position.
+    Object.assign(cached, { rotation, tx, ty, world });
+    return world;
+  }
+
+  // Test interiors directly instead of constructing a boolean intersection.
+  // Boolean clipping repeatedly splits/relinks dense contours near contact;
+  // the editor only needs to know whether any material would overlap.
+  function boundaryEntersMaterial(source, target) {
+    const targetBox = target.box;
+    for (const edge of source.edges) {
+      const segment = edge.shape, { start, end } = segment;
+      const dx = end.x - start.x, dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+      if (length <= EPS) continue;
+      const box = segment.box;
+      if (box.xmin > targetBox.xmax + EPS || box.xmax < targetBox.xmin - EPS
+          || box.ymin > targetBox.ymax + EPS || box.ymax < targetBox.ymin - EPS) continue;
+      const cuts = [0, 1];
+      const nearby = target.edges.search(new Flatten.Box(box.xmin - EPS, box.ymin - EPS,
+        box.xmax + EPS, box.ymax + EPS));
+      for (const other of nearby) {
+        const hits = segment.intersect(other.shape);
+        // Normalized rings keep material on the left, including hole walls.
+        // Coincident edges with opposite directions are valid shared cuts;
+        // the same direction means material on the same side (an overlap).
+        if (hits.length > 1 && hits[0].distanceTo(hits[1])[0] > EPS
+            && dx * (other.end.x - other.start.x) + dy * (other.end.y - other.start.y) > 0) return true;
+        for (const point of hits) cuts.push(Math.max(0, Math.min(1,
+          ((point.x - start.x) * dx + (point.y - start.y) * dy) / (length * length))));
+      }
+      cuts.sort((a, b) => a - b);
+      // Split at every crossing so narrow overlaps and concave notches cannot
+      // be missed by checking only vertices or a whole edge's midpoint.
+      for (let i = 1; i < cuts.length; i++) {
+        if ((cuts[i] - cuts[i - 1]) * length <= EPS) continue;
+        const t = (cuts[i] + cuts[i - 1]) / 2;
+        if (Flatten.ray_shoot(target, new Flatten.Point(start.x + dx * t, start.y + dy * t)) === Flatten.INSIDE) return true;
+      }
+    }
+    return false;
+  }
+
+  function materialOverlaps(first, second) {
+    if (first.edges.size > second.edges.size) [first, second] = [second, first];
+    return boundaryEntersMaterial(first, second) || boundaryEntersMaterial(second, first);
   }
 
   // Check only the moved copy. An existing solver result is never silently
@@ -173,7 +222,7 @@
         if (Math.min(...xs) > box.xmax + spacing || Math.max(...xs) < box.xmin - spacing
             || Math.min(...ys) > box.ymax + spacing || Math.max(...ys) < box.ymin - spacing) continue;
         const other = materialPolygon(items[placements[i].item_id], placements[i]);
-        if (Flatten.BooleanOperations.intersect(moved, other).area() > EPS) return 'collision';
+        if (materialOverlaps(moved, other)) return 'collision';
         if (spacing > EPS && moved.distanceTo(other)[0] < spacing - EPS) return 'spacing';
       }
       return null;

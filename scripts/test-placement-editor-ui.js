@@ -513,6 +513,50 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate('state.nestResult.strips[0].manual_edits_version'),undefined,'reset removes the edit schema marker');
   assert.equal(await evaluate('state.nestResult.strips[0].item_count'),4);
 
+  // Arrow-key contact searches must remain responsive against dense curves.
+  await evaluate(`
+    layoutEditorApi.toggle();
+    state.nestResult=structuredClone(state.nestResult);
+    state.nestResult.strips=[{...state.nestResult.strips[0],strip_height:300,item_count:2}];
+    state.lastPlacementExportItems=null;
+    delete fixture.exportItems;
+    const arc=(r,reverse)=>Array.from({length:101},(_,i)=>{
+      const a=(reverse?100-i:i)*Math.PI/100;return [r*Math.cos(a),r*Math.sin(a)];
+    });
+    fixture.items={
+      0:{shape:{data:[...arc(12,false),...arc(8,true)]}},
+      1:{shape:{data:Array.from({length:6000},(_,i)=>{
+        const a=i*Math.PI*2/6000;return [6*Math.cos(a),80*Math.sin(a)];
+      })}},
+    };
+    fixture.strips=[{json_path:state.nestResult.strips[0].json_path,placements:[
+      {item_id:0,transformation:{rotation:0,translation:[100,180]}},
+      {item_id:1,transformation:{rotation:0,translation:[100,100]}},
+    ]}];
+    layoutEditorApi.toggle();
+  `);
+  await settle();
+  await clickSheet(100,190);
+  assert.equal(await evaluate('document.querySelector(".manual-placement.selected").dataset.placementSourceIndex'),'0');
+  let contactTimer;
+  try {
+    await Promise.race([
+      (async () => {
+        await key('ArrowDown',{shiftKey:true});
+        const contact=await translations();
+        assert.ok(Math.abs(contact[0][1]-172)<0.002,`arrow stops at the curved contact: ${JSON.stringify(contact)}`);
+        assert.deepEqual(contact[1],[100,100],'stationary dense part does not move');
+        for(let i=0;i<3;i++) await key('ArrowDown',{shiftKey:true,repeat:true});
+        const blocked=await translations();
+        assert.ok(Math.abs(blocked[0][1]-contact[0][1])<0.002,'held arrow cannot cross the curve');
+        await key('ArrowUp');
+        assert.ok(Math.abs((await translations())[0][1]-173)<0.002,'movement away from contact still works');
+        await settle();
+      })(),
+      new Promise((_,reject)=>{contactTimer=setTimeout(()=>reject(new Error('Dense arrow-key contact froze the renderer')),5000);}),
+    ]);
+  } finally { clearTimeout(contactTimer); }
+
   await evaluate('state.status="running";window.dispatchEvent(new CustomEvent("nest-status-changed"))');
   assert.equal(await evaluate('layoutEditorApi.isActive()'), false);
   assert.equal(await evaluate('document.getElementById("editLayout").disabled'), true);
