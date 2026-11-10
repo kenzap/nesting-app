@@ -51,7 +51,7 @@
       const accepted = new Set();
       const holes = shapeRecord.childClosedContours || [];
       const contours = shapeRecord.boundaryContours || [];
-      if (!holes.length || holes.length > 64 || contours.length > 512
+      if (!holes.length || contours.length > 512
           || contours.reduce((n, c) => n + (c.polygonPoints || c.points || []).length, 0) > 8192
           || workRemaining <= 0) return accepted;
       try {
@@ -65,17 +65,25 @@
           // Reject invalid source rings even if extraction repaired their
           // envelope. Curves can legitimately use a different tessellation.
           const source = polygon(contour.points || points);
-          return { contour, points, bbox: geometry.bboxFromPoints(points), poly: source && polygon(points) };
+          return { contour, points, bbox: geometry.bboxFromPoints(points), source,
+            sourcePoints: contour.points || points, poly: source && polygon(points) };
         });
         // Match the complete boundary, not a display layer or just its bbox.
         const matchesOuter = d => {
-          if (!d.poly || !d.bbox || ['minX', 'minY', 'maxX', 'maxY'].some(key =>
-            Math.abs(d.bbox[key] - outerBox[key]) > boundaryMatchTolerance)) return false;
-          if (!spend(d.points.length * outerPoints.length)) return false;
-          if (d.poly.equalsTopo(outer)) return true;
-          outerBand ||= outerBoundary.buffer(boundaryMatchTolerance);
-          const boundary = d.poly.getBoundary();
-          return outerBand.covers(boundary) && boundary.buffer(boundaryMatchTolerance).covers(outerBoundary);
+          if (!d.poly) return false;
+          // The preview can use the source ring while extraction uses another
+          // tessellation of the same curve. Match either, without widening tolerance.
+          for (const [poly, points] of [[d.poly, d.points], [d.source, d.sourcePoints]]) {
+            const bbox = geometry.bboxFromPoints(points);
+            if (!bbox || ['minX', 'minY', 'maxX', 'maxY'].some(key =>
+              Math.abs(bbox[key] - outerBox[key]) > boundaryMatchTolerance)) continue;
+            if (!spend(points.length * outerPoints.length)) return false;
+            if (poly.equalsTopo(outer)) return true;
+            outerBand ||= outerBoundary.buffer(boundaryMatchTolerance);
+            const boundary = poly.getBoundary();
+            if (outerBand.covers(boundary) && boundary.buffer(boundaryMatchTolerance).covers(outerBoundary)) return true;
+          }
+          return false;
         };
         const outerContours = descriptors.filter(matchesOuter);
         const layers = new Set(outerContours.flatMap(d => d.contour.sourceLayers || []));
@@ -83,9 +91,14 @@
         const [cutLayer] = layers;
         const outerSet = new Set(outerContours);
 
-        for (const hole of holes) {
-          const candidate = descriptors.find(d => d.contour === hole);
-          if (!candidate?.poly || hole.sourceLayers?.length !== 1 || hole.sourceLayers[0] !== cutLayer) continue;
+        // A perforated part must not lose its largest opening just because it
+        // also has many small holes. Bound work by examining largest candidates first.
+        const holeSet = new Set(holes);
+        const candidates = descriptors.filter(d => holeSet.has(d.contour) && d.poly
+          && d.contour.sourceLayers?.length === 1 && d.contour.sourceLayers[0] === cutLayer)
+          .sort((a, b) => b.poly.getArea() - a.poly.getArea()).slice(0, 64);
+        for (const candidate of candidates) {
+          const hole = candidate.contour;
           const { poly, points, bbox } = candidate;
           if (!spend(points.length * outerPoints.length)) break;
           if (!outer.contains(poly) || outerBoundary.distance(poly) <= tolerance) continue;

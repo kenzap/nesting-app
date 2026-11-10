@@ -101,6 +101,34 @@ for (const [label, entities, expected] of [
   assert.ok(shapes[0].holes.every(h => h.sourceLayers.length),`${label}: boundary provenance retained`);
 }
 
+// Source circles and extracted polygons have different sampling densities.
+// A large circular parent must still prove its cut layer without a loose tolerance.
+const circularOuter = {type:'CIRCLE',center:{x:0,y:0},radius:282.5,layer:'CUT'};
+const circularHole = {type:'CIRCLE',center:{x:0,y:0},radius:147,layer:'CUT'};
+const circular = parseEntities([circularOuter,circularHole])[0];
+assert.equal(circular.holes.length,1);
+assert.equal(circular.holes[0].nestingEligible,true,'large circular parent matches its source boundary');
+assert.equal(parseEntities([circularOuter,{...circularHole,layer:'ENGRAVE'}])[0]
+  .holes[0].nestingEligible,false,'source boundary matching still enforces the cut layer');
+
+// Put the useful opening last, behind more than 64 small perforations.
+const perforations = Array.from({length:81},(_,i)=>({type:'CIRCLE',layer:'CUT',radius:2,
+  center:{x:220*Math.cos(i*2*Math.PI/81),y:220*Math.sin(i*2*Math.PI/81)}}));
+const perforatedEntities = [circularOuter,...perforations,circularHole];
+const perforated = parseEntities(perforatedEntities)[0];
+assert.equal(perforated.holes.length,82,'all openings remain in the drawing');
+assert.equal(perforated.exportEntities.length,perforatedEntities.length,'no source geometry is discarded');
+const largestHole = perforated.holes.reduce((best,hole)=>
+  Math.abs(sandbox.NestDxfGeometry.polygonSignedArea(hole.points))
+    > Math.abs(sandbox.NestDxfGeometry.polygonSignedArea(best.points)) ? hole : best);
+assert.equal(largestHole.nestingEligible,true,'largest opening is checked before small perforations');
+assert.ok(perforated.holes.filter(h=>h.nestingEligible).length <= 64,'optional classification remains bounded');
+const markedPerforated = parseEntities([...perforatedEntities,
+  line({x:-10,y:0},{x:10,y:0},'ENGRAVE')])[0];
+assert.ok(markedPerforated.holes.filter(h=>h.nestingEligible).every(h=>
+  Math.abs(sandbox.NestDxfGeometry.polygonSignedArea(h.points)) < 100),
+  'prioritizing large holes does not bypass interior-geometry checks');
+
 // An optional local sample is never copied into the repository.
 if (process.argv[2]) {
   const raw = fs.readFileSync(process.argv[2],'utf8');
